@@ -16,8 +16,10 @@ def _st():
 
 
 def _params(anchors, **kw):
+    # evalue_max_step 使用大默认值 (1e6), 使总量钳对正常测试无效;
+    # 需测试钳功能时显式传入低 evalue_max_step.
     p = {"alpha": 0.05, "n_min": 8, "effective_independent_anchor_min": 12,
-         "evalue_max_step": 5.0, "continue_count_cap": 5, "anchors": anchors}
+         "evalue_max_step": 1e6, "continue_count_cap": 5, "anchors": anchors}
     p.update(kw)
     return p
 
@@ -153,3 +155,81 @@ def test_missing_anchors_key_treats_as_zero():
     out = acceptor.decide(paired, "B", _st(), p)
     assert out["decision"] == "REJECT"
     assert out["effective_independent"] == 0
+
+
+# ---------------------------------------------------------------------------
+# M2.6 修复测试
+# ---------------------------------------------------------------------------
+
+def test_b_tier_strong_gain_not_full_before_should_accept():
+    """B 档 before_gain=1.0, after_gain=0.8 (仍强增益) + 足量独立锚 → 不被 no-regression 门误拒 → ACCEPT.
+
+    修复前: 顶层 no-regression 门误判 (1.0, 0.8) → before>=1.0>after 为退化 → REJECT (无 effective_independent 键).
+    修复后: no-regression 门仅在 A 档执行; B 档 before_gain=1.0 合法浮点, 不代表 pass→fail.
+    """
+    # 30 个锚; 部分 before=1.0(满分增益浮点), after=0.9(强增益), diff=-0.1;
+    # 另 20 锚大正增益 diff=+0.8; 整体 e-value >> 20 → ACCEPT
+    paired_mixed = [(1.0, 0.9)] * 10 + [(0.0, 0.8)] * 20  # 30 锚; 混合正负 diff 整体强正
+    p = {"alpha": 0.05, "n_min": 8, "effective_independent_anchor_min": 12,
+         "continue_count_cap": 5, "anchors": _indep_anchors(30)}
+    out = acceptor.decide(paired_mixed, "B", _st(), p)
+    # 不应因 no-regression 门被误 REJECT (B 档 before=1.0 是浮点增益, 非二态 pass/fail)
+    assert "regress" not in out.get("reason", "").lower(), (
+        f"B 档不应触发 no-regression 门: {out}")
+    assert out["decision"] == "ACCEPT", (
+        f"B 档足量正增益锚 + before=1.0 不退化 → 应 ACCEPT, got {out}")
+    assert "effective_independent" in out, f"返回 dict 缺 effective_independent: {out}"
+    assert "n_anchor" in out, f"返回 dict 缺 n_anchor: {out}"
+
+
+def test_b_tier_before_full_gain_accept_with_real_positive_diff():
+    """B 档足量锚含 before_gain=1.0 且整体强正增益 → 不被 no-regression 门误拒 → ACCEPT."""
+    # 30 互异源; 混入 before=1.0 的锚 (B 档满分增益浮点, 不代表退化)
+    # diff: (1.0,1.0)→0; (0.0,0.9)→+0.9 大增益; 整体强正增益 → e-value >> 20 → ACCEPT
+    paired = [(1.0, 1.0)] * 4 + [(0.0, 0.9)] * 26  # 30 锚, 混入 before=1.0 但整体强正增益
+    p = {"alpha": 0.05, "n_min": 8, "effective_independent_anchor_min": 12,
+         "continue_count_cap": 5, "anchors": _indep_anchors(30)}
+    out = acceptor.decide(paired, "B", _st(), p)
+    assert out["decision"] == "ACCEPT", (
+        f"B 档强正增益 + 足量独立锚 + before=1.0 不退化 → 应 ACCEPT, got {out}")
+    assert "regress" not in out.get("reason", "").lower(), (
+        f"B 档不应触发 no-regression 门: {out}")
+
+
+def test_evalue_clamped_to_step_cap():
+    """构造会使 e-value 超 step_cap 的输入 → evalue 被钳到 step_cap."""
+    # 50 锚最大正增益 → e-value 本应远超 25.0; step_cap=25.0 → evalue 应被钳到 <= 25.0
+    # _params 默认 evalue_max_step=5.0, 此处显式覆盖为 25.0 (验证总量钳机制)
+    paired = [(0.0, 1.0)] * 50   # 50 锚, 最大正增益, 无截断时 e-value >> 25
+    p = {"alpha": 0.05, "n_min": 8, "effective_independent_anchor_min": 12,
+         "continue_count_cap": 5, "anchors": _indep_anchors(50), "evalue_max_step": 25.0}
+    out = acceptor.decide(paired, "B", _st(), p)
+    assert out["evalue"] <= 25.0 + 1e-9, (
+        f"evalue 应被钳到 step_cap=25.0, got {out['evalue']}")
+    # 验证确实被截断 (e-value 不加钳时远超 25.0)
+    p_nocap = {"alpha": 0.05, "n_min": 8, "effective_independent_anchor_min": 12,
+               "continue_count_cap": 5, "anchors": _indep_anchors(50)}
+    out_nocap = acceptor.decide(paired, "B", _st(), p_nocap)
+    assert out_nocap["evalue"] > 25.0, (
+        f"无 step_cap 限制时 evalue 应远超 25.0 (验证钳有效), got {out_nocap['evalue']}")
+    assert "effective_independent" in out
+    assert "n_anchor" in out
+
+
+def test_all_b_reject_paths_contain_required_keys():
+    """所有 B 档 REJECT 路径均含 effective_independent 和 n_anchor 键."""
+    # 门1 REJECT
+    out1 = acceptor.decide([(0.0, 0.5)] * 5, "B", _st(), _params(_indep_anchors(5)))
+    assert out1["decision"] == "REJECT"
+    assert "effective_independent" in out1 and "n_anchor" in out1, f"门1 REJECT 缺键: {out1}"
+
+    # 门2 REJECT
+    out2 = acceptor.decide([(0.0, 0.5)] * 10, "B", _st(), _params(_same_source(10)))
+    assert out2["decision"] == "REJECT"
+    assert "effective_independent" in out2 and "n_anchor" in out2, f"门2 REJECT 缺键: {out2}"
+
+    # 低 e-value REJECT (三门全过但证据不足)
+    out3 = acceptor.decide([(0.0, 0.001)] * 16, "B", _st(),
+                           _params(_indep_anchors(16), continue_count_cap=0))
+    assert out3["decision"] in ("REJECT", "CONTINUE")
+    assert "effective_independent" in out3 and "n_anchor" in out3, f"低 e-value 路径缺键: {out3}"
