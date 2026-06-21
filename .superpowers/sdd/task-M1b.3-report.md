@@ -138,3 +138,53 @@ Step 6: 全套 → 136 passed, 1 skipped (confseq intentional skip)
 - `~/CodesSelf/self-evolve/tests/test_acceptor_noise.py`
 - `~/CodesSelf/self-evolve/tests/test_acceptor.py`
 - `~/CodesSelf/self-evolve/tests/test_e2e.py`
+
+---
+
+## 12. Re-review 修正（I1/I2/I3）
+
+### I1: e-process 单独 type-I 验证（新增 test_eprocess_standalone_type1）
+
+**问题:** 原测试 `_pure_noise_pairs` 允许 before=1,after=0 的回退对，40 对里必有回退，
+硬门直接 REJECT，e-process 根本没跑。0.0000 误采纳是硬门功劳，不是 e-process type-I 证明。
+
+**关键认识:** 二元 A 档的 null（无回退+无增益）在 binary 下只能 d≡0，e-process W≡1，
+由"硬门+e-process"组合正确处理。e-process 自身 type-I 须用连续值 null 隔离验证。
+
+**修复:** 新增 `test_eprocess_standalone_type1`：
+- 绕过 `decide()` 硬门，直接调 `_wealth_betting`
+- diffs 从连续 null 抽样：u~Uniform(0,1)，E[u]=0.5，有方差的连续值
+- 统计 `path_max ≥ 1/α` 的比例（400 trials，n_seq=40）
+- **实测误采纳率: 0.0075**（目标 ≤ α=0.05）✓
+- 原有 binary 系统级测试保留，注释说明验证的是"硬门+e-process 组合"
+
+### I2: ONS 截断破坏鞅 → 收紧 λ-clip
+
+**问题:** `factor = max(1e-10, 1+lam*payoff)` 在 λ=±2、payoff=∓0.5 时 factor=0 被截断，
+梯度 g=payoff/factor 爆炸，wealth 永久趋零，且破坏鞅恒等式。
+
+**修复（acceptor.py）:**
+- 引入 `_LAM_MAX = 2.0 - 1e-6`，每步先 clip λ 到 `[-LAM_MAX, LAM_MAX]`
+- `factor = 1.0 + lam_safe * payoff`（无截断，恒 > 0 由 λ-clip 保证）
+- 最坏情况 factor = 5×10⁻⁷ > 0，梯度有界，鞅恒等式成立
+- 去掉 `max(1e-10, ...)` 对 factor 的截断（正常路径不再触发任何 floor）
+
+**验证:** 真增益采纳率 **1.00**（100 trials，前后 ≥ 0.90 目标）✓，全套 137 passed, 2 skipped ✓
+
+### I3: 更新 math 文档 path-max = e-value（对 brief 有意修正）
+
+**修复（acceptor_math.md）:**
+- Section 3 明确写 "e-value = sup_t W_t（路径最大值，Ville 不等式）"，并标注为对 brief "末值" 的有意修正
+- 解释为何 sup_t W_t 比末值 W_n 更优（功效更高，与 anytime-valid 精神一致）
+- Section 8 ONS fallback 伪码更新为新 λ-clip 逻辑（`_LAM_MAX = 2-1e-6`），添加 I2 修正说明
+
+**代码无需改动**（代码已正确实现 `evalue = max(path)`）。
+
+### 测试小结
+
+| 测试 | 结果 | 说明 |
+|------|------|------|
+| test_eprocess_standalone_type1 | **0.0075 ≤ 0.05** ✓ | e-process 单独 type-I（连续null隔离硬门）|
+| test_false_commit_rate_under_alpha | 0.0000 ✓ | 硬门+e-process 组合（二元系统级）|
+| test_true_gain_accept_rate_high | 1.00 ✓ | λ-clip 修复后功效不受损 |
+| 全套 `pytest -q` | 137 passed, 2 skipped ✓ | 无回归 |
