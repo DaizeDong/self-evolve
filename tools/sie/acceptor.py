@@ -34,20 +34,26 @@ def _ons_betting_wealth(diffs: list[float], alpha: float) -> tuple[float, list[f
     A = 0.0   # ONS: 梯度平方累积
     b = 0.0   # ONS: 梯度累积
 
+    # payoff ∈ [-0.5, 0.5]; 保证 factor = 1+λ·payoff > 0:
+    # λ_safe = clip(λ, -(2-δ), 2-δ), δ=1e-6 → factor ≥ δ/2 = 5e-7 > 0 恒成立.
+    # 不截断 factor 本身 (截断 factor 会破坏鞅恒等式并使梯度爆炸).
+    _LAM_MAX = 2.0 - 1e-6
+
     for d in diffs:
         u = 0.5 * (d + 1.0)
         payoff = u - 0.5
-        factor = max(1e-10, 1.0 + lam * payoff)
+        # 收紧 λ-clip 保证 factor > 0，去掉 factor 截断
+        lam_safe = max(-_LAM_MAX, min(_LAM_MAX, lam))
+        factor = 1.0 + lam_safe * payoff  # 恒 > 0 by λ-clip 设计
         wealth *= factor
         path.append(wealth)
         # ONS 梯度: d/dλ log(1 + λ·payoff) = payoff / (1 + λ·payoff)
         g = payoff / factor
         A += g * g
         b += g
-        # ONS 更新: λ_{t+1} = clip(b / (A+1), -2, 2)
+        # ONS 更新: λ_{t+1} = clip(b / (A+1), -(2-δ), 2-δ)
         # 除数 +1 为正则项 (A=0 时避免初始大步)
-        # 截到 (-2,2) 保证 1+λ·payoff > 0 (payoff ∈ [-0.5,0.5])
-        lam = max(-2.0, min(2.0, b / (A + 1.0)))
+        lam = max(-_LAM_MAX, min(_LAM_MAX, b / (A + 1.0)))
 
     evalue = max(path) if path else 1.0
     return evalue, path
