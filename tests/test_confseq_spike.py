@@ -3,6 +3,9 @@
 Run with:
     conda run -n confseq_test python -m pytest tests/test_confseq_spike.py -v
 """
+import pytest
+pytest.importorskip("confseq", reason="confseq optional; only in conda env confseq_test")
+
 import numpy as np
 from spikes.confseq_spike import run_noise_spike
 
