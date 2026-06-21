@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 import hashlib
 import math
+from datetime import datetime, timezone
 from urllib.parse import urlparse
+
+from . import edgar_cache
 
 _REQUIRED_ANCHOR_KEYS = ("claim", "span", "source_url")
 
@@ -118,3 +121,80 @@ def split_visible_holdout(anchors: list[dict], frac: float, seed: str = "") -> t
     hold_ids = {a["anchor_id"] for a in holdout}
     visible = [a for a in anchors if a["anchor_id"] not in hold_ids]
     return visible, holdout
+
+
+# ---------------------------------------------------------------------------
+# M2.4: verify_anchor — EDGAR-backed factual verification
+# ---------------------------------------------------------------------------
+
+_REL_TOL = 0.01   # 1% relative tolerance
+_ABS_TOL = 0.01   # absolute tolerance for near-zero anchors (|expected| < 1)
+
+
+def _default_fetcher(anchor: dict) -> float | None:
+    """Production path: use edgartools to fetch anchor.metric @ cik/period.
+
+    Lazily imports edgar (inside fetcher=None branch) so the default test
+    suite never imports or loads edgar, keeping tests network-free.
+    WinError 145 is pre-empted by prepare_cache before any edgar call.
+    """
+    edgar_cache.prepare_cache(None)
+    from edgar import Company  # lazy: ImportError -> unverified via caller's except
+    comp = Company(str(anchor["cik"]))
+    facts = comp.get_facts()
+    return float(facts.get_fact(anchor["metric"], period=anchor.get("period")))
+
+
+def _within_tol(observed: float, expected: float) -> bool:
+    """Return True if observed is within tolerance of expected.
+
+    Uses relative tolerance when |expected| >= 1, otherwise falls back to
+    absolute tolerance (handles cash=0 / near-zero anchors).
+    """
+    denom = abs(expected)
+    if denom < 1.0:
+        return abs(observed - expected) <= _ABS_TOL
+    return abs(observed - expected) / denom <= _REL_TOL
+
+
+def verify_anchor(anchor: dict, fetcher=None) -> dict:
+    """Verify one anchor's factual claim against an external truth source.
+
+    Returns a *copy* of the anchor dict with four additional keys:
+      - verified (bool): True iff fetched value is within tolerance
+      - fetched_at (str): ISO-8601 UTC timestamp of this verification attempt
+      - observed (float | None): value returned by fetcher, or None on failure
+      - verify_reason (str): human-readable outcome description
+
+    Args:
+        anchor: Anchor dict with at least ``expected``, ``cik``, ``period``,
+                ``metric`` keys for numeric verification.
+        fetcher: Optional callable(anchor) -> float | None.  If None, uses the
+                 real edgartools path (lazy import; requires network).
+                 Inject a fake fetcher in tests to avoid all network calls.
+    """
+    out = dict(anchor)
+    out["fetched_at"] = datetime.now(timezone.utc).isoformat()
+
+    f = fetcher if fetcher is not None else _default_fetcher
+    try:
+        observed = f(anchor)
+    except Exception as exc:
+        # Fetch failure -> unverified. Never treat unavailable data as truthy.
+        out["verified"] = False
+        out["observed"] = None
+        out["verify_reason"] = f"fetch error: {exc!r}"
+        return out
+
+    out["observed"] = observed
+
+    exp = anchor.get("expected")
+    if observed is None or exp is None:
+        out["verified"] = False
+        out["verify_reason"] = "missing observed/expected"
+        return out
+
+    ok = _within_tol(float(observed), float(exp))
+    out["verified"] = bool(ok)
+    out["verify_reason"] = "within tol" if ok else "outside tol"
+    return out
