@@ -153,6 +153,26 @@ def test_pure_c_accept_decision_still_set():
     assert out["force_review"] is True
 
 
+def test_composite_tier_a_plus_c_with_coverage_zero():
+    """组合档 'A+C' 含 C 组件，coverage=0 时纯 C 门应按 base_tier='A' 判（不触发）."""
+    # A+C coverage=0: base_tier='A' 不触发纯 C 人审 (纯 C 门仅对 base_tier=='C' 生效)
+    paired = [(0.0, 1.0)] * 5
+    out = acceptor.decide(paired, tier="A+C", st=_rs("A"),
+                          params={"alpha": 0.05, "coverage": 0.0})
+    # A 档 e-process 小样本无法 ACCEPT, decision 应为 REJECT, 但 force_review 不因 C 门触发
+    assert out["force_review"] is False
+
+
+def test_composite_tier_c_plus_b_with_coverage_zero():
+    """组合档 'C+B' base_tier='C', coverage=0 时纯 C 门触发."""
+    # C+B coverage=0: base_tier='C', 应触发纯 C 强制人审门
+    paired = [(1.0, 0.0)] * 5
+    out = acceptor.decide(paired, tier="C+B", st=_rs("C"),
+                          params={"alpha": 0.05, "coverage": 0.0, "c_tier_weight": 0.05})
+    assert out["force_review"] is True
+    assert "pure_C_needs_human" in out.get("degrade_reason", "")
+
+
 def test_c_with_coverage_nonzero_no_force():
     """coverage>0: 纯 C 强制人审不触发（非 coverage=0 路径）."""
     # 极低 c_tier_weight=0.05 使 evalue 极低 → 正常 REJECT, 但 force_review 不因 coverage 触发
@@ -161,6 +181,7 @@ def test_c_with_coverage_nonzero_no_force():
                           params={"alpha": 0.05, "coverage": 0.5})
     # decision 可为 REJECT/CONTINUE/ACCEPT (取决于 evalue), 但 coverage!=0 不触发 force_review 路径
     assert "force_review" in out
+    assert out["force_review"] is False  # coverage>0 时纯 C 强制人审不触发
 
 
 # ── ⑤ C 配对极低权重, 绝不单独触发 ACCEPT ───────────────────────────────────
