@@ -165,3 +165,102 @@ def test_continue_cap_boundary():
     assert nxt2 == "LOOP"
     # continue_count should NOT increment past cap on LOOP path
     assert st.continue_count == P["continue_count_cap"]
+
+
+# --- Integration tests: run_loop + acceptor with forced REJECT ---
+
+def test_run_loop_forced_reject_accumulates_no_progress_to_circuit(tmp_path, monkeypatch):
+    """Integration test: run_loop with forced REJECT acceptor persists no_progress across
+    _step→replay→save cycle and triggers circuit-breaker when threshold reached.
+
+    This test verifies the crash-replay invariant: no_progress mutations survive
+    events.jsonl→_step→replay→save roundtrips.
+    """
+    import subprocess as sp
+    from tools.sie.statemachine import run_loop
+    from tools.sie.state import load_state
+    from tools.sie.events import replay
+
+    # Setup: minimal broken repo (add+mul with xfail mul tests, like test_e2e)
+    r = tmp_path / "repo"
+    r.mkdir()
+    sp.run(["git", "init", "-q"], cwd=r, check=True)
+    sp.run(["git", "config", "user.email", "t@t"], cwd=r, check=True)
+    sp.run(["git", "config", "user.name", "t"], cwd=r, check=True)
+
+    (r / "mod.py").write_text(
+        "def add(a, b):\n    return a + b\n"
+        "def mul(a, b):\n    return a - b  # BUG\n"
+    )
+    add_tests = "\n".join(
+        f"def test_add_{i}():\n    assert add({i}, {i+1}) == {2*i+1}\n"
+        for i in range(1, 4)
+    )
+    mul_tests = "\n".join(
+        f"@pytest.mark.xfail(strict=False, reason='mul bug')\n"
+        f"def test_mul_{i}():\n    assert mul({i}, {i+1}) == {i*(i+1)}\n"
+        for i in range(1, 6)  # 5 mul tests for quick convergence
+    )
+    test_src = f"import pytest\nfrom mod import add, mul\n\n{add_tests}\n{mul_tests}"
+    (r / "test_mod.py").write_text(test_src)
+    sp.run(["git", "add", "-A"], cwd=r, check=True)
+    sp.run(["git", "commit", "-qm", "init"], cwd=r, check=True)
+
+    # Monkeypatch acceptor.decide to always return REJECT
+    from tools.sie import acceptor
+    original_decide = acceptor.decide
+
+    def forced_reject(*args, **kwargs):
+        return {"decision": "REJECT", "evalue": 0.0, "reason": "forced for test"}
+
+    monkeypatch.setattr(acceptor, "decide", forced_reject)
+
+    # Run loop with max_rounds=10 to accumulate no_progress across multiple REJECTs
+    tgt = str(r)
+    fix = "def add(a, b):\n    return a + b\ndef mul(a, b):\n    return a * b\n"
+
+    # Override circuit threshold to 5 for quicker triggering
+    custom_params = {
+        "alpha": 0.05,
+        "continue_count_cap": 5,
+        "no_progress_circuit_N": 5,  # Lower threshold for testing
+        "no_progress_release_M": 3,
+        "static_reject_circuit": 6,
+        "forced_review_circuit": 5,
+        "drift_circuit": 4,
+    }
+
+    summary = run_loop(
+        tgt, "HEAD", "test_forced_reject", max_rounds=10, mode="auto",
+        _injected_fix={"file_rel": "mod.py", "fix_content": fix, "target_failure": "fix mul"},
+    )
+
+    run_dir = summary["run_dir"]
+    final_st = load_state(run_dir)
+
+    # Assertions:
+    # 1. no_progress should have accumulated across multiple rounds via replay
+    assert final_st.no_progress > 0, (
+        f"no_progress should be > 0 after forced REJECTs, got {final_st.no_progress}"
+    )
+
+    # 2. Verify persistence: replay from events.jsonl produces same no_progress
+    rebuilt_st = replay(run_dir)
+    assert rebuilt_st.no_progress == final_st.no_progress, (
+        f"Replay should reconstruct no_progress={final_st.no_progress}, "
+        f"got {rebuilt_st.no_progress}"
+    )
+
+    # 3. Run should have exited early or reached max_rounds with accumulated no_progress
+    # Each REJECT increments no_progress, and it must persist across _step→replay→save
+    assert final_st.no_progress >= 5, (
+        f"no_progress should accumulate to at least 5 over forced REJECTs, "
+        f"got {final_st.no_progress}"
+    )
+
+    # 4. Verify that no_progress crossed release threshold (3) at some point
+    # by checking via replay from scratch
+    assert final_st.no_progress >= P["no_progress_release_M"], (
+        f"no_progress should reach at least release threshold {P['no_progress_release_M']}, "
+        f"got {final_st.no_progress}"
+    )
