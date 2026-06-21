@@ -79,3 +79,25 @@ def test_drift_count_exposed_in_state():
                               holdout_gain=0.08, st=st, params=P)
     assert out["alerts"] == []
     assert st.drift_count == 5  # function should NOT mutate drift_count
+
+
+def test_holdout_none_skips_overfit_gate():
+    """holdout_gain=None (非抽检轮) 时闸③ 跳过, 不触发 overfit_holdout / force_human."""
+    st = _st()
+    out = selfdeception.index(judge_gain=0.05, visible_anchor_gain=0.04,
+                              holdout_gain=None, st=st, params=P)
+    assert "overfit_holdout" not in out["alerts"], \
+        f"holdout=None should skip gate③, got {out['alerts']}"
+    assert out["force_human"] is False
+
+
+def test_holdout_none_preserves_other_gates():
+    """holdout_gain=None 不影响闸② (low_anchor_gain) 或闸④ (judge_anchor_divergence)."""
+    st = _st()
+    # visible < eps → 闸② 触发; judge 大幅超出 → 闸④ 触发; holdout=None → 闸③ 不触发
+    out = selfdeception.index(judge_gain=0.5, visible_anchor_gain=0.005,
+                              holdout_gain=None, st=st, params=P)
+    assert "low_anchor_gain" in out["alerts"]
+    assert "judge_anchor_divergence" in out["alerts"]
+    assert "overfit_holdout" not in out["alerts"]
+    assert out["force_human"] is False
