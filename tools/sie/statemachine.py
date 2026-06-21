@@ -149,7 +149,8 @@ def run_loop(
         # M1a scaffold: merge _injected_fix into first reflection for ACCEPT path testing.
         # (This parameter is removed in M3 when real LLM fanout is wired.)
         if _injected_fix:
-            refs = [dict(refs[0], **_injected_fix)]
+            # Defensive: if refs is empty, use empty dict to avoid IndexError on refs[0]
+            refs = [dict(refs[0] if refs else {}, **_injected_fix)]
 
         # 态3b CHECK_REFLECTION — weak validation gate
         refs = [r for r in refs if check(r, 0.5)]
@@ -195,8 +196,10 @@ def run_loop(
         if dec["decision"] == "ACCEPT":
             # 态8 ACCEPT: add lineage entry + snapshot + clear no_progress
             vid = f"v{len(accepted) + 1}"
+            # NOTE: add_version receives run_dir (internally joins "archive"), snapshot_version receives arch_dir (pre-joined).
             archive.add_version(run_dir, vid, ev_result["result"]["dimensions"], parent)
             arch_dir = os.path.join(run_dir, "archive")
+            # NOTE: snapshot_version receives archive_dir (already joined), not run_dir.
             archive.snapshot_version(arch_dir, vid, sandbox_root)
             accepted.append(vid)
 
