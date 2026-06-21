@@ -1,0 +1,1250 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api/W3HFDQtgzlX17L+FNGZQes9fVpo</id>
+  <title>arXiv Query: search_query=abs:"self-evolving agent" OR abs:"self-improving agent" OR abs:"recursive self-improvement"&amp;id_list=&amp;start=0&amp;max_results=40</title>
+  <updated>2026-06-21T06:33:15Z</updated>
+  <link href="https://arxiv.org/api/query?search_query=abs:%22self-evolving+agent%22+OR+(abs:%22self-improving+agent%22+OR+abs:%22recursive+self-improvement%22)&amp;start=0&amp;max_results=40&amp;id_list=" type="application/atom+xml"/>
+  <opensearch:itemsPerPage>40</opensearch:itemsPerPage>
+  <opensearch:totalResults>145</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <entry>
+    <id>http://arxiv.org/abs/2606.17628v1</id>
+    <title>OPD-Evolver: Cultivating Holistic Agent Evolver via On-Policy Distillation</title>
+    <updated>2026-06-16T07:33:53Z</updated>
+    <link href="https://arxiv.org/abs/2606.17628v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2606.17628v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Memory has become a standard substrate for self-evolving agents, yet retaining experience is not the same as learning how to evolve through it. Existing memory agents can store trajectories, retrieve reflections, or accumulate skills, but often lack the holistic competence to select useful experience, act on it, write reusable knowledge, and maintain a growing repository. We introduce OPD-Evolver, a slow-fast co-evolution framework that cultivates such an agent evolver through on-policy self-distillation. In the fast loop, OPD-Evolver interacts with a four-level memory hierarchy to read, use, write, and maintain experience for rapid test-time evolution. In the slow loop, outcome-calibrated memory attribution and privileged hindsight distill these four abilities into the deployable policy. Across multi-domain benchmarks, OPD-Evolver surpasses memory systems such as ReasoningBank by up to 11.5%, and training-based methods such as Skill0 by ~5.8%. Further analysis shows that OPD-Evolver internalizes high-value experience and memory management, enabling OPD-Evolver-9B to challenge giant counterparts such as Qwen3.5-397B-A17B and Step-3.5-Flash, pointing beyond memory-augmented agents toward genuinely qualified agent evolvers.</summary>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-06-16T07:33:53Z</published>
+    <arxiv:primary_category term="cs.CL"/>
+    <author>
+      <name>Guibin Zhang</name>
+    </author>
+    <author>
+      <name>Xun Xu</name>
+    </author>
+    <author>
+      <name>Yanwei Yue</name>
+    </author>
+    <author>
+      <name>Zikun Su</name>
+    </author>
+    <author>
+      <name>Wangchunshu Zhou</name>
+    </author>
+    <author>
+      <name>Xiaobin Hu</name>
+    </author>
+    <author>
+      <name>Shuicheng Yan</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2606.15096v1</id>
+    <title>VGPT-RSI for RH-Adjacent Formal Progress: Boundary Certificates, Verified Finite Lagarias Inequalities, and Explicit Failure Localization</title>
+    <updated>2026-06-13T04:12:25Z</updated>
+    <link href="https://arxiv.org/abs/2606.15096v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2606.15096v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>The Riemann Hypothesis remains one of the central unsolved problems in mathematics. Rather than claiming proof, we investigate whether a verifiable AI-assisted reasoning system can produce reliable, formally checked partial progress while explicitly identifying the remaining mathematical obstructions. We apply the Verifiable Growing Physical Transformer with Recursive Self-Improvement (VGPT-RSI) to two RH-adjacent certification tasks. First, we construct and verify a finite RH-boundary certificate for inequality on a parameterized safe lower curve over a region. The numerical boundary curve is converted into a certificate-backed lower curve, audited using outward-rounded interval arithmetic and Arb/FLINT ball arithmetic, and then checked in Rocq/CoqInterval for the parameterized theorem. Second, we initiate a formal Lagarias-route certificate. Lagarias criterion states that RH is equivalent to the global inequality. We formalize the finite quantity and produce a Coq-checked finite certificate. The final system identifies the exact unresolved mathematical bottlenecks: formalizing the Lagarias equivalence, proving the global tail theorem beyond any finite cutoff, and potentially reducing counterexamples to colossally abundant or related extremal integers. These results demonstrate that VGPT-RSI can produce certified RH-adjacent formal progress, organize proof dependencies, and avoid overclaiming when the remaining obstruction is genuinely mathematical.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-06-13T04:12:25Z</published>
+    <arxiv:comment>31 pages, 3 figures</arxiv:comment>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Zhixin Hu</name>
+    </author>
+    <author>
+      <name>Tao Xu</name>
+    </author>
+    <author>
+      <name>Xiaodian Sun</name>
+    </author>
+    <author>
+      <name>Li Jin</name>
+    </author>
+    <author>
+      <name>Momiao Xiong</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2606.12780v1</id>
+    <title>ProPlay: Procedural World Models for Self-Evolving LLM Agents</title>
+    <updated>2026-06-11T00:47:37Z</updated>
+    <link href="https://arxiv.org/abs/2606.12780v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2606.12780v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Self-evolving agents are expected to improve through interaction without external supervision, but this remains difficult in partially observable environments where agents must explore actively, learn from limited feedback, and decide when to trust prior experience. Existing LLM-agent methods often rely on memory or planning modules, yet they rarely close the loop between them to continually refine an internal understanding of environment dynamics. We introduce ProPlay, a procedural world model that supports procedure-level preplay, where agents can rehearse future procedural paths using the learned world knowledge. Rather than representing experience as isolated rules or low-level action constraints, ProPlay abstracts successful trajectories into procedures and organizes them in a procedure graph that captures causal transitions among task stages. Each transition is associated with a reliability record embedding to estimate its task-specific contribution from past outcomes. Before each episode, ProPlay simulates future procedural trajectories over known graph structures as structured soft guidance; after execution, it refines the graph using environment feedback. Experiments on public benchmarks show that ProPlay consistently improves environment understanding and self-evolution capability over strong baselines. Our code has been released in https://github.com/antman9914/proplay.</summary>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-06-11T00:47:37Z</published>
+    <arxiv:primary_category term="cs.LG"/>
+    <author>
+      <name>Yijun Ma</name>
+    </author>
+    <author>
+      <name>Zehong Wang</name>
+    </author>
+    <author>
+      <name>Yiyang Li</name>
+    </author>
+    <author>
+      <name>Ziming Li</name>
+    </author>
+    <author>
+      <name>Xiaoguang Guo</name>
+    </author>
+    <author>
+      <name>Weixiang Sun</name>
+    </author>
+    <author>
+      <name>Chuxu Zhang</name>
+    </author>
+    <author>
+      <name>Yanfang Ye</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2606.08106v1</id>
+    <title>PACE: Anytime-Valid Acceptance Tests for Self-Evolving Agents</title>
+    <updated>2026-06-06T11:12:11Z</updated>
+    <link href="https://arxiv.org/abs/2606.08106v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2606.08106v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Self-evolving agents improve by repeatedly proposing changes to their own prompts, skills, or workflows and keeping those that score higher on a small held-out set. Almost all effort has gone into the proposer that generates candidates; we argue the weak point is the acceptor, the rule that decides whether to commit a change. Applied hundreds of times against the same noisy dev estimate, the ubiquitous "keep it if the score went up" rule is uncontrolled adaptive multiple testing: the agent effectively p-hacks itself, accumulating false commits that make it churn and drift rather than improve.
+  We recast committing as a sequential hypothesis test and propose PACE (Paired Anytime-valid Commit Evaluation), a training-free, anytime-valid commit gate. Each candidate is compared to the incumbent on identical instances and committed only when a testing-by-betting e-process accumulates decisive evidence, stopping early to save evaluations and controlling each candidate's false-commit probability at a user-set level even under optional stopping (a per-decision guarantee).
+  On Qwen2.5 agents (0.5B-3B) self-evolving at the prompt level on GSM8K, SVAMP, and ARC-Challenge, greedy acceptance commits 30-42% false and 10-33% harmful edits when a genuine improvement is hidden among noisy proposals, while PACE commits the real one and essentially nothing else, matching greedy's held-out accuracy at sharply lower variance and about 18% lower evaluation cost. With no real gain available, greedy commits 13-21 spurious self-modifications per run (72-100% false) and degrades the most fragile agent by 4.9 points, while PACE holds at baseline. Reliability of self-evolution depends on the acceptor, not only on the proposer.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.MA" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-06-06T11:12:11Z</published>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Zayx Shawn</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2606.06960v1</id>
+    <title>Tree-of-Experience: A Structured Experience-Management Solution for Self-Evolving Agents under Low-Repetition and Implicit-Reward Environments</title>
+    <updated>2026-06-05T06:39:16Z</updated>
+    <link href="https://arxiv.org/abs/2606.06960v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2606.06960v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Experience-based self-evolution is crucial for LLM agents, but existing benchmarks often assume explicit goals, stable task patterns, and clear feedback. We study a more challenging setting: low-repetition tasks with implicit rewards, where past experience is difficult to reuse and feedback is delayed, noisy, and outcome-level. We introduce \textsc{FinEvolveBench}, a temporally controlled benchmark for financial sentiment prediction that links daily news-driven predictions to future excess returns. We further propose Tree-of-Experience (ToE), a structured experience-management method that organizes, retrieves, validates, and updates agent experience. Experiments show that general-purpose experience mechanisms do not consistently outperform no-experience baselines, while ToE achieves stronger overall performance. These results highlight the importance of structured experience management for self-evolving agents in implicit-reward environments.</summary>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-06-05T06:39:16Z</published>
+    <arxiv:primary_category term="cs.CL"/>
+    <author>
+      <name>Zihao Deng</name>
+    </author>
+    <author>
+      <name>Yining Zhu</name>
+    </author>
+    <author>
+      <name>Leiming Wang</name>
+    </author>
+    <author>
+      <name>Jingfei Lu</name>
+    </author>
+    <author>
+      <name>Junbo Wang</name>
+    </author>
+    <author>
+      <name>Chuncheng Ran</name>
+    </author>
+    <author>
+      <name>Yu Yang</name>
+    </author>
+    <author>
+      <name>Dixuan Yang</name>
+    </author>
+    <author>
+      <name>Jikun Shen</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2606.06741v1</id>
+    <title>OpenSkill: Open-World Self-Evolution for LLM Agents</title>
+    <updated>2026-06-04T21:55:48Z</updated>
+    <link href="https://arxiv.org/abs/2606.06741v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2606.06741v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Self-evolving agents requires adaptation after deployment, but existing approaches assume a usable learning loop, such as curated skills, successful trajectories, or verifier signals. Real open-world deployments may provide none of these, offering only a task prompt. In this work, we study open-world self-evolution, where an agent must build both its skills and its own verification signals from scratch, using open-world resources but no target-task supervision. We propose OpenSkill, a framework that bootstraps this loop: it acquires grounded knowledge and verification anchors from documentation, repositories, and the web, synthesizes them into transferable skills, and refines those skills against self-built virtual tasks grounded in the anchors rather than in target answers. The open world thus supplies both the knowledge to be learned and a supervision-independent practice environment, with target-task supervision reserved for final evaluation. Across three benchmarks and two target agents, OpenSkill attains the best automated pass rate while satisfying the no-supervision constraint. Analysis shows its skills transfer across models without model-specific adaptation, and its self-built verifier aligns with ground-truth outcomes despite never accessing them.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-06-04T21:55:48Z</published>
+    <arxiv:comment>20 pages, 4 figures and 8 tables. Code is avalable at https://github.com/OpenLAIR/OpenSkill</arxiv:comment>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Zhiling Yan</name>
+    </author>
+    <author>
+      <name>Dingjie Song</name>
+    </author>
+    <author>
+      <name>Hanrong Zhang</name>
+    </author>
+    <author>
+      <name>Wei Liang</name>
+    </author>
+    <author>
+      <name>Yuxuan Zhang</name>
+    </author>
+    <author>
+      <name>Yutong Dai</name>
+    </author>
+    <author>
+      <name>Lifang He</name>
+    </author>
+    <author>
+      <name>Philip S. Yu</name>
+    </author>
+    <author>
+      <name>Ran Xu</name>
+    </author>
+    <author>
+      <name>Xiang Li</name>
+    </author>
+    <author>
+      <name>Lichao Sun</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2606.06324v1</id>
+    <title>From Failed Trajectories to Reliable LLM Agents: Diagnosing and Repairing Harness Flaws</title>
+    <updated>2026-06-04T15:58:30Z</updated>
+    <link href="https://arxiv.org/abs/2606.06324v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2606.06324v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>LLM-based agents increasingly rely on harnesses that provide execution environments, tool interfaces, context, lifecycle orchestration, observability, verification, and governance. Existing self-improving agents and automatic harness evolution methods mainly improve agents through runtime supervision, prompt optimization, workflow search, or harness modification based on final outcomes. However, they often fail to diagnose where the responsible evidence lies in failed trajectories and which harness layer causes the unreliable behavior, resulting in broad, indirect, or poorly scoped changes. This paper proposes HarnessFix, a trace-guided framework for diagnosing agent failures and repairing agent harnesses. HarnessFix compiles raw execution traces and harness code into a Harness-aware Trace Intermediate Representation (HTIR), which normalizes fragmented trajectory evidence and captures step-level provenance and control-flow relations. It then attributes failures to responsible trajectory steps and harness layers, consolidates recurring diagnoses into actionable flaw records, and maps them to scoped repair operators. Finally, HarnessFix generates and validates harness patches under flaw-specific repair specifications to reduce target flaws without introducing unacceptable regressions. We evaluate HarnessFix on SWE-Bench Verified, Terminal-Bench 2.0 Verified, GAIA and AppWorld. Across these benchmarks, HarnessFix improves held-out test performance over the initial harnesses by 15.2%--50.0%, outperforms human-designed and self-evolution baselines, and reveals recurring harness-flaw patterns across ETCLOVG layers.</summary>
+    <category term="cs.SE" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.MA" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-06-04T15:58:30Z</published>
+    <arxiv:primary_category term="cs.SE"/>
+    <author>
+      <name>Mengzhuo Chen</name>
+    </author>
+    <author>
+      <name>Junjie Wang</name>
+    </author>
+    <author>
+      <name>Zhe Liu</name>
+    </author>
+    <author>
+      <name>Yawen Wang</name>
+    </author>
+    <author>
+      <name>Qing Wang</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2606.06114v2</id>
+    <title>Towards Healthy Evolution: Exploring the Role and Mechanisms of Human-Agent Interaction in Self-Evolving Systems</title>
+    <updated>2026-06-06T08:23:30Z</updated>
+    <link href="https://arxiv.org/abs/2606.06114v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2606.06114v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Self-evolving agents improve through continual self-play and self-generated learning signals, but autonomous evolution can also cause capability degradation and safety drift. Although human feedback has proven effective for static and post-trained agents, its role in self-evolving systems remains underexplored. We introduce Agent Norm Correction through Human-like Oversight and Review (ANCHOR), an LLM-based framework that simulates human supervision and delivers feedback at various phases of self-evolution. With ANCHOR, we evaluate two representative open-source self-evolving agent systems across coding, mathematical reasoning, and safety. Our results show that even limited supervision substantially mitigates safety degradation while preserving stable performance on core evolutionary objectives. Further analysis shows that supervision over the output verification phase is the most effective for intervention, whereas increasing supervision frequency yields diminishing returns. These findings provide empirical evidence and practical guidance for designing more stable, controllable, and human-aligned self-evolving agent systems.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-06-04T13:03:16Z</published>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Dianxing Shi</name>
+    </author>
+    <author>
+      <name>Bowen Wang</name>
+    </author>
+    <author>
+      <name>Junqi He</name>
+    </author>
+    <author>
+      <name>Junhao Chen</name>
+    </author>
+    <author>
+      <name>Yuta Nakashima</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2606.05608v2</id>
+    <title>Agentic Software: How AI Agents Are Restructuring the Software Paradigm</title>
+    <updated>2026-06-10T02:11:19Z</updated>
+    <link href="https://arxiv.org/abs/2606.05608v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2606.05608v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>For over half a century, software engineering has operated on a foundational premise: human engineers decompose problems, encode decision logic into static code, and manually adapt that code as requirements evolve. This paper argues that the emergence of AI agents -- systems where large language models serve as the primary reasoning engine, dynamically generating and discarding code as an instrumental resource -- constitutes a fundamental restructuring of what software is, not an incremental tool improvement. We formalize the distinction between traditional deterministic software and agentic software: in the former, code is the carrier of pre-written decision logic; in the latter, the agent itself is the software, and its decision logic is generated at runtime. We trace the historical arc from licensed software to SaaS to Agent-as-a-Service (AaaS), showing that each shift transferred additional complexity away from end-users -- with the agentic shift transferring not just operational complexity but decision-making complexity itself. We introduce Agentic Engineering as an expansion of the software engineering discipline into a new paradigm, distinct in its core object of study (agent systems rather than static source code), its control model (LLM-driven rather than human-predefined), and its human role (intent architect rather than code author). Through analysis of recent benchmark evidence including SWE-bench Verified, EvoClaw, and LangChain's multi-agent coordination studies, we demonstrate both the transformative potential of the agentic paradigm and its current limitations. We conclude with a four-stage roadmap toward self-evolving agent ecosystems and concrete recommendations for practitioners navigating this transition.</summary>
+    <category term="cs.SE" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-06-04T02:30:06Z</published>
+    <arxiv:comment>15 pages, 2 figures, and 3 tables</arxiv:comment>
+    <arxiv:primary_category term="cs.SE"/>
+    <author>
+      <name>Zhenfeng Cao</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2606.05513v1</id>
+    <title>EpiEvolve: Self-Evolving Agents for Streaming Pandemic Forecasting under Regime Shifts</title>
+    <updated>2026-06-03T23:40:30Z</updated>
+    <link href="https://arxiv.org/abs/2606.05513v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2606.05513v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Epidemic LLM forecasters are usually trained and evaluated as static supervised models, whereas operational pandemic forecasting is a streaming process in which labels arrive after predictions and disease regimes shift over time. We study this mismatch in weekly COVID-19 hospitalization trend forecasting across five variant regimes. We introduce EpiEvolve, a self-evolving agent that wraps an LLM forecaster trained on the warm-start period and keeps its weights fixed during streaming. EpiEvolve adapts by storing forecast outcomes in a hierarchical episodic memory, reflecting on delayed labels, retrieving cases relevant to the current regime, and distilling recurring errors into strategic rules. The resulting context lets the forecaster reuse its own past predictions and outcomes in later weeks while following a chronological protocol that prevents future leakage. On the streaming dataset, EpiEvolve reaches $0.629$ average accuracy, compared with $0.561$ for the static backbone and $0.325$ for the external CDC ensemble, and reduces recovery lag after regime shifts from $5$ to $2$ weeks. Ablations show that reflection, strategic memory, and regime-aware retrieval each contribute to the gains.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-06-03T23:40:30Z</published>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Yiming Lu</name>
+    </author>
+    <author>
+      <name>Sihang Zeng</name>
+    </author>
+    <author>
+      <name>Zhengxu Tang</name>
+    </author>
+    <author>
+      <name>Max Lau</name>
+    </author>
+    <author>
+      <name>Fei Liu</name>
+    </author>
+    <author>
+      <name>Wei Jin</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2606.04455v1</id>
+    <title>The Meta-Agent Challenge: Are Current Agents Capable of Autonomous Agent Development?</title>
+    <updated>2026-06-03T04:58:17Z</updated>
+    <link href="https://arxiv.org/abs/2606.04455v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2606.04455v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Current AI benchmarks evaluate agents on task execution within human-designed workflows. These evaluations fundamentally fail to measure a critical next-level capability: whether models can autonomously develop agent systems. We introduce the Meta-Agent Challenge (MAC), an evaluation framework designed to test the capacity of frontier models for autonomous agent development. Specifically, a code agent (the meta-agent) is given a sandboxed environment, an evaluation API, and a time limitation to iteratively program an agent artifact that maximizes performance on a held-out test set across five domains. To ensure evaluation integrity, this framework is secured by multi-layer defenses against reward hacking. Leveraging this framework, we demonstrate that meta-agents rarely match human-engineered baseline policies, and the few that do are dominated by proprietary frontier models. Moreover, the design process exhibits high variance, and high optimization pressure surfaces emergent adversarial behaviors like ground-truth exfiltration-highlighting critical deficits in both robustness and model alignment. Ultimately, MAC provides a rigorous, open-source benchmark for autonomous AI research and development, offering an empirical proxy for evaluating recursive self-improvement. Benchmark is publicly available at: https://github.com/ant-research/meta-agent-challenge.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-06-03T04:58:17Z</published>
+    <arxiv:comment>Website: https://meta-agent-challenge.com/</arxiv:comment>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Xinyu Lu</name>
+    </author>
+    <author>
+      <name>Tianshu Wang</name>
+    </author>
+    <author>
+      <name>Pengbo Wang</name>
+    </author>
+    <author>
+      <name>zujie wen</name>
+    </author>
+    <author>
+      <name>Zhiqiang Zhang</name>
+    </author>
+    <author>
+      <name>Jun Zhou</name>
+    </author>
+    <author>
+      <name>Boxi Cao</name>
+    </author>
+    <author>
+      <name>Yaojie Lu</name>
+    </author>
+    <author>
+      <name>Hongyu Lin</name>
+    </author>
+    <author>
+      <name>Xianpei Han</name>
+    </author>
+    <author>
+      <name>Le Sun</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2606.03544v1</id>
+    <title>SAGE: A Quantitative Evaluation of Socialized Evolution in Agent Ecosystems</title>
+    <updated>2026-06-02T12:08:38Z</updated>
+    <link href="https://arxiv.org/abs/2606.03544v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2606.03544v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Self-improving language agents are typically evaluated in isolation: an agent attempts a task, receives feedback, and iteratively refines its own behavior. Yet agents increasingly operate alongside peers whose strategies and outcomes are publicly visible. This raises an under-studied question: when does shared experience produce improvements that self-improvement alone cannot achieve? We introduce SAGE (Social Agent Group Evolution),an evaluation framework that compares two compute-matched conditions: SocialEvo, where agents from five distinct model families co-evolve with access to all peers' histories; and SelfEvo, where each agent receives the same number of task attempts but sees only its own past, which is conventional in self-improving agent studies. We instantiate SAGE in three arenas: open-ended ML research, long-horizon economic planning, and strategic multiplayer play, evaluated across multiple evolutionary rounds. We find that group history is not a universal amplifier: the strongest agent does not exceed its self-evolution ceiling. However, agents that plateau under self-improvement can achieve significant breakthroughs when peer experience is available. In competitive settings, counterfactual controls reveal that agents improve generally rather than developing opponent-specific strategies. Across different forms of shared history, filtered peer traces and reflective summaries often outperform raw logs, indicating that social gains depend on abstraction rather than exposure volume. These findings reveal that peer-history gains are agent-specific, arena-dependent, and contingent on the capacity to abstract transferable knowledge from public traces.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-06-02T12:08:38Z</published>
+    <arxiv:comment>13 pages, 5 figures</arxiv:comment>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Linyue Pan</name>
+    </author>
+    <author>
+      <name>Yaoming Zhu</name>
+    </author>
+    <author>
+      <name>Lin Qiu</name>
+    </author>
+    <author>
+      <name>Xuezhi Cao</name>
+    </author>
+    <author>
+      <name>Xunliang Cai</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2606.01314v1</id>
+    <title>SkillSmith: Co-Evolving Skills and Tools for Self-Improving Agent Systems</title>
+    <updated>2026-05-31T16:01:19Z</updated>
+    <link href="https://arxiv.org/abs/2606.01314v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2606.01314v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Recent self-evolving agents have shown that skills can be discovered, refined, and accumulated through execution. However, existing skill-evolution frameworks typically assume a fixed tool layer and evaluate each skill independently, limiting their ability to repair tool-level failures or reason about interactions among skills. We propose SkillSmith, a synergy-aware skill-tool co-evolution framework. SkillSmith introduces a unified proposal space in which reflection produces atomic bundles that jointly modify skills and tools, allowing tools to be wrapped, edited, composed, split, or retired when skill evolution identifies a reusable capability gap. To guide this joint search, SkillSmith maintains an ecological utility model inspired by Lotka-Volterra dynamics, where an interaction matrix estimated from execution traces captures pairwise complementarity and conflict among skills and provides pressure signals for retrieval, mutation prioritization, and retirement. Furthermore, SkillSmith records anti-patterns, including failure signatures, causal attributions, and remedies, to accelerate diagnosis and veto proposals that repeat known mistakes. Experiments on three benchmarks, including WildClawBench, and five Qwen3.5 model scales show that SkillSmith consistently outperforms strong baselines, with gains that amplify as task complexity and multi-skill co-activation increase.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-31T16:01:19Z</published>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Yangbo Wei</name>
+    </author>
+    <author>
+      <name>Zhen Huang</name>
+    </author>
+    <author>
+      <name>Shaoqiang Lu</name>
+    </author>
+    <author>
+      <name>Junhong Qian</name>
+    </author>
+    <author>
+      <name>Qifan Wang</name>
+    </author>
+    <author>
+      <name>Chen Wu</name>
+    </author>
+    <author>
+      <name>Lei He</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2605.30105v1</id>
+    <title>EvoRepair: Enhancing Vulnerability Repair Agents Through Experience-Based Self-Evolution</title>
+    <updated>2026-05-28T15:46:58Z</updated>
+    <link href="https://arxiv.org/abs/2605.30105v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2605.30105v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Large Language Models (LLMs) have shown promise for automated vulnerability repair (AVR), but they still face several limitations, including the lack of intra-vulnerability experience accumulation and the lack of cross-vulnerability experience reuse. As a result, LLMs may repeatedly make similar mistakes during iterative repair and underutilize valuable repair knowledge from historical vulnerabilities. To address these challenges, we propose EvoRepair, the first experience-based self-evolving AVR agent framework that enables LLMs to accumulate, refine, and leverage domain-specific knowledge across long-horizon vulnerability repairs. EvoRepair follows a cyclic learn-and-repair process that retrieves relevant past experiences to guide repair, extracts new experiences from repair trajectories, and updates an experience bank using quality-aware scoring. We evaluate EvoRepair against 12 representative vulnerability repair baselines on PATCHEVAL and SEC-bench using GPT-5-mini. Results show that EvoRepair achieves the best overall performance, reaching 93.47% on PATCHEVAL, 87.00% on SEC-bench, and 90.46% overall. In particular, EvoRepair outperforms latest LLM-based baseline LoopRepair by 39.56% and 33.50% on PATCHEVAL and SEC-bench, respectively, and surpasses IntentFix by 70.86% and 50.50%. Across both benchmarks, EvoRepair also exceeds the recent self-evolving agent Live-SWE-Agent by 6.98% overall. Additional transfer experiments on VUL4J further demonstrate the robustness of EvoRepair across models, programming languages, and datasets. These findings demonstrate that experience-based self-evolution substantially strengthens agentic AVR and goes beyond existing self-evolving techniques.</summary>
+    <category term="cs.SE" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-28T15:46:58Z</published>
+    <arxiv:primary_category term="cs.SE"/>
+    <author>
+      <name>Haichuan Hu</name>
+    </author>
+    <author>
+      <name>Guoqing Xie</name>
+    </author>
+    <author>
+      <name>Quanjun Zhang</name>
+    </author>
+    <author>
+      <name>Jiawei Liu</name>
+    </author>
+    <author>
+      <name>Shengcheng Yu</name>
+    </author>
+    <author>
+      <name>Chunrong Fang</name>
+    </author>
+    <author>
+      <name>Zhenyu Chen</name>
+    </author>
+    <author>
+      <name>Liang Xiao</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2605.29653v1</id>
+    <title>PTCG-Bench: Can LLM Agents Master Pokémon Trading Card Game?</title>
+    <updated>2026-05-28T09:16:22Z</updated>
+    <link href="https://arxiv.org/abs/2605.29653v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2605.29653v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Given a strategically complex board game, human players can quickly learn to devise strategies after playing a few rounds. Autonomous agents require similar capabilities in realistic interactive environments, yet existing agent benchmarks often fail to fully capture such strategic and evolving decision-making scenarios. We present PTCG-Bench, a benchmark built on the Pok'{e}mon Trading Card Game (PTCG) that evaluates LLM agents at two complementary levels: (1) their decision-making performance within a single complex environment, and (2) their ability to self-evolving through accumulated experience. We further include a modular harness ablation to better interpret agent performance without conflating it with model capability. Our experiments show that, although LLM agents can achieve non-trivial gameplay performance, sustained and stable self-evolution remains challenging, and performance is sensitive to harness design. We hope that PTCG-Bench will facilitate future research on harness-aware and self-evolving agents in realistic interactive environments.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-28T09:16:22Z</published>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Dongdong Hua</name>
+    </author>
+    <author>
+      <name>Yifei Sun</name>
+    </author>
+    <author>
+      <name>Renhong Huang</name>
+    </author>
+    <author>
+      <name>Feng Gao</name>
+    </author>
+    <author>
+      <name>Chunping Wang</name>
+    </author>
+    <author>
+      <name>Yang Yang</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2605.29225v1</id>
+    <title>BenchTrace: A Benchmark for Testing Reflection Ability and Controlled Evolution in LLM Agents</title>
+    <updated>2026-05-28T01:25:37Z</updated>
+    <link href="https://arxiv.org/abs/2605.29225v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2605.29225v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Self-evolving agents improve over time by reflecting on past failures, but existing evaluation is limited in two ways: it measures only task scores, leaving reflection quality unknown, and it relies on agents' own episode runs, offering no mechanism to target specific failure patterns. We present \textbf{BenchTrace}, a benchmark for evaluating self-evolution ability in LLM agents. BenchTrace is built on a snapshot-reflection dataset of 1,821 annotated episodes spanning six diverse tasks, and comprises a \textbf{Reflection Evaluation} that probes failure identification through targeted QA tasks, and an \textbf{Evolution Evaluation} that tests whether past failure experience translates into avoidance behavior in a controlled self-evolution simulation. Building on BenchTrace, we propose \textbf{failure avoidance rate (FAR)}, a new evaluation metric measuring the fraction of test cases in which the agent successfully avoids the target failure instance. Experiments with Qwen3-32B and GPT-4.1 reveal that both models fall below a 30\% end-to-end pass rate on reflection evaluation, with diagnosis as the primary bottleneck. Evolution evaluation shows that self-evolution methods generally improve FAR over the non-evolving baseline, but agents forget early lessons as noise episodes accumulate, and agents fail to generalize their reflections beyond the specific context, causing negative transfer across task contexts. Our correlation analysis further reveals that only a fully correct reflection is strongly associated with higher FAR. BenchTrace exposes concrete limits of current self-evolution approaches and provides a controlled, model-agnostic framework for targeted evaluation.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-28T01:25:37Z</published>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Jiahao Huang</name>
+    </author>
+    <author>
+      <name>Fei Cheng</name>
+    </author>
+    <author>
+      <name>Junfeng Jiang</name>
+    </author>
+    <author>
+      <name>Zefan Yu</name>
+    </author>
+    <author>
+      <name>Akiko Aizawa</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2605.26720v1</id>
+    <title>Towards Feedback-to-Plan Decisions for Self-Evolving LLM Agents in CUDA Kernel Generation</title>
+    <updated>2026-05-26T09:00:09Z</updated>
+    <link href="https://arxiv.org/abs/2605.26720v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2605.26720v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Large language models (LLMs) have shown strong empirical gains as self-evolving agents for CUDA kernel generation, driven by feedback-conditioned planning across generations. However, how planning decisions attribute and combine heterogeneous feedback signals remains opaque. Standard end-to-end ablations fail to resolve this question, as iterative planning amplifies early perturbations and conflates feedback effects with trajectory-dependent drift.
+  We introduce \texttt{CUDAnalyst}, a unified analysis layer for controlled, generation-level attribution of planning decisions to feedback components via trajectory freezing and selective feedback injection. \texttt{CUDAnalyst} enables stable generation-level evaluation and principled coalitional-style attribution of feedback effects and interactions. Our results show that explicit planning is beneficial only when feedback is aligned, that effective planning emerges from structured multi-feedback interactions, and that high-level plans from stronger reasoning models can partially transfer to weaker ones. These trends hold across reference backbones, representative workloads, and reference induction regimes, indicating that the identified feedback-to-plan structure is robust within the controlled axes studied.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-26T09:00:09Z</published>
+    <arxiv:comment>ICML 2026 accpeted, camera-ready in progress</arxiv:comment>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Yee Hin Chong</name>
+    </author>
+    <author>
+      <name>Jiaming Wu</name>
+    </author>
+    <author>
+      <name>Youhui Zhang</name>
+    </author>
+    <author>
+      <name>Peng Qu</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2605.23019v1</id>
+    <title>PACE: Two-Timescale Self-Evolution for Small Language Model Agents</title>
+    <updated>2026-05-21T20:42:06Z</updated>
+    <link href="https://arxiv.org/abs/2605.23019v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2605.23019v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Deploying language-model agents in production often requires substantial compute and human effort to tune prompts, parsers, validators, and other components of the agent pipeline. Self-evolution offers a promising alternative, but most existing frameworks assume access to frontier models that can reliably diagnose failures, propose revisions, and judge their own updates. We study whether frozen small language models (SLMs) can serve as effective self-evolving agents under resource constraints. We propose PACE (Prompt And Control Logic Evolution), a two-timescale framework that coordinates low-risk prompt refinement with higher-risk control-logic updates. PACE evolves prompts under fixed control logic until prompt-level gains saturate, then considers constrained control-logic updates that are accepted through held-out validation. Across three frozen SLM backbones ranging from 4B to 14B parameters and four controlled benchmarks, PACE achieves the best performance on all 12 backbone--benchmark combinations, improving over vanilla SLM agents by up to +9.2% relative improvement and over the stronger single-mode evolution baseline by up to +5.4% relative improvement. A tau-bench case study further shows that PACE improves multi-turn tool-use success over vanilla and prompt-only evolution. These results suggest that reliable SLM agent self-evolution is possible without updating model weights or relying on frontier-model teachers, and that the key benefit is not any single final solver pattern but autonomous, validated discovery of task-appropriate inference strategies.</summary>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-21T20:42:06Z</published>
+    <arxiv:primary_category term="cs.LG"/>
+    <author>
+      <name>Chen Ling</name>
+    </author>
+    <author>
+      <name>Pei Chen</name>
+    </author>
+    <author>
+      <name>Albert Guan</name>
+    </author>
+    <author>
+      <name>Jiaming Qu</name>
+    </author>
+    <author>
+      <name>Shayan Ali Akbar</name>
+    </author>
+    <author>
+      <name>Madhu Gopinathan</name>
+    </author>
+    <author>
+      <name>Erwin Cornejo</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2605.22794v2</id>
+    <title>MOSS: Self-Evolution through Source-Level Rewriting in Autonomous Agent Systems</title>
+    <updated>2026-05-23T13:08:16Z</updated>
+    <link href="https://arxiv.org/abs/2605.22794v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2605.22794v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Autonomous agentic systems are largely static after deployment: they do not learn from user interactions, and recurring failures persist until the next human-driven update ships a fix. Self-evolving agents have emerged in response, but all confine evolution to text-mutable artifacts -- skill files, prompt configurations, memory schemas, workflow graphs -- and leave the agent harness untouched. Since routing, hook ordering, state invariants, and dispatch live in code rather than in any text artifact, an entire class of structural failure is physically unreachable from the text layer. We argue that source-level adaptation is a fundamentally more general medium: it is Turing-complete, a strict superset of every text-mutable scope, takes effect deterministically rather than through base-model compliance, and does not erode under long-context drift. We present MOSS, a system that performs self-rewriting at the source level on production agentic substrates. Each evolution is anchored to an automatically curated batch of production-failure evidence and proceeds through a deterministic multi-stage pipeline; code modification is delegated to a pluggable external coding-agent CLI while MOSS retains stage ordering and verdicts. Candidates are verified by replaying the batch against the candidate image in ephemeral trial workers, then promoted via user-consent-gated, in-place container swap with health-probe-gated rollback. On OpenClaw, MOSS lifts a four-task mean grader score from 0.25 to 0.61 in a single cycle without human intervention.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-21T17:48:33Z</published>
+    <arxiv:comment>12 pages, 3 figures, 2 tables. Preprint. Code: https://github.com/hkgai-official/Moss</arxiv:comment>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Qianshu Cai</name>
+    </author>
+    <author>
+      <name>Yonggang Zhang</name>
+    </author>
+    <author>
+      <name>Xianzhang Jia</name>
+    </author>
+    <author>
+      <name>Huajiang Zheng</name>
+    </author>
+    <author>
+      <name>Wei Xue</name>
+    </author>
+    <author>
+      <name>Jun Song</name>
+    </author>
+    <author>
+      <name>Xinmei Tian</name>
+    </author>
+    <author>
+      <name>Yike Guo</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2605.22905v1</id>
+    <title>EVE-Agent: Evidence-Verifiable Self-Evolving Agents</title>
+    <updated>2026-05-21T17:47:01Z</updated>
+    <link href="https://arxiv.org/abs/2605.22905v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2605.22905v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Self-evolving agents should not train on examples they cannot justify. Data-free self-evolving search agents offer a scalable route to systems that generate their own questions, answer them, and improve from their own feedback without human annotations. Yet, without verifiable evidence, this loop can reward fluent but unsupported examples, turning the self-generated curriculum into an opaque and potentially unreliable training signal. We argue that evidence verifiability is a prerequisite for trustworthy self-evolution in search agents: each generated instance should include not only an answer but also a source-grounded span whose contribution to that answer can be measured. We introduce EVE-Agent, an Evidence-Verifiable Self-Evolving Agent that operationalizes this principle through a modification to the proposer--solver framework. The proposer generates a question, an answer, and a verbatim evidence span. An evidence verifier then rewards the span according to the marginal accuracy gain when the evidence is provided. This produces a training signal that favors evidence that genuinely helps answer the question, without requiring oracle answers, human labels, or external annotations. EVE-Agent leaves the backbone model, retriever, search tool, and optimization framework unchanged. Experiments show that EVE-Agent substantially improves evidence-grounded correctness over prior self-evolving search agents. The resulting curriculum is not merely self-generated but auditable by construction: each training example carries an inspectable source span that explains why it should be trusted.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-21T17:47:01Z</published>
+    <arxiv:comment>23 pages, 2 figures</arxiv:comment>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Yamato Arai</name>
+    </author>
+    <author>
+      <name>Yuma Ichikawa</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2605.21997v1</id>
+    <title>The Log is the Agent: Event-Sourced Reactive Graphs for Auditable, Forkable Agentic Systems</title>
+    <updated>2026-05-21T04:55:38Z</updated>
+    <link href="https://arxiv.org/abs/2605.21997v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2605.21997v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Most agent frameworks are built around the language model: a conversation loop comes first, then tools, then rules, and finally a logging layer bolted on for observability, with state persisted as retrievable "memory." We describe ActiveGraph, a runtime that inverts this arrangement. The append-only event log is the source of truth; the working graph is a deterministic projection of that log; and behaviors--ordinary functions, classes, LLM-backed routines, or logic attached to typed edges--react to changes in the graph and emit new events. No component instructs another; coordination happens entirely through the shared graph. This single design decision yields three properties that retrieval-and-summarization memory systems do not provide: deterministic replay of any run from its log, cheap forking that branches a run at any event without re-executing the shared prefix, and end-to-end lineage from a high-level goal down to the individual model call that produced each artifact. We present the architecture, a determinism contract that makes replay sound, and a worked diligence example whose full causal structure is reconstructable from the log alone. We discuss--without claiming to demonstrate--why this substrate is unusually well suited to self-improving agents, and how it extends the BabyAGI lineage and prior graph-memory research.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.MA" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-21T04:55:38Z</published>
+    <arxiv:comment>11 pages, 1 figure. Open-source Apache-2.0 implementation with reproducible quickstart demo, deterministic replay, fork-and-diff, and lineage tracing</arxiv:comment>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Yohei Nakajima</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2605.21240v1</id>
+    <title>APEX: Autonomous Policy Exploration for Self-Evolving LLM Agents</title>
+    <updated>2026-05-20T14:29:27Z</updated>
+    <link href="https://arxiv.org/abs/2605.21240v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2605.21240v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>LLM agents have shown strong performance across a wide range of complex tasks, including interactive environments that require long-horizon decision making. But these agents cannot learn on the fly at test time. Self-evolving agents address this by accumulating memory and reflection across episodes rather than requiring model-weight updates. However, these agents often suffer from exploration collapse: as memory grows, behavior concentrates around familiar high-reward routines, reducing the chance of discovering better alternatives. To address this problem, we propose Autonomous Policy EXploration (APEX), which builds and maintains an explicit strategy space through a strategy map-a directed acyclic graph of milestones with prerequisite dependency edges. In APEX, Fork Discovery expands the map with evidence-grounded unexplored directions, while Policy Selection balances exploration and exploitation during planning. Evaluated on nine Jericho text-adventure games and WebArena, a realistic web interaction benchmark, APEX outperforms all baselines. Extensive ablations validate each component's contribution and demonstrate robustness across diverse settings, demonstrating APEX's effectiveness for sustained exploration in self-evolving agents.</summary>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-20T14:29:27Z</published>
+    <arxiv:primary_category term="cs.LG"/>
+    <author>
+      <name>Yibo Li</name>
+    </author>
+    <author>
+      <name>Jiashuo Yang</name>
+    </author>
+    <author>
+      <name>Zhi Zheng</name>
+    </author>
+    <author>
+      <name>Zhiyuan Hu</name>
+    </author>
+    <author>
+      <name>Yuan Sui</name>
+    </author>
+    <author>
+      <name>Shizun Wang</name>
+    </author>
+    <author>
+      <name>Yufei He</name>
+    </author>
+    <author>
+      <name>Bryan Hooi</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2605.19576v1</id>
+    <title>Library Drift: Diagnosing and Fixing a Silent Failure Mode in Self-Evolving LLM Skill Libraries</title>
+    <updated>2026-05-19T09:19:56Z</updated>
+    <link href="https://arxiv.org/abs/2605.19576v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2605.19576v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Self-evolving skill libraries face a silent failure mode we term \emph{library drift}: unbounded skill accumulation without outcome-driven lifecycle management causes retrieval degradation, false-positive injections, and performance stagnation. Recent evaluation confirms the symptom--LLM-authored skills deliver +0.0pp gain while human-curated ones deliver +16.2pp (SkillsBench)--yet the underlying mechanism has not been isolated. We provide (1) a reproducible trigger: ablations that isolate drift--one disables skill injection (flat floor, +0.002), one imposes premature retirement (active harm, $-$0.019); (2) trace-level diagnostics: an append-only evidence log with per-skill contribution scores, attribution verdicts, and router engagement metrics that make the failure visible before it reaches end-task scores; and (3) a verified fix: a minimal governance recipe (outcome-driven retirement + bounded active-cap + meta-skill authoring prior) that lifts held-out pass@1 from a 0.258 baseline to a late-window mean of 0.584 (rolling gain $+$0.328) on MBPP+ hard-100 over 100 rounds. Eight ablations decompose which governance mechanisms are load-bearing and which are subsumed, providing a concrete playbook for diagnosing library drift in any self-evolving agent.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.SE" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-19T09:19:56Z</published>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Xing Zhang</name>
+    </author>
+    <author>
+      <name>Yanwei Cui</name>
+    </author>
+    <author>
+      <name>Guanghui Wang</name>
+    </author>
+    <author>
+      <name>Ziyuan Li</name>
+    </author>
+    <author>
+      <name>Wei Qiu</name>
+    </author>
+    <author>
+      <name>Bing Zhu</name>
+    </author>
+    <author>
+      <name>Peiyang He</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2605.17721v1</id>
+    <title>EXG: Self-Evolving Agents with Experience Graphs</title>
+    <updated>2026-05-18T00:50:23Z</updated>
+    <link href="https://arxiv.org/abs/2605.17721v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2605.17721v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Large language model (LLM)-based agents have demonstrated strong capabilities in complex reasoning and problem solving through multi-step interactions, yet most deployed agents remain behaviorally static, with knowledge acquired during execution rarely translating into systematic improvement over time. In response, a growing line of work on self-evolving agents explores how agents can improve through experience during deployment, but most existing approaches either rely on ad hoc reflection limited to single-task correction or adopt unstructured memory that accumulates fragmented experience with delayed usability. To address this limitation, we introduce EXG, an experience graph framework for self-evolving agents that explicitly organizes accumulated successes and failures into a structured, relational representation. EXG is the first experience graph designed for self-evolving agents, supporting both online, real-time graph growth during execution for immediate cross-task experience reuse, and offline reuse of a consolidated experience graph as an external memory module. This design also enables EXG to serve as a plug-and-play component for existing self-evolving agents, organizing prior experience into a unified experience graph and improving both solution quality and resource efficiency as deployment progresses. Extensive experiments across code generation and reasoning benchmarks show that EXG attains more favorable performance-efficiency trade-offs than reflection- and memory-based baselines in both online and offline evaluations. Our results suggest that structuring experience as a graph provides a principled foundation for scalable and transferable self-evolving agent behavior.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-18T00:50:23Z</published>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Yuxin Jin</name>
+    </author>
+    <author>
+      <name>Siyuan Zhang</name>
+    </author>
+    <author>
+      <name>Hanchen Wang</name>
+    </author>
+    <author>
+      <name>Lu Qin</name>
+    </author>
+    <author>
+      <name>Ying Zhang</name>
+    </author>
+    <author>
+      <name>Wenjie Zhang</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2605.23989v1</id>
+    <title>Towards trustworthy agentic AI: a comprehensive survey of safety, robustness, privacy, and system security</title>
+    <updated>2026-05-17T10:26:37Z</updated>
+    <link href="https://arxiv.org/abs/2605.23989v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2605.23989v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Agentic AI systems -- Large Language Models (LLMs) augmented with planning, tool use, memory, and long-horizon interactions -- can execute complex tasks autonomously, but their multi-step trajectories introduce new failure modes that challenge trustworthiness. This survey provides a focused examination of trustworthy agentic AI through two core dimensions that are critical for high-risk deployments: Safety and Robustness, and Privacy and System Security. For each dimension, we clarify key concepts, identify where risks emerge along the agent workflow, and summarize stage-targeted mitigation strategies. Other trustworthiness aspects (value alignment, transparency, fairness, and accountability) are discussed as relevant context rather than parallel chapters. To support consistent comparison and deployment decisions, we consolidate evaluation into a unified metrics-and-benchmarks hub, emphasizing both outcome and process signals (e.g., constraint violations, trace completeness, and adversarial success rates) and offering scenario-to-metric guidance for release gating. We conclude by outlining open challenges such as self-evolving agents, runtime monitoring and verification, privacy-preserving personalization, and the trust-utility trade-off, and present a case study of real-world security failures in open-source agentic systems. Our goal is to serve as a practical reference for researchers and practitioners building trustworthy agentic systems in high-stakes environments.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CR" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-17T10:26:37Z</published>
+    <arxiv:comment>36 pages, 4 figures. Survey/review article on trustworthy agentic AI. Published in Academia AI and Applications, 2026</arxiv:comment>
+    <arxiv:primary_category term="cs.AI"/>
+    <arxiv:journal_ref>Academia AI and Applications, vol. 2, 2026</arxiv:journal_ref>
+    <author>
+      <name>Jinhu Qi</name>
+    </author>
+    <author>
+      <name>Muzhi Li</name>
+    </author>
+    <author>
+      <name>Jiahong Liu</name>
+    </author>
+    <author>
+      <name>Yuqin Shu</name>
+    </author>
+    <author>
+      <name>Dianzhi Yu</name>
+    </author>
+    <author>
+      <name>Shicheng Ma</name>
+    </author>
+    <author>
+      <name>Wenqian Cui</name>
+    </author>
+    <author>
+      <name>Yiyang Zhao</name>
+    </author>
+    <author>
+      <name>Yiyi Chen</name>
+    </author>
+    <author>
+      <name>Ruoxi Jiang</name>
+    </author>
+    <author>
+      <name>Irwin King</name>
+    </author>
+    <author>
+      <name>Zenglin Xu</name>
+    </author>
+    <arxiv:doi>10.20935/AcadAI8260</arxiv:doi>
+    <link rel="related" href="https://doi.org/10.20935/AcadAI8260" title="doi"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2605.15871v1</id>
+    <title>Agentic Discovery of Neural Architectures: AIRA-Compose and AIRA-Design</title>
+    <updated>2026-05-15T11:40:41Z</updated>
+    <link href="https://arxiv.org/abs/2605.15871v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2605.15871v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Toward recursive self-improvement, we investigate LLM agents autonomously designing foundation models beyond standard Transformers. We introduce a dual-framework approach: AIRA-Compose for high-level architecture search, and AIRA-Design for low-level mechanistic implementation. AIRA-Compose uses 11 agents to explore fundamental computational primitives under a 24-hour budget. Agents evaluate million-parameter candidates, extrapolating top designs to 350M, 1B, and 3B scales. This yields 14 architectures across two families: AIRAformers (Transformer-based) and AIRAhybrids (Transformer-Mamba). Pre-trained at 1B scale, these consistently outperform Llama 3.2 and Composer-found baselines. On downstream tasks, AIRAformer-D and AIRAhybrid-D improve accuracy by 2.4% and 3.8% over Llama 3.2. Furthermore, AIRA-Compose finds models with highly efficient scaling frontiers: AIRAformer-C scales 54% and 71% faster than Llama 3.2 and Composer's best Transformer, while AIRAhybrid-C outscales Nemotron-2 by 23% and Composer's best hybrid by 37%. AIRA-Design tasks 20 agents with writing novel attention mechanisms for long-range dependencies and high-performing training scripts. On the Long Range Arena benchmark, agent-designed architectures reach within 2.3% and 2.6% of human state-of-the-art on document matching and text classification. On the Autoresearch benchmark, Greedy Opus 4.5 achieves 0.968 validation bits-per-byte under a fixed time budget, surpassing the published minimum. Together, these frameworks show AI agents can autonomously discover architectures and algorithmic optimizations matching or surpassing hand-designed baselines. This establishes a powerful paradigm for discovering next-generation foundation models, marking a clear step toward recursive self-improvement.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-15T11:40:41Z</published>
+    <arxiv:comment>55 pages, 28 figures, 21 tables</arxiv:comment>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Alberto Pepe</name>
+    </author>
+    <author>
+      <name>Chien-Yu Lin</name>
+    </author>
+    <author>
+      <name>Despoina Magka</name>
+    </author>
+    <author>
+      <name>Bilge Acun</name>
+    </author>
+    <author>
+      <name>Yannan Nellie Wu</name>
+    </author>
+    <author>
+      <name>Anton Protopopov</name>
+    </author>
+    <author>
+      <name>Carole-Jean Wu</name>
+    </author>
+    <author>
+      <name>Yoram Bachrach</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2605.15461v1</id>
+    <title>DrugSAGE:Self-evolving Agent Experience for Efficient State-of-the-Art Drug Discovery</title>
+    <updated>2026-05-14T22:49:42Z</updated>
+    <link href="https://arxiv.org/abs/2605.15461v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2605.15461v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Building state-of-the-art (SOTA) predictive models for drug discovery requires expensive search over tools, architectures, and training strategies. Current LLM-based agents can find SOTA solutions through extensive trial and error, but they do not retain the experience accumulated along the way and therefore pay the full search cost on every new task. We propose \method (Self-evolving Agent Experience), a framework that accumulates and reuses experience across tasks to build SOTA drug discovery models efficiently. \method maintains a cross-task memory of verified skills, statistical evidence about effective strategies, and a record of recurring errors and their fixes. In some cases, \method transfers a working solution directly without test-time search. In 33 molecular property prediction tasks, \method ranks first among nine SOTA agents in a single-task setting. With memory accumulated from 16 smaller tasks, \method achieves an averaged normalized score of 0.935 on 17 held-out tasks in a cross-task evaluation setting and outperforms all baseline agents by 10-30\% in a zero-test-time search regime. In summary, our work shows the advantage of cross-task memory for efficient SOTA model development in drug discovery.</summary>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-14T22:49:42Z</published>
+    <arxiv:primary_category term="cs.LG"/>
+    <author>
+      <name>Yikun Zhang</name>
+    </author>
+    <author>
+      <name>Xiwei Cheng</name>
+    </author>
+    <author>
+      <name>Tianyu Liu</name>
+    </author>
+    <author>
+      <name>Yuanqi Du</name>
+    </author>
+    <author>
+      <name>Wengong Jin</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2605.14831v1</id>
+    <title>Interestingness as an Inductive Heuristic for Future Compression Progress</title>
+    <updated>2026-05-14T13:36:14Z</updated>
+    <link href="https://arxiv.org/abs/2605.14831v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2605.14831v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>One of the bottlenecks on the way towards recursively self-improving systems is the challenge of interestingness: the ability to prospectively identify which tasks or data hold the potential for future progress. We formalize interestingness as an inductive heuristic for future compression progress and investigate its predictability using tools from Kolmogorov Complexity and Algorithmic Statistics. By analyzing complexity-runtime profiles under Length, Algorithmic, and Speed priors, we demonstrate that the inductive property of interestingness -- the capacity for past progress to signal future discovery -- is theoretically viable and empirically supported. We prove that expected future progress depends exponentially on the recency of the last observed breakthrough. Furthermore, we show that the Algorithmic Prior is significantly more optimistic than the Length Prior, yielding a quadratic increase in expected discovery for the same observed profile. These findings are experimentally confirmed across three diverse universal computational paradigms.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-14T13:36:14Z</published>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Vincent Herrmann</name>
+    </author>
+    <author>
+      <name>Jürgen Schmidhuber</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2605.14306v1</id>
+    <title>Towards Self-Evolving Agentic Literature Retrieval</title>
+    <updated>2026-05-14T03:17:31Z</updated>
+    <link href="https://arxiv.org/abs/2605.14306v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2605.14306v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>As large language models reshape scientific research, literature retrieval faces a twofold challenge: ensuring source authenticity while maintaining a deep comprehension of academic search intents. While reliable, traditional keyword-centric search fails to capture complex research intents. Frontier LLMs can handle complex research intents, but their high cost and tendency to hallucinate remain key limitations. Here we introduce PaSaMaster, a self-evolving agentic literature retrieval system that produces relevance-scored paper rankings with evidence-grounded recommendations through iterative intent analysis, retrieval, and ranking. It is built on three key designs. First, it transforms literature retrieval from a one shot query--document matching problem into a search process that evolves over time, using ranked evidence to reveal gaps, refine intents, and guide follow-up searches. Second, it prevents hallucinated sources by treating retrieval as intent--paper relevance ranking rather than generation. Finally, PaSaMaster improves cost efficiency by separating planning from retrieval: a frontier LLM is used only for intent understanding, while large scale retrieval and relevance scoring are delegated to customized corpora and lightweight models. Evaluated on the PaSaMaster Benchmark across 38 scientific disciplines, our system exposes the severe inaccuracy and incompleteness of traditional keyword retrieval (improving F1-score by 15.6X) and the unreliability of generative LLMs (which exhibit hallucination rates up to 37.79%). Remarkably, PaSaMaster outperforms GPT-5.2 by 30.0% at a mere 1% of the computational cost while ensuring zero source hallucination: https://github.com/sjtu-sai-agents/PaSaMaster</summary>
+    <category term="cs.IR" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-14T03:17:31Z</published>
+    <arxiv:primary_category term="cs.IR"/>
+    <author>
+      <name>Yuwen Du</name>
+    </author>
+    <author>
+      <name>Tian Jin</name>
+    </author>
+    <author>
+      <name>Jing Kang</name>
+    </author>
+    <author>
+      <name>Xianghe Pang</name>
+    </author>
+    <author>
+      <name>Jingyi Chai</name>
+    </author>
+    <author>
+      <name>Tingjia Miao</name>
+    </author>
+    <author>
+      <name>Fenyi Liu</name>
+    </author>
+    <author>
+      <name>WenHao Wang</name>
+    </author>
+    <author>
+      <name>Sikai Yao</name>
+    </author>
+    <author>
+      <name>Yuzhi Zhang</name>
+    </author>
+    <author>
+      <name>Siheng Chen</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2605.14211v3</id>
+    <title>ASH: Agents that Self-Hone via Embodied Learning</title>
+    <updated>2026-06-05T16:41:58Z</updated>
+    <link href="https://arxiv.org/abs/2605.14211v3" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2605.14211v3" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Long-horizon embodied tasks remain a fundamental challenge in AI, as current methods rely on hand-engineered rewards or action-labeled demonstrations, neither of which scales. We introduce ASH, an agentic system that learns an embodied policy from unlabeled, noisy internet video, without reward shaping or expert annotation. ASH follows a self-improvement loop; when it gets stuck, ASH learns an Inverse Dynamics Model (IDM) from its own trajectories, and uses its IDM to extract supervision from relevant internet video. ASH uses unsupervised learning to identify key moments from large-scale internet video and retains them as long-term memory -- allowing it to tackle long-horizon problems. We evaluate ASH on two complementary environments demanding multi-hour planning: Pokemon Emerald, a turn-based RPG, and The Legend of Zelda: The Minish Cap, a real-time action-adventure game. In both games, behavioral cloning, retrieval-augmented and zero-shot foundation-model baselines plateau, while ASH sustains progression across our 8-hour evaluation. ASH reaches an average of $11.2/12$ milestones in Pokemon Emerald and $9.9/12$ in Legend of Zelda, while the strongest baseline gets stuck in both environments at an average of $6.5/12$ and $6.0/12$ milestones, respectively. We demonstrate that self-improving agents are a scalable recipe for long-horizon embodied learning.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-14T00:10:12Z</published>
+    <arxiv:comment>Published as a workshop paper at ICML 2026 Workshop on Scalable Learning and Optimization for Efficient Multimodal AI Agents</arxiv:comment>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Benjamin Schneider</name>
+    </author>
+    <author>
+      <name>Xavier Schneider</name>
+    </author>
+    <author>
+      <name>Victor Zhong</name>
+    </author>
+    <author>
+      <name>Sun Sun</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2605.13803v1</id>
+    <title>EvoGround: Self-Evolving Video Agents for Video Temporal Grounding</title>
+    <updated>2026-05-13T17:25:51Z</updated>
+    <link href="https://arxiv.org/abs/2605.13803v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2605.13803v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Video temporal grounding (VTG) takes an untrimmed video and a natural-language query as input and localizes the temporal moment that best matches the query. Existing methods rely on large, task-specific datasets requiring costly manual annotation. We introduce EvoGround, a framework of two coupled self-evolving agents, a proposer and a solver, that learn temporal grounding from raw videos without any human-labeled data. The proposer generates query--moment pairs from raw videos, while the solver learns to ground them and feeds back signals that improve the proposer in return. Through this self-reinforcing reinforcement-learning loop, the two agents are initialized from the same backbone and mutually improve across iterations. Trained on 2.5K unlabeled videos, EvoGround matches or surpasses fully supervised models across multiple VTG benchmarks, while emerging as a state-of-the-art fine-grained video captioner without manual labels.</summary>
+    <category term="cs.CV" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-13T17:25:51Z</published>
+    <arxiv:comment>Project page: https://minjoong507.github.io/projects/EvoGround/</arxiv:comment>
+    <arxiv:primary_category term="cs.CV"/>
+    <author>
+      <name>Minjoon Jung</name>
+    </author>
+    <author>
+      <name>Byoung-Tak Zhang</name>
+    </author>
+    <author>
+      <name>Lorenzo Torresani</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2605.12978v1</id>
+    <title>Useful Memories Become Faulty When Continuously Updated by LLMs</title>
+    <updated>2026-05-13T04:15:50Z</updated>
+    <link href="https://arxiv.org/abs/2605.12978v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2605.12978v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Learning from past experience benefits from two complementary forms of memory: episodic traces -- raw trajectories of what happened -- and consolidated abstractions distilled across many episodes into reusable, schema-like lessons. Recent agentic-memory systems pursue the consolidated form: an LLM rewrites past trajectories into a textual memory bank that it continuously updates with new interactions, promising self-improving agents without parameter updates. Yet we find that such consolidated memories produced by today's LLMs are often faulty even when derived from useful experiences. As consolidation proceeds, memory utility first rises, then degrades, and can fall below the no-memory baseline. More surprisingly, even when consolidating from ground-truth solutions, GPT-5.4 fails on 54% of a set of ARC-AGI problems it had previously solved without memory. We trace the regression to the consolidation step rather than the underlying experience: the same trajectories yield qualitatively different memories under different update schedules, and an episodic-only control that simply retains those trajectories remains competitive with the consolidators we test. In a controlled ARC-AGI Stream environment that exposes Retain, Delete, and Consolidate actions, agents preserve raw episodes by default and double the accuracy of their forced-consolidation counterparts; disabling consolidation entirely (episodic management only) matches this auto regime. Practically, robust agent memory should treat raw episodes as first-class evidence and gate consolidation explicitly rather than firing it after every interaction. Looking forward, reliable agentic memory will require LLMs that can consolidate without overwriting the evidence they depend on.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-13T04:15:50Z</published>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Dylan Zhang</name>
+    </author>
+    <author>
+      <name>Yanshan Lin</name>
+    </author>
+    <author>
+      <name>Zhengkun Wu</name>
+    </author>
+    <author>
+      <name>Yihang Sun</name>
+    </author>
+    <author>
+      <name>Bingxuan Li</name>
+    </author>
+    <author>
+      <name>Dianqi Li</name>
+    </author>
+    <author>
+      <name>Hao Peng</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2605.12061v1</id>
+    <title>SAGE: A Self-Evolving Agentic Graph-Memory Engine for Structure-Aware Associative Memory</title>
+    <updated>2026-05-12T12:47:43Z</updated>
+    <link href="https://arxiv.org/abs/2605.12061v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2605.12061v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Long-term memory is becoming a central bottleneck for language agents. Exsting RAG and GraphRAG systems largely treat memory graphs as static retrieval middleware, which limits their ability to recover complete evidence chains from partial cues, exploit reusable graph-structrual roles, and improve the memory itself through downstream feedback. We introduce SAGE, a Self-evolving Agentic Graph-memory Engine that models graph memory as a dynamic long-term memory substrate. SAGE couples two roles: a memory writer that incrementally constucts structured graph memory from interaction histories, and a Graph Foundation Model-based memory reader to perform retrieval and provide feedback to the memory writer. We provide rigorooous theoretical annalyses supporting the framework. Across multi-hop QA, open-domain retireval, domain-specific review QA, and long-term agent-memory benchmarks, SAGE improves evidence recovery, answer grounding, and retrieval efficiency: after two self-evolution rounds, it achieves the best average rank on multi-hop QA; in zero-shot open-domain transfer, it reaches 82.5/91.6 Recall@2/5 on NQ. Further results on LongMemEval and HaluMem show that traning and reader-writer feedback improve multiple long-term memory and hallucination-diagnostic metrics, suggesting that self-evolving, structure-aware graph memory is a promising foundation for robust long-horizon language agents.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-12T12:47:43Z</published>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Juntong Wang</name>
+    </author>
+    <author>
+      <name>Haoyue Zhao</name>
+    </author>
+    <author>
+      <name>guanghui Pan</name>
+    </author>
+    <author>
+      <name>Xiyuan Wang</name>
+    </author>
+    <author>
+      <name>Yanbo Wang</name>
+    </author>
+    <author>
+      <name>Qiyan Deng</name>
+    </author>
+    <author>
+      <name>Muhan Zhang</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2605.11882v1</id>
+    <title>On-Policy Self-Evolution via Failure Trajectories for Agentic Safety Alignment</title>
+    <updated>2026-05-12T09:56:28Z</updated>
+    <link href="https://arxiv.org/abs/2605.11882v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2605.11882v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Tool-using LLM agents fail through trajectories rather than only final responses, as they may execute unsafe tool calls, follow injected instructions, comply with harmful requests, or over-refuse benign tasks despite producing a seemingly safe answer. Existing safety-alignment signals are largely response-level or off-policy, and often incur a safety-utility trade-off: improving agent safety comes at the cost of degraded task performance. Such sparse and single-objective rewards severely limit real-world usability. To bridge this gap, we propose FATE, an on-policy self-evolving framework that transforms verifier-scored failures into repair supervision without expert demonstrations. For each failure, the same policy proposes repair candidates, which are then re-scored by verifiers and filtered across security, utility, over-refusal control, and trajectory validity. This dense trajectory-level information is then used as a supervision signal for agent self-evolution. During this process, we further introduce Pareto-Front Policy Optimization (PFPO), combining supervised warmup with Pareto-aware policy optimization to preserve safety-utility trade-offs. Experiments on AgentDojo, AgentHarm, and ATBench show that FATE improves safety across different models and scales while preserving useful behavior. Compared with strong baselines, FATE reduces attack success rate by 33.5%, harmful compliance by 82.6%, and improves external trajectory-safety diagnosis by 6.5%. These results suggest that failed trajectories can provide structured repair supervision for safer self-evolving agents.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-12T09:56:28Z</published>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Bo Yin</name>
+    </author>
+    <author>
+      <name>Qi Li</name>
+    </author>
+    <author>
+      <name>Xinchao Wang</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2605.11117v1</id>
+    <title>GRAFT-ATHENA: Self-Improving Agentic Teams for Autonomous Discovery and Evolutionary Numerical Algorithms</title>
+    <updated>2026-05-11T18:27:01Z</updated>
+    <link href="https://arxiv.org/abs/2605.11117v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2605.11117v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Scientific discovery can be modeled as a sequence of probabilistic decisions that map physical problems to numerical solutions. Recent agentic AI systems automate individual scientific tasks by orchestrating LLM-driven planners, solvers, and evaluators. Each method is a combination of methodological actions, with many viable combinations for any given problem and structural dependencies between choices. However, existing frameworks treat each problem in isolation, with no shared substrate to accumulate methodological experience across domains. Here we show that GRAFT-ATHENA, a self-improving agentic framework, learns from past problems and autonomously expands its own action space across diverse domains. GRAFT (Graph Reduction to Adaptive Factored Trees) projects combinatorial decision spaces into factored probabilistic trees in which each method is a single path, taking the parameter footprint from exponential to linear. In the lineage of classical Bayesian networks, the factorization is an $I$-map of the policy, and the resulting paths embed as unique fingerprints in a metric space whose closeness lets each new problem learn from similar past ones. On canonical physics-informed machine learning (PIML) benchmarks, GRAFT-ATHENA improves over human and prior agentic baselines, and on production solvers, it tackles complex engineering problems such as reconstructing Mach-10 flow over the Apollo Command Module from a 1968 report and recovering shear-thinning blood-cell rheology. Notably, the system grows its own knowledge substrate, autonomously proposing regularization constraints for ill-posed inverse problems and discovering new numerical methods such as a spectral PINN with exponential convergence. These results provide a foundation for autonomous laboratories that grow more capable with every problem they solve.</summary>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.MA" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="math.PR" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-11T18:27:01Z</published>
+    <arxiv:primary_category term="cs.LG"/>
+    <author>
+      <name>Juan Diego Toscano</name>
+    </author>
+    <author>
+      <name>Zhaojie Chai</name>
+    </author>
+    <author>
+      <name>George Em Karniadakis</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2605.10663v1</id>
+    <title>Evolving-RL: End-to-End Optimization of Experience-Driven Self-Evolving Capability within Agents</title>
+    <updated>2026-05-11T14:43:56Z</updated>
+    <link href="https://arxiv.org/abs/2605.10663v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2605.10663v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Experience-driven self-evolving agents aim to overcome the static nature of large language models by distilling reusable experience from past interactions, thus enabling adaptation to novel tasks at deployment time. This process places substantial demands on the foundation model's capacities for abstraction, generalization, and in-context learning. However, most existing studies focus primarily on system-level design choices, such as how experience is represented and managed, neglecting the inherent capabilities of the underlying model. While some recent works have started to optimize the experience utilization stage via reinforcement learning, they still fail to treat self-evolution as a unified process to be jointly optimized. To this end, we propose Evolving-RL, an efficient algorithmic framework that jointly improves the experience extraction and utilization capabilities required for self-evolution. Specifically, we center the learning process on experience extraction and evaluation, using the two supervisory signals derived from evaluation to optimize the extractor and solver separately and thus enable their coordinated co-evolution. Experiments on ALFWorld and Mind2Web show that Evolving-RL effectively enhances LLMs' ability to extract and reuse experience, leading to strong performance gains on out-of-distribution tasks (up to 98.7% relative improvement over the GRPO baseline on ALFWorld unseen tasks and 35.8% on Mind2Web), and these gains are fully unlocked only through the coordinated co-evolution of experience extraction and utilization. Furthermore, Evolving-RL inherently functions as an experience-augmented RL algorithm. By internalizing reusable experience patterns directly into model parameters, it achieves remarkable performance gains over standard baselines on both seen and unseen tasks, even in the absence of test-time experience accumulation.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-11T14:43:56Z</published>
+    <arxiv:comment>17pages, 5 figures</arxiv:comment>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Zhiyuan Fan</name>
+    </author>
+    <author>
+      <name>Wenwei Jin</name>
+    </author>
+    <author>
+      <name>Feng Zhang</name>
+    </author>
+    <author>
+      <name>Bin Li</name>
+    </author>
+    <author>
+      <name>Yihong Dong</name>
+    </author>
+    <author>
+      <name>Yao Hu</name>
+    </author>
+    <author>
+      <name>Jiawei Li</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2605.09315v1</id>
+    <title>Do Self-Evolving Agents Forget? Capability Degradation and Preservation in Lifelong LLM Agent Adaptation</title>
+    <updated>2026-05-10T04:20:24Z</updated>
+    <link href="https://arxiv.org/abs/2605.09315v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2605.09315v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Recent advances in LLM agents enable systems that autonomously refine workflows, accumulate reusable skills, self-train their underlying models, and maintain persistent memory. However, we show that such self-evolution is often non-monotonic: adapting to new task distributions can progressively degrade previously acquired capabilities across all major evolution channels.
+  We identify this phenomenon as \emph{capability erosion under self-evolution} and show that it consistently emerges across workflow, skill, model, and memory evolution. To mitigate this issue, we propose \emph{Capability-Preserving Evolution} (CPE), a general stabilization principle that constrains destructive capability drift during continual adaptation. Across all four evolution dimensions, CPE consistently improves retained capability stability while preserving adaptation performance. For example, in workflow evolution, CPE improves retained simple-task performance from 41.8\% to 52.8\% under GPT-5.1 optimization while simultaneously achieving stronger complex-task adaptation.
+  Our findings suggest that stable long-horizon self-evolving agents require not only acquiring new capabilities, but also explicitly preserving previously learned ones during continual adaptation.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-10T04:20:24Z</published>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Ye Yu</name>
+    </author>
+    <author>
+      <name>Xiaopeng Yuan</name>
+    </author>
+    <author>
+      <name>Haibo Jin</name>
+    </author>
+    <author>
+      <name>Heming Liu</name>
+    </author>
+    <author>
+      <name>Yaoning Yu</name>
+    </author>
+    <author>
+      <name>Haohan Wang</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2605.08887v1</id>
+    <title>Ace-Skill: Bootstrapping Multimodal Agents with Prioritized and Clustered Evolution</title>
+    <updated>2026-05-09T11:12:54Z</updated>
+    <link href="https://arxiv.org/abs/2605.08887v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2605.08887v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Self-evolving agents present a promising path toward continual adaptation by distilling task interactions into reusable knowledge artifacts. In practice, this paradigm remains hindered by two coupled bottlenecks: data inefficiency, where costly rollout effort is disproportionately spent on low-value samples rather than informative ones, and knowledge interference, where heterogeneous knowledge stored in shared repositories leads to noisy retrieval and task-misaligned guidance. Together, these issues form a self-reinforcing failure loop in which uninformative rollouts yield noisy knowledge, which in turn degrades subsequent rollouts. In this work, we introduce Ace-Skill, a co-evolutionary framework that jointly optimizes rollout allocation and knowledge organization for self-evolving multimodal agents. Specifically, Ace-Skill combines aprioritized sampler with lazy-decay proficiency tracking to focus rollouts on informative and insufficiently mastered samples, and a clustered organizer that semantically clusters knowledge for cleaner retrieval and more reliable adaptation. By improving sampling and organization together, Ace-Skill turns self-evolution into a virtuous cycle in which more informative rollouts produce higher-quality knowledge that supports stronger subsequent rollouts. Across four multimodal tool-use benchmarks, Ace-Skill delivers strong gains (e.g., +35.46% relative improvement in Avg@4 accuracy), enabling an opensource 35B MoE model to match or surpass proprietary models. The acquired knowledge also transfers effectively in a zero-shot manner to smaller 9B and 4B models, allowing resource-constrained agents to inherit advanced capabilities without additional training. The code has been publicly available at https://github.com/AMAP-ML/Ace-Skill.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-09T11:12:54Z</published>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Feng Xiong</name>
+    </author>
+    <author>
+      <name>Zengbin Wang</name>
+    </author>
+    <author>
+      <name>Yong Wang</name>
+    </author>
+    <author>
+      <name>Xuecai Hu</name>
+    </author>
+    <author>
+      <name>Jinghan He</name>
+    </author>
+    <author>
+      <name>Liang Lin</name>
+    </author>
+    <author>
+      <name>Yuan Liu</name>
+    </author>
+    <author>
+      <name>Xiangxiang Chu</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2605.08703v1</id>
+    <title>RewardHarness: Self-Evolving Agentic Post-Training</title>
+    <updated>2026-05-09T05:32:48Z</updated>
+    <link href="https://arxiv.org/abs/2605.08703v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2605.08703v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Evaluating instruction-guided image edits requires rewards that reflect subtle human preferences, yet current reward models typically depend on large-scale preference annotation and additional model training. This creates a data-efficiency gap: humans can often infer the target evaluation criteria from only a few examples, while models are usually trained on hundreds of thousands of comparisons. We present RewardHarness, a self-evolving agentic reward framework that reframes reward modeling as context evolution rather than weight optimization. Instead of learning from large-scale annotations, RewardHarness aligns with human preferences by iteratively evolving a library of tools and skills from as few as 100 preference demonstrations. Given a source image, candidate edited images, and an editing instruction, an Orchestrator selects the most relevant subset of tools and skills from the maintained library, and a frozen Sub-Agent uses them to construct a reasoning chain that produces a preference judgment. By comparing predicted judgments with ground-truth preferences and analyzing successes and failures in the reasoning process, the Orchestrator automatically refines its library of tools and skills without additional human annotation. Using only 0.05% of the EditReward preference data, RewardHarness achieves 47.4% average accuracy on image-editing evaluation benchmarks, surpassing GPT-5 by 5.3 points. When used as a reward signal for GRPO fine-tuning, RL-tuned models achieve 3.52 on ImgEdit-Bench. Project page: https://rewardharness.com.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CV" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-09T05:32:48Z</published>
+    <arxiv:comment>Project page: https://rewardharness.com</arxiv:comment>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Yuxuan Zhang</name>
+    </author>
+    <author>
+      <name>Penghui Du</name>
+    </author>
+    <author>
+      <name>Bo Li</name>
+    </author>
+    <author>
+      <name>Cong Wei</name>
+    </author>
+    <author>
+      <name>Junwen Miao</name>
+    </author>
+    <author>
+      <name>Huaisong Zhang</name>
+    </author>
+    <author>
+      <name>Songcheng Cai</name>
+    </author>
+    <author>
+      <name>Yubo Wang</name>
+    </author>
+    <author>
+      <name>Dongfu Jiang</name>
+    </author>
+    <author>
+      <name>Yuyu Zhang</name>
+    </author>
+    <author>
+      <name>Ping Nie</name>
+    </author>
+    <author>
+      <name>Wenhu Chen</name>
+    </author>
+    <author>
+      <name>Changqian Yu</name>
+    </author>
+    <author>
+      <name>Kelsey R. Allen</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2605.08693v2</id>
+    <title>SkillMaster: Toward Autonomous Skill Mastery in LLM Agents</title>
+    <updated>2026-05-12T07:27:47Z</updated>
+    <link href="https://arxiv.org/abs/2605.08693v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2605.08693v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Skills provide an effective mechanism for improving LLM agents on complex tasks, yet in existing agent frameworks, their creation, refinement, and selection are typically governed by external teachers, hand-designed rules, or auxiliary modules. As a result, skills remain external resources to be invoked, rather than capabilities that agents can develop, adapt, and internalize through experience. To endow LLM agents with autonomous skill mastery, we propose SkillMaster, a training framework that teaches agents to create new skills, refine existing skills, and select accumulated skills during task solving. This capability is achieved through three key designs. First, we train agents through trajectory-informed skill review, teaching agents to propose, update, or retain skills based on evidence from completed episodes. Second, each candidate skill edit is designed to be evaluated by its counterfactual utility on related probe tasks, providing a direct learning signal for training skill-editing decisions. Third, we introduce DualAdv-GRPO, which separately estimates advantages for task-solving actions and skill-editing decisions, stabilizing joint training across task solving and skill management. Experiments on ALFWorld and WebShop show that SkillMaster improves the overall success rate over state-of-the-art baselines by 8.8% and 9.3%, respectively, achieving the best performance among all compared methods. Further analysis reveals a marked shift in agent capability: agents trained with SkillMaster can identify skill failures, refine procedural knowledge from trajectory evidence, and transfer improvements to future tasks with limited skill-bank edits. Overall, SkillMaster moves LLM agents beyond mere skill use toward self-improving agents capable of developing, adapting, and applying their own skill repertoires.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-05-09T05:03:00Z</published>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Min Yang</name>
+    </author>
+    <author>
+      <name>Jinghua Piao</name>
+    </author>
+    <author>
+      <name>Xu Xia</name>
+    </author>
+    <author>
+      <name>Xiaochong Lan</name>
+    </author>
+    <author>
+      <name>Jiaju Chen</name>
+    </author>
+    <author>
+      <name>Yongshun Gong</name>
+    </author>
+    <author>
+      <name>Yong Li</name>
+    </author>
+  </entry>
+</feed>
