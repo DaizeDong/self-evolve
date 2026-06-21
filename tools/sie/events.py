@@ -23,18 +23,18 @@ def _apply(rs: RunState, ev: dict) -> RunState:
     for k in _DIRECT:
         if k in ev:
             patch[k] = ev[k]
-    # 计数器增量
+    # 计数器只能通过 _delta/_reset 后缀或 ACCEPT 语义修改，事件里直接写计数器字段会被忽略
     for cnt in ("no_progress", "static_reject", "forced_review",
                 "continue_count", "drift_count"):
         d = ev.get(f"{cnt}_delta")
-        if d:
+        if d is not None:  # 允许 delta=0 的合法增量
             patch[cnt] = getattr(rs, cnt) + d
-        if ev.get(f"{cnt}_reset"):
+        # 非 ACCEPT 事件的显式 reset 机制
+        if ev.get(f"{cnt}_reset") and ev.get("type") != "ACCEPT":
             patch[cnt] = 0
-    # ACCEPT 语义: 清零 no_progress/forced_review(态8)
-    if ev.get("type") == "ACCEPT" or ev.get("no_progress_reset"):
+    # ACCEPT 语义: 清零 no_progress 和 forced_review(单一来源)
+    if ev.get("type") == "ACCEPT":
         patch["no_progress"] = 0
-    if ev.get("type") == "ACCEPT" or ev.get("forced_review_reset"):
         patch["forced_review"] = 0
     return replace(rs, **patch)
 
