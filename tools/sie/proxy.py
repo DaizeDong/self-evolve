@@ -1,6 +1,7 @@
 """出站审查: harness 代发(参数白名单枚举+结果回填) + URL/header/body 熵/编码检测 (IMMUTABLE)。"""
 from __future__ import annotations
 
+import copy
 import math
 import os
 import re
@@ -91,8 +92,11 @@ def screen_request(method: str, url: str, headers: dict, body) -> dict:
 
     # ── Headers ──
     for hk, hv in (headers or {}).items():
-        if isinstance(hv, str) and looks_encoded(hv):
-            violations.append(f"header {hk} looks encoded")
+        if isinstance(hv, str):
+            if looks_encoded(hv):
+                violations.append(f"header {hk} looks encoded")
+            if shannon_entropy(hv) > _ENTROPY_BODY_MAX:
+                violations.append(f"header {hk} entropy too high")
 
     return {"ok": not violations, "violations": violations}
 
@@ -112,6 +116,9 @@ def dispatch(request_spec: dict, run_dir: str, allowlist: dict, fetcher=None) ->
 
     Returns ``{"ok": bool, "reason": str, "url"?: str, "result"?: dict}``.
     """
+    # Defensive copy: prevent candidate code from mutating allowlist at runtime
+    allowlist = copy.deepcopy(allowlist)
+
     kind = request_spec.get("kind")
     if kind not in allowlist:
         return {"ok": False, "reason": f"kind '{kind}' not in allowlist", "result": None}
