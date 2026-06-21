@@ -129,6 +129,7 @@ def index(
     if visible_anchor_gain < eps:
         block_accept = True
         # 旧名（M2.7 兼容）+ 新名（M3.4 子串检测）
+        # 注意: 每闸追加旧名+新名两条 alert(向后兼容); 下游统计触发数勿用 len(alerts), drift 累计须用专门信号(judge_anchor_divergence 检测)+=1
         alerts.append("low_anchor_gain")
         alerts.append(f"below_eps:visible_gain={visible_anchor_gain:.3f}<{eps}")
 
@@ -138,6 +139,7 @@ def index(
         force_human = True
         force_review = True
         # 旧名（M2.7 兼容）+ 新名（M3.4 子串检测）
+        # 注意: 每闸追加旧名+新名两条 alert(向后兼容); 下游统计触发数勿用 len(alerts), drift 累计须用专门信号(judge_anchor_divergence 检测)+=1
         alerts.append("overfit_holdout")
         alerts.append(
             f"holdout_divergence:visible={visible_anchor_gain:.3f},"
@@ -146,8 +148,9 @@ def index(
     # 闸④: judge 增益显著超出锚真实增益 = 疑似 judge/proposal 合谋
     if abs(value) > band:
         # 旧名（M2.7 兼容）+ 新名（M3.4 子串检测）
+        # 注意: 每闸追加旧名+新名两条 alert(向后兼容); 下游统计触发数勿用 len(alerts), drift 累计须用专门信号(judge_anchor_divergence 检测)+=1
         alerts.append("judge_anchor_divergence")
-        alerts.append(f"collusion:selfdeception_index={value:.3f}>{band}")
+        alerts.append(f"collusion:selfdeception_index_abs={abs(value):.3f}>{band}")
 
     # 读取 drift_count 仅供日志/诊断（不写入，statemachine 负责累计）
     _ = st.drift_count

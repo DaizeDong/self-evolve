@@ -108,6 +108,20 @@ def test_block_accept_at_eps_boundary():
     assert out["block_accept"] is False
 
 
+def test_gate2_gate3_independent():
+    """验证闸②与闸③独立：visible_anchor_gain 很小(<ε) 且 holdout_gain>0
+    → 断言 block_accept=True 且 force_review=False（证明两闸互不干扰）。
+    """
+    out = sd.index(judge_gain=0.1, visible_anchor_gain=0.01,
+                   holdout_gain=0.2, st=_rs())
+    # 闸②: 0.01 < 0.02(eps) → block_accept=True
+    assert out["block_accept"] is True
+    # 闸③: visible(0.01)>0 但 holdout(0.2)>0 → 条件不满足 → force_review=False
+    assert out["force_review"] is False
+    # 两闸独立，block_accept 不蕴含 force_review
+    assert not any("holdout_divergence" in a for a in out["alerts"])
+
+
 # ---------------------------------------------------------------------------
 # 闸③ force_review / force_human: visible 涨而 holdout 不涨
 # ---------------------------------------------------------------------------
