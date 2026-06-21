@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Optional
 
 from tools.sie import judge_codex, judge_claude
 
@@ -114,8 +115,10 @@ def debias_order(scores: dict) -> dict:
     """位置/长度去偏：按 span 文本排序消除呈现顺序影响。
 
     返回 scores 的浅拷贝，其中 span_scores 按 span 文本升序排列。
-    长度去偏：judge 已被指示不随 span 长度奖励（prompt 中写明），此处
-    只做排序去偏（顺序效应）；分值本身不缩放（避免引入新偏差）。
+
+    位置去偏：按 span 文本升序排列，消除呈现顺序对打分的影响。
+    长度去偏：委托给 judge prompt（prompt 中写明 "Do not reward length"），
+    本函数不做分值缩放，避免引入新的缩放偏差。
     """
     ss = sorted(scores.get("span_scores", []), key=lambda x: x["span"])
     out = dict(scores)
@@ -123,11 +126,14 @@ def debias_order(scores: dict) -> dict:
     return out
 
 
-def pairwise_agreement(scores_a: dict, scores_b: dict) -> float:
-    """两判官按 span 对齐的配对一致性 α∈[0,1]。
+def pairwise_agreement(scores_a: dict, scores_b: dict) -> Optional[float]:
+    """两判官按 span 对齐的配对一致性。
+
+    Returns α∈[0,1], or None if either judge unavailable.
 
     算法：
-      1. 任一判官不可用 → 返回 -1.0（sentinel，调用方按"judge 不可用"分支处理）。
+      1. 任一判官不可用 → 返回 None（调用方须先检查 None 再使用值，
+         防止将不可用状态误作真实低一致性分）。
       2. 按 span 文本对齐两判官打分（各自先经 debias_order 排序）。
       3. 取两判官共同覆盖的 span 集合（inner join）；无共同 span → 0.0。
       4. α = 1 − MAD（平均绝对差），分值在 [0,1] 故 MAD∈[0,1]，α∈[0,1]。
@@ -137,7 +143,7 @@ def pairwise_agreement(scores_a: dict, scores_b: dict) -> float:
     共同覆盖少时 α 置信度低，后续调用方可结合覆盖率降权。
     """
     if not scores_a.get("available") or not scores_b.get("available"):
-        return -1.0
+        return None
     a = {x["span"]: float(x["score"]) for x in debias_order(scores_a)["span_scores"]}
     b = {x["span"]: float(x["score"]) for x in debias_order(scores_b)["span_scores"]}
     common = set(a) & set(b)
