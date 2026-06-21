@@ -100,6 +100,29 @@ def _scale_subjective(diffs: list[float], params: dict) -> list[float]:
 
 
 # ---------------------------------------------------------------------------
+# 内部: 同源锚去相关降权 (防相关锚虚高 e-value)
+# ---------------------------------------------------------------------------
+
+def _decorrelate_downweight(diffs: list[float], cluster_ids: list[str]) -> list[float]:
+    """同源锚去相关降权: 同 cluster_id 的锚按簇大小 1/size 降权.
+
+    独立锚(每个 cluster_id 唯一)不降权, 权重保持 1.
+    相关锚(多个锚共享同一 cluster_id)按 1/size 等比降权,
+    使同源锚集合的总贡献等价于一个独立锚, 防虚高 e-value.
+
+    Args:
+        diffs:       每锚的 (after - before) 差序列.
+        cluster_ids: 每锚的来源 cluster 标识.
+
+    Returns:
+        降权后的差序列, 与 diffs 等长.
+    """
+    from collections import Counter
+    sizes = Counter(cluster_ids)
+    return [d / sizes[c] for d, c in zip(diffs, cluster_ids)]
+
+
+# ---------------------------------------------------------------------------
 # 公开 API
 # ---------------------------------------------------------------------------
 
