@@ -2,7 +2,6 @@
 from __future__ import annotations
 import json
 import hashlib
-from datetime import datetime, timezone
 
 _REQUIRED_ANCHOR_KEYS = ("claim", "span", "source_url")
 
@@ -44,6 +43,6 @@ def extract_anchors(artifact_path: str) -> list[dict]:
 def coverage(anchors: list[dict]) -> float:
     if not anchors:
         return 0.0
-    total = sum(max(len(a.get("span") or ""), 1) for a in anchors)
-    done = sum(max(len(a.get("span") or ""), 1) for a in anchors if a.get("verified"))
+    total = sum(len(a.get("span") or "") for a in anchors)
+    done = sum(len(a.get("span") or "") for a in anchors if a.get("verified"))
     return done / total if total else 0.0
