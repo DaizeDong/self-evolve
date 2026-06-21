@@ -55,7 +55,11 @@ def _parse_span_scores(raw: str, spans: list[str]) -> dict:
         ss = obj.get("span_scores", [])
     except (ValueError, json.JSONDecodeError):
         ss = []
-    valid = [x for x in ss if isinstance(x, dict) and "span" in x and "score" in x]
+    valid = [
+        x for x in ss
+        if isinstance(x, dict) and "span" in x and "score" in x
+        and isinstance(x["score"], (int, float))
+    ]
     agg = sum(float(x["score"]) for x in valid) / len(valid) if valid else 0.0
     # Unspanned penalty: spans the judge did not score get no credit.
     # len(spans) - len(valid) reflects spans missing from judge output.
@@ -86,7 +90,19 @@ def score(artifact_path: str, anchors_visible: list[dict], family: str) -> dict:
     if family == "codex":
         res = judge_codex.invoke_codex_judge(prompt, timeout_s=600)
     elif family == "claude":
-        res = judge_claude.invoke_claude_judge(prompt, timeout_s=600)
+        try:
+            res = judge_claude.invoke_claude_judge(prompt, timeout_s=600)
+        except NotImplementedError:
+            # M3.2 stub: return contract sentinel so score() never leaks the error.
+            # The stub still raises NotImplementedError so M3.2 can grep for it;
+            # score() absorbs it here and returns available=False per contract.
+            return {
+                "family": family,
+                "available": False,
+                "span_scores": [],
+                "aggregate": 0.0,
+                "unspanned_penalized": len(spans),
+            }
     else:
         raise ValueError(f"unknown judge family: {family!r}")
 
