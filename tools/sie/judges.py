@@ -151,3 +151,63 @@ def pairwise_agreement(scores_a: dict, scores_b: dict) -> Optional[float]:
         return 0.0
     mad = sum(abs(a[s] - b[s]) for s in common) / len(common)
     return max(0.0, 1.0 - mad)  # 分在 [0,1]，故 1-MAD 即配对一致性
+
+
+# ── M3.3: judge↔锚校准（独立 holdout 标注集）─────────────────────────────────
+
+from tools.sie import anchors as _anchors  # noqa: E402 — placed after M3.2 block
+
+_CALIB_MIN_INDEP = 4  # 有效独立 holdout 锚下限；低于此校准不可信
+
+
+def calibrate_judge_anchor(judge_scores: dict, holdout_anchors: list[dict]) -> dict:
+    """Judge↔锚 Pearson 相关校准（只接 holdout 锚，严禁混入 visible 锚）。
+
+    铁律：holdout_anchors 必须是**不进 e-process 的独立 holdout / 人审标注集**。
+    若将 visible（e-process 计分用）锚传入，judge 与计分锚同源，
+    相关性虚高，合谋检测失效——调用方有责任隔离。
+
+    算法：
+      1. 按 span 对齐 judge_scores 与 holdout_anchors（inner join）。
+      2. 对配对后的 holdout 子集调用 effective_independent_count 做同源去相关，
+         得到有效独立锚数 indep。
+      3. 若 paired < 2 或 indep < _CALIB_MIN_INDEP → degenerate=True（校准不可信）。
+      4. 计算 Pearson 相关（judge score vs holdout verified 0/1）；
+         任一方差为 0 → degenerate=True。
+      5. 返回 {"corr": float, "n_used": int, "degenerate": bool}。
+
+    Args:
+        judge_scores: score() 返回的 dict，含 "span_scores" 列表。
+        holdout_anchors: 独立 holdout 锚列表，每项含 "span"/"verified"/"source_url"
+                         字段（与 anchors.py 同结构）。
+
+    Returns:
+        {"corr": float, "n_used": int, "degenerate": bool}
+    """
+    # 1. 按 span 对齐（inner join）
+    by_span = {x["span"]: float(x["score"])
+               for x in judge_scores.get("span_scores", [])}
+    paired_anchors = [a for a in holdout_anchors if a.get("span") in by_span]
+    paired = [(by_span[a["span"]], 1.0 if a.get("verified") else 0.0)
+              for a in paired_anchors]
+    n = len(paired)
+
+    # 2. 同源去相关：只对配对后的子集计算有效独立锚数
+    indep = _anchors.effective_independent_count(paired_anchors)
+
+    # 3. 可信性闸：配对数或有效独立锚不足 → degenerate
+    if n < 2 or indep < _CALIB_MIN_INDEP:
+        return {"corr": 0.0, "n_used": n, "degenerate": True}
+
+    # 4. Pearson 相关
+    xs = [p[0] for p in paired]
+    ys = [p[1] for p in paired]
+    mx = sum(xs) / n
+    my = sum(ys) / n
+    cov = sum((x - mx) * (y - my) for x, y in paired)
+    vx = sum((x - mx) ** 2 for x in xs)
+    vy = sum((y - my) ** 2 for y in ys)
+    if vx == 0 or vy == 0:
+        return {"corr": 0.0, "n_used": n, "degenerate": True}
+    corr = cov / (vx ** 0.5 * vy ** 0.5)
+    return {"corr": float(corr), "n_used": n, "degenerate": False}
