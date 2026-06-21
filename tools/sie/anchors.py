@@ -198,3 +198,34 @@ def verify_anchor(anchor: dict, fetcher=None) -> dict:
     out["verified"] = bool(ok)
     out["verify_reason"] = "within tol" if ok else "outside tol"
     return out
+
+
+# ---------------------------------------------------------------------------
+# M2.5: marginal_gain — EVE 边际增益 (防塞假锚刷分)
+# ---------------------------------------------------------------------------
+
+
+def marginal_gain(anchor: dict, base_score: float, with_score: float) -> float:
+    """Compute the marginal gain of adding an anchor (EVE: correctness lift).
+
+    EVE principle: marginal_gain measures the true improvement in correctness
+    when including this anchor, not absolute accuracy. Unverified anchors must
+    yield zero gain (prevents candidate from inflating score with unvetted
+    "anchors"). Negative gains are clamped to 0 (noise is neither rewarded
+    nor penalized; we don't punish bad anchors, only fail to credit them).
+
+    Args:
+        anchor: Anchor dict with "verified" field (bool).
+        base_score: Correctness score without this anchor (0-1 or other scale).
+        with_score: Correctness score with this anchor (same scale).
+
+    Returns:
+        float: max(0, with_score - base_score) if verified, else 0.
+    """
+    #未核验锚: 增益恒为 0 (防塞假锚刷分)
+    if not anchor.get("verified"):
+        return 0.0
+
+    # 计算增量, 负增益 clamp 到 0 (噪声不奖励、不惩罚)
+    delta = float(with_score) - float(base_score)
+    return delta if delta > 0.0 else 0.0
