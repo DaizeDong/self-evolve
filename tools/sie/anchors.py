@@ -86,3 +86,35 @@ def effective_independent_count(anchors: list[dict]) -> int:
         # 同源簇内信息次线性: 1 + log2(size), 向下取整
         eff += int(math.floor(1.0 + math.log2(size)))
     return eff
+
+
+def split_visible_holdout(anchors: list[dict], frac: float, seed: str = "") -> tuple[list, list]:
+    """Deterministic holdout split for anchor sets.
+
+    Splits anchors into visible and holdout sets. Holdout size is round(frac*N).
+    Split is deterministic and reproducible: same anchor list + same seed always
+    produces identical holdout. Prevents "luck" in holdout retries when
+    checking for cumulative drift.
+
+    Args:
+        anchors: List of anchor dicts with "anchor_id" field.
+        frac: Holdout fraction in [0, 1]; clamped if outside range.
+        seed: String seed for reproducible hashing (default "").
+
+    Returns:
+        (visible, holdout): Two lists partitioning anchors (disjoint, union=all).
+    """
+    if not anchors:
+        return [], []
+    frac = max(0.0, min(1.0, float(frac)))
+    n_hold = int(round(frac * len(anchors)))
+
+    def _rank(a: dict) -> str:
+        """Hash-based rank for deterministic ordering."""
+        return hashlib.sha256((seed + "|" + str(a.get("anchor_id", ""))).encode("utf-8")).hexdigest()
+
+    ordered = sorted(anchors, key=_rank)
+    holdout = ordered[:n_hold]
+    hold_ids = {a["anchor_id"] for a in holdout}
+    visible = [a for a in anchors if a["anchor_id"] not in hold_ids]
+    return visible, holdout
