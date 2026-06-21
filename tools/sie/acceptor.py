@@ -152,7 +152,8 @@ def decide(paired: list[tuple[float, float]], tier: str,
 
     # 0. 空配对
     if not paired:
-        return {"decision": "REJECT", "evalue": 0.0, "reason": "empty paired"}
+        return {"decision": "REJECT", "evalue": 0.0, "reason": "empty paired",
+                "force_review": False, "degrade_reason": None}
 
     diffs = [after - before for (before, after) in paired]
 
@@ -165,13 +166,16 @@ def decide(paired: list[tuple[float, float]], tier: str,
         regressed = [i for i, (b, a) in enumerate(paired) if b >= _PASS > a]
         if regressed:
             return {"decision": "REJECT", "evalue": 0.0,
-                    "reason": f"no-regression hard gate: {len(regressed)} task(s) regressed"}
+                    "reason": f"no-regression hard gate: {len(regressed)} task(s) regressed",
+                    "force_review": False, "degrade_reason": None}
         evalue, _path = _wealth_betting(diffs, alpha)
         if evalue >= thr:
             return {"decision": "ACCEPT", "evalue": evalue,
-                    "reason": f"e={evalue:.2f} >= 1/α={thr:.1f} (A 档二态)"}
+                    "reason": f"e={evalue:.2f} >= 1/α={thr:.1f} (A 档二态)",
+                    "force_review": False, "degrade_reason": None}
         return {"decision": "REJECT", "evalue": evalue,
-                "reason": f"e={evalue:.2f} < 1/α={thr:.1f} (A 档二态, 证据不足)"}
+                "reason": f"e={evalue:.2f} < 1/α={thr:.1f} (A 档二态, 证据不足)",
+                "force_review": False, "degrade_reason": None}
 
     # 3. B 档: per-anchor 边际增益配对 + 三道硬门 + CONTINUE 机制
     if base_tier == "B":
@@ -186,12 +190,14 @@ def decide(paired: list[tuple[float, float]], tier: str,
         # 门1: 锚数下限 (n_anchor < n_min → 禁 ACCEPT)
         if n_anchor < n_min:
             return {"decision": "REJECT", "evalue": 0.0,
-                    "reason": f"n_anchor {n_anchor} < n_min {n_min}", **base}
+                    "reason": f"n_anchor {n_anchor} < n_min {n_min}",
+                    "force_review": False, "degrade_reason": None, **base}
 
         # 门2: 有效独立锚下限 (小相关锚集 → 禁 B 档单独 ACCEPT)
         if eff < eff_min:
             return {"decision": "REJECT", "evalue": 0.0,
-                    "reason": f"effective_independent {eff} < min {eff_min}", **base}
+                    "reason": f"effective_independent {eff} < min {eff_min}",
+                    "force_review": False, "degrade_reason": None, **base}
 
         # e-process: per-anchor 边际增益配对 (客观增益, 不走 _scale_subjective)
         # diffs = (after_gain - before_gain) per anchor; H₀: diff=0 (无改进)
@@ -218,22 +224,93 @@ def decide(paired: list[tuple[float, float]], tier: str,
 
         if evalue >= thr:
             return {"decision": "ACCEPT", "evalue": evalue,
-                    "reason": f"B e-value {evalue:.2f} >= 1/alpha={thr:.1f}", **base}
+                    "reason": f"B e-value {evalue:.2f} >= 1/alpha={thr:.1f}",
+                    "force_review": False, "degrade_reason": None, **base}
         if 1.0 < evalue < thr:
             # B 是随机档, 允许 CONTINUE 累积证据
             if st.continue_count < int(params.get("continue_count_cap", 5)):
                 return {"decision": "CONTINUE", "evalue": evalue,
-                        "reason": f"B accumulating evidence e={evalue:.2f}", **base}
+                        "reason": f"B accumulating evidence e={evalue:.2f}",
+                        "force_review": False, "degrade_reason": None, **base}
         return {"decision": "REJECT", "evalue": evalue,
-                "reason": f"B e-value {evalue:.2f} below threshold", **base}
+                "reason": f"B e-value {evalue:.2f} below threshold",
+                "force_review": False, "degrade_reason": None, **base}
 
-    # 4. C 档及其他: 主观分缩放 + CONTINUE 机制 (M3 接全, 此处保留占位)
-    evalue, _path = _wealth_betting(_scale_subjective(diffs, params), alpha)
+    # 4. C 档: 主观分缩放 + 极低权重 + coverage=0 强制人审 + CONTINUE 机制
+    #    C 配对权重极低 (c_tier_weight=0.05), 绝不单独触发 ACCEPT.
+    c_weight = params.get("c_tier_weight", 0.05)
+    scaled_diffs = _scale_subjective(diffs, params)
+    weighted_diffs = [d * c_weight for d in scaled_diffs]
+    evalue, _path = _wealth_betting(weighted_diffs, alpha)
     if evalue >= thr:
-        return {"decision": "ACCEPT", "evalue": evalue,
-                "reason": f"e={evalue:.2f} >= 1/α (C 档)"}
-    if 1.0 <= evalue < thr and st.continue_count < params.get("continue_count_cap", 5):
-        return {"decision": "CONTINUE", "evalue": evalue,
-                "reason": f"e={evalue:.2f} ∈ [1, 1/α) 继续取证"}
-    return {"decision": "REJECT", "evalue": evalue,
-            "reason": f"e={evalue:.2f} < 1/α (C 档, 证据不足)"}
+        result = {"decision": "ACCEPT", "evalue": evalue,
+                  "reason": f"e={evalue:.2f} >= 1/α (C 档)"}
+    elif 1.0 <= evalue < thr and st.continue_count < params.get("continue_count_cap", 5):
+        result = {"decision": "CONTINUE", "evalue": evalue,
+                  "reason": f"e={evalue:.2f} ∈ [1, 1/α) 继续取证"}
+    else:
+        result = {"decision": "REJECT", "evalue": evalue,
+                  "reason": f"e={evalue:.2f} < 1/α (C 档, 证据不足)"}
+    result = _apply_c_tier_gates(result, tier, params)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# M3.5: C 档辅助函数
+# ---------------------------------------------------------------------------
+
+def c_tier_no_regression(replay_results: list[dict]) -> bool:
+    """历史成功 replay 全保持=True，任一 before=True 而 after=False → 回退 → False（硬门）."""
+    for r in replay_results:
+        if r.get("before") and not r.get("after"):
+            return False
+    return True
+
+
+def alpha_gate(alpha: float, anchor_up: bool, params: dict) -> dict:
+    """双向 α 门: alpha<α_low→人审; alpha>α_high 且 not anchor_up→人审+计自欺.
+
+    None 哨兵（judge 不可用）：alpha=None 或负数由调用方传入 None，此处接受 None
+    并直接返回 force_review=True（不可信处理）。正常 float 走双向门逻辑。
+
+    Returns {"force_review": bool, "count_selfdeception": bool}
+    """
+    if alpha is None:
+        return {"force_review": True, "count_selfdeception": False}
+    a_low = params.get("alpha_low", 0.4)
+    a_high = params.get("alpha_high", 0.85)
+    force_review = False
+    count_sd = False
+    if alpha < a_low:                        # 一致性过低 → 人审
+        force_review = True
+    if alpha > a_high and not anchor_up:     # 异常高且锚不涨 → 人审 + 计自欺(合谋)
+        force_review = True
+        count_sd = True
+    return {"force_review": force_review, "count_selfdeception": count_sd}
+
+
+def judge_degrade(codex_available: bool, claude_available: bool) -> dict:
+    """Codex 不可用→禁单 Claude 自动 ACCEPT，降级为程序化锚为唯一裁决信号 + 升人审.
+
+    Returns {"single_claude_block": bool, "anchor_only": bool, "force_review": bool}
+    """
+    if not codex_available:
+        return {"single_claude_block": True, "anchor_only": True, "force_review": True}
+    return {"single_claude_block": False, "anchor_only": False, "force_review": False}
+
+
+def _apply_c_tier_gates(base: dict, tier: str, params: dict) -> dict:
+    """C 档叠加门: coverage=0 纯 C 必经人审; 确保 force_review/degrade_reason 字段存在.
+
+    纯 C(coverage=0): 无论 e-process 何结果, auto 不自动落地, 必须 force_review=True.
+    C 配对极低权重，绝不单独触发 ACCEPT。
+    所有路径均带 force_review 和 degrade_reason 字段。
+    """
+    base.setdefault("force_review", False)
+    base.setdefault("degrade_reason", None)
+    coverage = params.get("coverage", 1.0)
+    if tier == "C" and coverage == 0.0:
+        base["force_review"] = True
+        base["degrade_reason"] = "pure_C_needs_human"
+        base["reason"] = base.get("reason", "") + ";pure_C_needs_human"
+    return base
