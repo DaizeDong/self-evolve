@@ -1,0 +1,341 @@
+{
+  "title": "Small-Cap DeepDive — M2.13 fixture (>=24 anchors, diverse hosts)",
+  "sections": [
+    {
+      "text": "Alpha Corp FY2024 revenue was $120M.",
+      "anchors": [
+        {
+          "claim": "AlphaCorp FY2024 revenue = 1.20e8 USD",
+          "span": "revenue was $120M",
+          "source_url": "https://sec.gov/cgi-bin/browse-edgar?CIK=0001000001",
+          "metric": "Revenues",
+          "expected": 1.20e8,
+          "cik": "1000001",
+          "period": "FY2024"
+        }
+      ]
+    },
+    {
+      "text": "Beta Inc net income reached $15M.",
+      "anchors": [
+        {
+          "claim": "BetaInc FY2024 net income = 1.5e7 USD",
+          "span": "net income reached $15M",
+          "source_url": "https://www.macrotrends.net/stocks/charts/BETA/beta-inc",
+          "metric": "NetIncomeLoss",
+          "expected": 1.5e7,
+          "cik": "1000002",
+          "period": "FY2024"
+        }
+      ]
+    },
+    {
+      "text": "Gamma LLC total assets $80M at year-end.",
+      "anchors": [
+        {
+          "claim": "GammaLLC FY2024 total assets = 8.0e7 USD",
+          "span": "total assets $80M at year-end",
+          "source_url": "https://finance.yahoo.com/quote/GAMMA/financials",
+          "metric": "Assets",
+          "expected": 8.0e7,
+          "cik": "1000003",
+          "period": "FY2024"
+        }
+      ]
+    },
+    {
+      "text": "Delta Corp operating cash flow $22M.",
+      "anchors": [
+        {
+          "claim": "DeltaCorp FY2024 operating cash flow = 2.2e7 USD",
+          "span": "operating cash flow $22M",
+          "source_url": "https://stockanalysis.com/stocks/DELTA/financials/cash-flow-statement/",
+          "metric": "NetCashProvidedByUsedInOperatingActivities",
+          "expected": 2.2e7,
+          "cik": "1000004",
+          "period": "FY2024"
+        }
+      ]
+    },
+    {
+      "text": "Epsilon Ltd gross margin 42%.",
+      "anchors": [
+        {
+          "claim": "EpsilonLtd FY2024 gross margin = 0.42",
+          "span": "gross margin 42%",
+          "source_url": "https://wisesheets.io/epsilon-ltd",
+          "metric": "GrossProfit",
+          "expected": 0.42,
+          "cik": "1000005",
+          "period": "FY2024"
+        }
+      ]
+    },
+    {
+      "text": "Zeta Co capex spend $9.5M.",
+      "anchors": [
+        {
+          "claim": "ZetaCo FY2024 capex = 9.5e6 USD",
+          "span": "capex spend $9.5M",
+          "source_url": "https://simplywall.st/stocks/us/tech/nasdaq-ZETA/zeta-co",
+          "metric": "PaymentsToAcquirePropertyPlantAndEquipment",
+          "expected": 9.5e6,
+          "cik": "1000006",
+          "period": "FY2024"
+        }
+      ]
+    },
+    {
+      "text": "Eta Partners long-term debt $55M.",
+      "anchors": [
+        {
+          "claim": "EtaPartners FY2024 long-term debt = 5.5e7 USD",
+          "span": "long-term debt $55M",
+          "source_url": "https://finviz.com/quote.ashx?t=ETA",
+          "metric": "LongTermDebt",
+          "expected": 5.5e7,
+          "cik": "1000007",
+          "period": "FY2024"
+        }
+      ]
+    },
+    {
+      "text": "Theta Group R&D expense $11M.",
+      "anchors": [
+        {
+          "claim": "ThetaGroup FY2024 R&D = 1.1e7 USD",
+          "span": "R&D expense $11M",
+          "source_url": "https://www.wsj.com/market-data/quotes/THETA/financials/annual/income-statement",
+          "metric": "ResearchAndDevelopmentExpense",
+          "expected": 1.1e7,
+          "cik": "1000008",
+          "period": "FY2024"
+        }
+      ]
+    },
+    {
+      "text": "Iota Corp SGA expense $18M.",
+      "anchors": [
+        {
+          "claim": "IotaCorp FY2024 SGA = 1.8e7 USD",
+          "span": "SGA expense $18M",
+          "source_url": "https://www.reuters.com/companies/IOTA.N/financials",
+          "metric": "SellingGeneralAndAdministrativeExpense",
+          "expected": 1.8e7,
+          "cik": "1000009",
+          "period": "FY2024"
+        }
+      ]
+    },
+    {
+      "text": "Kappa Ventures equity $45M.",
+      "anchors": [
+        {
+          "claim": "KappaVentures FY2024 equity = 4.5e7 USD",
+          "span": "equity $45M",
+          "source_url": "https://www.marketwatch.com/investing/stock/kappa/financials",
+          "metric": "StockholdersEquity",
+          "expected": 4.5e7,
+          "cik": "1000010",
+          "period": "FY2024"
+        }
+      ]
+    },
+    {
+      "text": "Lambda Systems revenue grew to $95M.",
+      "anchors": [
+        {
+          "claim": "LambdaSystems FY2024 revenue = 9.5e7 USD",
+          "span": "revenue grew to $95M",
+          "source_url": "https://efts.sec.gov/LATEST/search-index?q=%22LambdaSystems%22&dateRange=custom&startdt=2024-01-01",
+          "metric": "Revenues",
+          "expected": 9.5e7,
+          "cik": "1000011",
+          "period": "FY2024"
+        }
+      ]
+    },
+    {
+      "text": "Mu Dynamics EBITDA $28M.",
+      "anchors": [
+        {
+          "claim": "MuDynamics FY2024 EBITDA = 2.8e7 USD",
+          "span": "EBITDA $28M",
+          "source_url": "https://www.bloomberg.com/quote/MU:US",
+          "metric": "EBITDA",
+          "expected": 2.8e7,
+          "cik": "1000012",
+          "period": "FY2024"
+        }
+      ]
+    },
+    {
+      "text": "Nu Industries interest expense $3.2M.",
+      "anchors": [
+        {
+          "claim": "NuIndustries FY2024 interest expense = 3.2e6 USD",
+          "span": "interest expense $3.2M",
+          "source_url": "https://www.morningstar.com/stocks/xnas/NU/financials",
+          "metric": "InterestExpense",
+          "expected": 3.2e6,
+          "cik": "1000013",
+          "period": "FY2024"
+        }
+      ]
+    },
+    {
+      "text": "Xi Capital tax expense $5M.",
+      "anchors": [
+        {
+          "claim": "XiCapital FY2024 tax = 5.0e6 USD",
+          "span": "tax expense $5M",
+          "source_url": "https://www.barrons.com/market-data/stocks/xi/financials/annual",
+          "metric": "IncomeTaxExpenseBenefit",
+          "expected": 5.0e6,
+          "cik": "1000014",
+          "period": "FY2024"
+        }
+      ]
+    },
+    {
+      "text": "Omicron Tech depreciation $7.8M.",
+      "anchors": [
+        {
+          "claim": "OmicronTech FY2024 depreciation = 7.8e6 USD",
+          "span": "depreciation $7.8M",
+          "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001000015.json",
+          "metric": "DepreciationAndAmortization",
+          "expected": 7.8e6,
+          "cik": "1000015",
+          "period": "FY2024"
+        }
+      ]
+    },
+    {
+      "text": "Pi Solutions deferred revenue $6.1M.",
+      "anchors": [
+        {
+          "claim": "PiSolutions FY2024 deferred revenue = 6.1e6 USD",
+          "span": "deferred revenue $6.1M",
+          "source_url": "https://www.barchart.com/stocks/quotes/PI/income-statement/annual",
+          "metric": "DeferredRevenueCurrent",
+          "expected": 6.1e6,
+          "cik": "1000016",
+          "period": "FY2024"
+        }
+      ]
+    },
+    {
+      "text": "Rho Robotics working capital $14M.",
+      "anchors": [
+        {
+          "claim": "RhoRobotics FY2024 working capital = 1.4e7 USD",
+          "span": "working capital $14M",
+          "source_url": "https://www.investing.com/equities/rho-robotics-income-statement",
+          "metric": "WorkingCapital",
+          "expected": 1.4e7,
+          "cik": "1000017",
+          "period": "FY2024"
+        }
+      ]
+    },
+    {
+      "text": "Sigma Software ARR $38M.",
+      "anchors": [
+        {
+          "claim": "SigmaSoftware FY2024 ARR = 3.8e7 USD",
+          "span": "ARR $38M",
+          "source_url": "https://pitchbook.com/profiles/company/sigma-software",
+          "metric": "AnnualRecurringRevenue",
+          "expected": 3.8e7,
+          "cik": "1000018",
+          "period": "FY2024"
+        }
+      ]
+    },
+    {
+      "text": "Tau Telecom ARPU $42.",
+      "anchors": [
+        {
+          "claim": "TauTelecom FY2024 ARPU = 42.0 USD",
+          "span": "ARPU $42",
+          "source_url": "https://www.cbinsights.com/company/tau-telecom",
+          "metric": "AverageRevenuePerUser",
+          "expected": 42.0,
+          "cik": "1000019",
+          "period": "FY2024"
+        }
+      ]
+    },
+    {
+      "text": "Upsilon Utilities inventory $4.5M.",
+      "anchors": [
+        {
+          "claim": "UpsilonUtilities FY2024 inventory = 4.5e6 USD",
+          "span": "inventory $4.5M",
+          "source_url": "https://www.crunchbase.com/organization/upsilon-utilities",
+          "metric": "InventoryNet",
+          "expected": 4.5e6,
+          "cik": "1000020",
+          "period": "FY2024"
+        }
+      ]
+    },
+    {
+      "text": "Phi Pharma accounts receivable $13M.",
+      "anchors": [
+        {
+          "claim": "PhiPharma FY2024 accounts receivable = 1.3e7 USD",
+          "span": "accounts receivable $13M",
+          "source_url": "https://www.alphaspread.com/security/nasdaq/PHI/financials/balance-sheet",
+          "metric": "AccountsReceivableNetCurrent",
+          "expected": 1.3e7,
+          "cik": "1000021",
+          "period": "FY2024"
+        }
+      ]
+    },
+    {
+      "text": "Chi Chemicals goodwill $33M.",
+      "anchors": [
+        {
+          "claim": "ChiChemicals FY2024 goodwill = 3.3e7 USD",
+          "span": "goodwill $33M",
+          "source_url": "https://www.gurufocus.com/term/goodwill/CHI/Goodwill/Chi-Chemicals",
+          "metric": "Goodwill",
+          "expected": 3.3e7,
+          "cik": "1000022",
+          "period": "FY2024"
+        }
+      ]
+    },
+    {
+      "text": "Psi Precision shares outstanding 12M.",
+      "anchors": [
+        {
+          "claim": "PsiPrecision FY2024 shares outstanding = 1.2e7",
+          "span": "shares outstanding 12M",
+          "source_url": "https://www.macroaxis.com/financial_statements/PSI",
+          "metric": "CommonStockSharesOutstanding",
+          "expected": 1.2e7,
+          "cik": "1000023",
+          "period": "FY2024"
+        }
+      ]
+    },
+    {
+      "text": "Omega Holdings dividends paid $2.1M.",
+      "anchors": [
+        {
+          "claim": "OmegaHoldings FY2024 dividends = 2.1e6 USD",
+          "span": "dividends paid $2.1M",
+          "source_url": "https://www.dividendinvestor.com/dividend-stocks/omega-holdings",
+          "metric": "PaymentsOfDividends",
+          "expected": 2.1e6,
+          "cik": "1000024",
+          "period": "FY2024"
+        }
+      ]
+    }
+  ]
+}
