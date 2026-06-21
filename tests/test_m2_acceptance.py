@@ -80,9 +80,10 @@ def test_smallcap_runs_btier_and_emits_decision():
     assert out_cont["decision"] in ("ACCEPT", "REJECT", "CONTINUE"), \
         f"unexpected decision: {out_cont['decision']}"
 
-    # 三态至少出现两个不同值 (覆盖多条路径)
+    # 三态至少出现两个不同值 (覆盖多条路径; ACCEPT 由独立 1e6-cap 用例保证)
     decisions = {out_reject["decision"], out_accept["decision"], out_cont["decision"]}
-    assert len(decisions) >= 1  # 至少一个合法决策 (接口通即可; 三态覆盖由多组用例保证)
+    assert len(decisions) >= 2, \
+        f"expected at least 2 distinct decisions across 3 gain configs, got {decisions}"
 
 
 def test_smallcap_b_accept_path():
@@ -399,12 +400,12 @@ def test_resolve_accept_drift_signal_written_to_events(tmp_path, monkeypatch):
     # selfdeception 结果应在返回值中
     sd = decision.get("selfdeception", {})
     assert sd is not None, "resolve_accept should return selfdeception info"
-    # judge_anchor_divergence 触发 → statemachine 应累计 drift_count
-    # (内存层面: st.drift_count == 1 or decision reflects it)
-    if "judge_anchor_divergence" in sd.get("alerts", []):
-        # drift_count 应在 resolve_accept 内被累计
-        assert st.drift_count >= 1, \
-            f"drift_count should be >=1 after judge_anchor_divergence, got {st.drift_count}"
+    # judge_anchor_divergence 必须触发 (judge_gain=0.5 >> visible=0.04, |diff|=0.46 > band=0.15)
+    assert "judge_anchor_divergence" in sd.get("alerts", []), \
+        f"expected judge_anchor_divergence with high judge_gain=0.5, visible=0.04, got {sd['alerts']}"
+    # drift_count 应在 resolve_accept 内被累计 (in-memory)
+    assert st.drift_count >= 1, \
+        f"drift_count should be >=1 after judge_anchor_divergence, got {st.drift_count}"
 
 
 # ---------------------------------------------------------------------------
@@ -475,3 +476,54 @@ def test_resolve_accept_b_reject_routes_to_state_9():
     assert decision["next_state"] == "9", \
         f"REJECT should go to state 9, got {decision}"
     assert decision["acceptor_decision"] == "REJECT"
+
+
+# ---------------------------------------------------------------------------
+# holdout_gain=None 跳过闸③ (非抽检轮不报 overfit)
+# ---------------------------------------------------------------------------
+
+def test_holdout_none_no_overfit_alert():
+    """holdout_gain=None (非抽检轮) 不触发 overfit_holdout / force_human."""
+    from tools.sie import selfdeception as _sd
+    st = _rs()
+    sd = _sd.index(
+        judge_gain=0.05,
+        visible_anchor_gain=0.04,   # visible > 0
+        holdout_gain=None,           # 非抽检轮: 无 holdout 数据
+        st=st,
+        params=P,
+    )
+    assert "overfit_holdout" not in sd["alerts"], \
+        f"holdout=None should not trigger overfit_holdout, got {sd['alerts']}"
+    assert sd["force_human"] is False, \
+        f"holdout=None should not force_human, got {sd['force_human']}"
+
+
+def test_resolve_accept_holdout_none_no_overfit():
+    """resolve_accept: holdout_gain=None + visible>0 不路由到 9.5 (不误报 overfit_holdout)."""
+    st = _rs()
+    anchors_list = [
+        {"anchor_id": str(i), "verified": True,
+         "source_url": f"https://host{i}.ok.com/rpt",
+         "cik": str(i), "period": "FY2024",
+         "claim": f"c{i}", "span": f"s{i}", "expected": 1.0}
+        for i in range(24)
+    ]
+    eval_out = {
+        "tier": "B",
+        "b_paired": [(0.0, 1.0)] * 24,
+        "coverage": 0.9,
+        "coverage_floor_violation": False,
+        "visible_anchor_gain": 0.04,   # visible > 0
+        "holdout_gain": None,           # 非抽检轮: 跳过闸③
+        "judge_gain": 0.05,            # 接近 visible: 无发散
+        "anchors_visible_verified": anchors_list,
+    }
+    params_accept = {**P, "coverage_floor": 0.5, "evalue_max_step": 1e6}
+    decision = statemachine.resolve_accept(st, eval_out=eval_out, params=params_accept)
+    sd = decision.get("selfdeception", {})
+    assert "overfit_holdout" not in sd.get("alerts", []), \
+        f"holdout=None should not trigger overfit, got {sd.get('alerts')}"
+    # 无强制条件, 大增益配对应 ACCEPT → state 8
+    assert decision["next_state"] == "8", \
+        f"holdout=None + clean ACCEPT should go to state 8, got {decision['next_state']}"
