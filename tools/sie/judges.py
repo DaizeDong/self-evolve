@@ -90,19 +90,7 @@ def score(artifact_path: str, anchors_visible: list[dict], family: str) -> dict:
     if family == "codex":
         res = judge_codex.invoke_codex_judge(prompt, timeout_s=600)
     elif family == "claude":
-        try:
-            res = judge_claude.invoke_claude_judge(prompt, timeout_s=600)
-        except NotImplementedError:
-            # M3.2 stub: return contract sentinel so score() never leaks the error.
-            # The stub still raises NotImplementedError so M3.2 can grep for it;
-            # score() absorbs it here and returns available=False per contract.
-            return {
-                "family": family,
-                "available": False,
-                "span_scores": [],
-                "aggregate": 0.0,
-                "unspanned_penalized": len(spans),
-            }
+        res = judge_claude.invoke_claude_judge(prompt, timeout_s=600)
     else:
         raise ValueError(f"unknown judge family: {family!r}")
 
@@ -118,3 +106,42 @@ def score(artifact_path: str, anchors_visible: list[dict], family: str) -> dict:
     parsed = _parse_span_scores(res["raw"], spans)
     parsed.update({"family": family, "available": True})
     return parsed
+
+
+# ── M3.2: 位置/长度去偏 + 判官一致性度量 ──────────────────────────────────
+
+def debias_order(scores: dict) -> dict:
+    """位置/长度去偏：按 span 文本排序消除呈现顺序影响。
+
+    返回 scores 的浅拷贝，其中 span_scores 按 span 文本升序排列。
+    长度去偏：judge 已被指示不随 span 长度奖励（prompt 中写明），此处
+    只做排序去偏（顺序效应）；分值本身不缩放（避免引入新偏差）。
+    """
+    ss = sorted(scores.get("span_scores", []), key=lambda x: x["span"])
+    out = dict(scores)
+    out["span_scores"] = ss
+    return out
+
+
+def pairwise_agreement(scores_a: dict, scores_b: dict) -> float:
+    """两判官按 span 对齐的配对一致性 α∈[0,1]。
+
+    算法：
+      1. 任一判官不可用 → 返回 -1.0（sentinel，调用方按"judge 不可用"分支处理）。
+      2. 按 span 文本对齐两判官打分（各自先经 debias_order 排序）。
+      3. 取两判官共同覆盖的 span 集合（inner join）；无共同 span → 0.0。
+      4. α = 1 − MAD（平均绝对差），分值在 [0,1] 故 MAD∈[0,1]，α∈[0,1]。
+         α=1 表示完全一致；α→0 表示高度不一致（异质合谋检测用）。
+
+    注：缺失 span（一方有另一方无）不纳入计算，保守处理：
+    共同覆盖少时 α 置信度低，后续调用方可结合覆盖率降权。
+    """
+    if not scores_a.get("available") or not scores_b.get("available"):
+        return -1.0
+    a = {x["span"]: float(x["score"]) for x in debias_order(scores_a)["span_scores"]}
+    b = {x["span"]: float(x["score"]) for x in debias_order(scores_b)["span_scores"]}
+    common = set(a) & set(b)
+    if not common:
+        return 0.0
+    mad = sum(abs(a[s] - b[s]) for s in common) / len(common)
+    return max(0.0, 1.0 - mad)  # 分在 [0,1]，故 1-MAD 即配对一致性
