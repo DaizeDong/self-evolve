@@ -43,11 +43,24 @@ def test_profile_emits_b_tier_with_anchors(tmp_path, monkeypatch):
 def test_holdout_truth_not_in_target_json(tmp_path):
     target = _anchored_target(tmp_path, 30)
     tj = profile.run_profile(target, base_ref="HEAD")
-    # target.json 里不得直接出现 holdout 锚明细 (只存 ref)
-    assert "anchors_holdout" not in tj or "verified" not in str(
-        tj.get("anchors_holdout", "")
-    )
-    assert "ref" in tj["anchors_holdout_ref"] or "path" in tj["anchors_holdout_ref"]
+    # 铁律5: anchors_holdout_ref 仅含引用(path/count/ref)，绝不含 holdout 真值
+    ref = tj["anchors_holdout_ref"]
+    # 断言: anchors_holdout_ref 只允许三个引用键
+    assert set(ref.keys()) <= {"path", "count", "ref"}, f"anchors_holdout_ref 含意外键: {set(ref.keys())}"
+
+    # 断言: target.json 的 holdout ref 中绝无真值字段
+    ref_str = json.dumps(ref)
+    for truth_field in ("verified", "expected", "claim", "span", "source_url"):
+        assert truth_field not in ref_str, f"holdout ref 泄漏真值字段 {truth_field}: {ref_str}"
+
+    # 对照: 隔离文件存在且含真值（确认 holdout 真值已正确隔离）
+    hpath = ref["path"]
+    assert os.path.exists(hpath), f"holdout.json not found at {hpath}"
+    with open(hpath, encoding="utf-8") as f:
+        hdata = json.load(f)
+    assert len(hdata) == ref["count"], f"holdout.json record count mismatch: {len(hdata)} != {ref['count']}"
+    # 隔离文件中应含有 claim/span 等真值字段（即真值已落隔离文件）
+    assert any("claim" in str(anchor) for anchor in hdata), "holdout.json 应含 claim 等真值字段"
 
 
 def test_holdout_file_exists_with_truth(tmp_path):
