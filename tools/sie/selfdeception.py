@@ -17,7 +17,7 @@ from .state import RunState
 def index(
     judge_gain: float,
     visible_anchor_gain: float,
-    holdout_gain: float,
+    holdout_gain: float | None,
     st: RunState,
     params: dict | None = None,
 ) -> dict:
@@ -27,6 +27,7 @@ def index(
         judge_gain: 当轮 judge 打分增益（propose 后 vs propose 前）。
         visible_anchor_gain: frozen 留存锚的真实可见增益（上游过滤新锚后传入）。
         holdout_gain: holdout 锚集的真实增益（用于过拟合背离检测）。
+                      None 表示本轮无 holdout 数据（非抽检轮），跳过闸③。
         st: 当前 RunState，本函数只读 drift_count，不写入。
         params: 覆盖默认超参，支持键：
             frozen_anchor_effective_gain_eps (float, 默认 0.02)
@@ -44,6 +45,7 @@ def index(
            （禁 ACCEPT 由 statemachine 执行，本函数只报告）
         ③ visible_anchor_gain > 0 且 holdout_gain <= 0
                                      → alert "overfit_holdout" + force_human=True
+           holdout_gain=None 时跳过本闸（视为"本轮无 holdout 数据"）。
         ④ |value| > band             → alert "judge_anchor_divergence"
            （statemachine 读到此 alert 后应执行 drift_count += 1）
     """
@@ -60,7 +62,8 @@ def index(
         alerts.append("low_anchor_gain")
 
     # 闸③: visible 涨而 holdout 不涨 = 过拟合背离 → 强制人审
-    if visible_anchor_gain > 0.0 and holdout_gain <= 0.0:
+    # holdout_gain=None 时跳过（非抽检轮，本轮无 holdout 数据，不报 overfit）
+    if holdout_gain is not None and visible_anchor_gain > 0.0 and holdout_gain <= 0.0:
         alerts.append("overfit_holdout")
         force_human = True
 
