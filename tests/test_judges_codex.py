@@ -2,6 +2,8 @@
 """TDD tests for M3.1: judges, judge_codex, judge_claude adapters.
 All tests mock subprocess/invoke — no real codex/claude calls."""
 import json
+import subprocess
+
 from tools.sie import judges, judge_codex
 
 
@@ -19,12 +21,17 @@ def test_codex_unavailable_returns_flag(monkeypatch, tmp_path):
 
 
 def test_prompt_carries_no_truth():
+    # 铁律5：全字段断言——claim/source_url/expected/verified/marginal_gain/0.31 均不可出现
     anchors = [{"span": "Revenue grew 12%", "claim": "rev +12%",
-                "verified": True, "marginal_gain": 0.31, "source_url": "http://x"}]
+                "verified": True, "marginal_gain": 0.31, "source_url": "http://x",
+                "expected": 0.12}]
     p = judges.build_judge_prompt("body text", [a["span"] for a in anchors])
     assert "verified" not in p.lower()
     assert "marginal_gain" not in p
     assert "0.31" not in p
+    assert "claim" not in p.lower()
+    assert "source_url" not in p
+    assert "expected" not in p.lower()
     assert "Revenue grew 12%" in p  # span 文本本身允许
 
 
@@ -78,7 +85,9 @@ def test_codex_malformed_json_graceful(monkeypatch, tmp_path):
 
 def test_unknown_family_raises():
     """score() with unknown family must raise ValueError."""
-    import pytest, tempfile, os
+    import pytest
+    import tempfile
+    import os
     with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
         f.write("body")
         name = f.name
@@ -91,7 +100,6 @@ def test_unknown_family_raises():
 
 def test_invoke_codex_judge_timeout(monkeypatch):
     """subprocess.TimeoutExpired → available=False, no raise."""
-    import subprocess
     def fake_run(*args, **kwargs):
         raise subprocess.TimeoutExpired(cmd=args[0], timeout=1)
     monkeypatch.setattr(subprocess, "run", fake_run)
@@ -103,14 +111,15 @@ def test_invoke_codex_judge_file_not_found(monkeypatch):
     """FileNotFoundError (node missing) → available=False, no raise."""
     def fake_run(*args, **kwargs):
         raise FileNotFoundError("node not found")
-    monkeypatch.setattr("subprocess.run", fake_run)
+    # Use object form (monkeypatch.setattr(module, attr, value)) to stay correct
+    # even if judge_codex switches to `from subprocess import run`.
+    monkeypatch.setattr(subprocess, "run", fake_run)
     result = judge_codex.invoke_codex_judge("hello", timeout_s=1)
     assert result == {"available": False, "raw": ""}
 
 
 def test_invoke_codex_judge_nonzero_exit(monkeypatch):
     """Non-zero returncode → available=False, no raise."""
-    import subprocess
     class FakeProc:
         returncode = 1
         stdout = ""
@@ -122,7 +131,6 @@ def test_invoke_codex_judge_nonzero_exit(monkeypatch):
 
 def test_invoke_codex_judge_empty_stdout(monkeypatch):
     """returncode=0 but empty stdout → available=False."""
-    import subprocess
     class FakeProc:
         returncode = 0
         stdout = "   "
@@ -134,7 +142,6 @@ def test_invoke_codex_judge_empty_stdout(monkeypatch):
 
 def test_invoke_codex_judge_success(monkeypatch):
     """returncode=0 with stdout → available=True, raw=stdout."""
-    import subprocess
     raw = '{"span_scores":[]}'
     class FakeProc:
         returncode = 0
@@ -143,3 +150,65 @@ def test_invoke_codex_judge_success(monkeypatch):
     monkeypatch.setattr(subprocess, "run", lambda *a, **kw: FakeProc())
     result = judge_codex.invoke_codex_judge("hello", timeout_s=1)
     assert result == {"available": True, "raw": raw}
+
+
+# ── I1: command argv 断言（锁住 Python 侧 flag 装配） ─────────────────────
+def test_invoke_codex_judge_argv_flags(monkeypatch):
+    """invoke_codex_judge 必须拼入 --no-browser/--no-playwright/最强模型/web_search。
+    monkeypatch subprocess.run（对象形式，防 from-import 重构静默失效）。"""
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+
+        class FakeProc:
+            returncode = 0
+            stdout = '{"span_scores":[]}'
+            stderr = ""
+        return FakeProc()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    judge_codex.invoke_codex_judge("test prompt", timeout_s=10)
+
+    cmd = captured["cmd"]
+    assert "--no-browser" in cmd, f"--no-browser missing in {cmd}"
+    assert "--no-playwright" in cmd, f"--no-playwright missing in {cmd}"
+    assert "--tools" in cmd, f"--tools missing in {cmd}"
+    tools_idx = cmd.index("--tools")
+    assert cmd[tools_idx + 1] == "web_search", f"expected web_search, got {cmd[tools_idx+1]}"
+    assert "--model" in cmd, f"--model missing in {cmd}"
+    model_idx = cmd.index("--model")
+    assert cmd[model_idx + 1] == "gpt-5.5", f"expected gpt-5.5, got {cmd[model_idx+1]}"
+
+
+# ── I2: claude stub via score() 返回契约 sentinel（不外抛）── ──────────────
+def test_claude_stub_via_score_returns_sentinel(tmp_path):
+    """family='claude' 时 score() 捕获 NotImplementedError，返回 available=False 契约 dict。"""
+    art = tmp_path / "a.md"
+    art.write_text("body text", encoding="utf-8")
+    out = judges.score(str(art), anchors_visible=[{"span": "body"}], family="claude")
+    assert out["available"] is False
+    assert out["family"] == "claude"
+    assert out["aggregate"] == 0.0
+    assert out["span_scores"] == []
+    assert "unspanned_penalized" in out
+
+
+# ── Minor: _parse_span_scores float 容错（非数值 score 被跳过） ────────────
+def test_parse_span_scores_nonnumeric_skipped(monkeypatch, tmp_path):
+    """span score 为字符串 'N/A' 时不崩溃，该 span 被跳过。"""
+    def fake_invoke(prompt, timeout_s):
+        raw = json.dumps({"span_scores": [
+            {"span": "good span", "score": 0.9},
+            {"span": "bad span", "score": "N/A"},
+        ]})
+        return {"available": True, "raw": raw}
+    monkeypatch.setattr(judge_codex, "invoke_codex_judge", fake_invoke)
+    art = tmp_path / "a.md"
+    art.write_text("body", encoding="utf-8")
+    out = judges.score(str(art), [{"span": "good span"}, {"span": "bad span"}], "codex")
+    # "N/A" span skipped: only good span counted, unspanned_penalized=1
+    assert out["available"] is True
+    assert abs(out["aggregate"] - 0.9) < 1e-9
+    assert out["unspanned_penalized"] == 1
+    assert len(out["span_scores"]) == 1
