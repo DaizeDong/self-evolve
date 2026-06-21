@@ -14,7 +14,7 @@ Public API:
       visible_anchor_gain: float          — mean(wg - bg) across verified anchors
       holdout_gain: float | None          — None 非抽检轮; 抽检轮=max(0, hw-hb)
       coverage: float                     — 已核验 span / 总 span
-      coverage_floor_violation: bool      — coverage < coverage_floor 且本轮欲 ACCEPT
+      coverage_floor_violation: bool      — coverage<floor (可选 intent 门控；无 intent 时回退原始信号)
 """
 from __future__ import annotations
 from tools.sie.verifiable import grade_pytest, minimal_env
@@ -128,7 +128,7 @@ def _verify_visible(anchors: list[dict], ctx: dict) -> list[dict]:
 
 
 def _evaluate_btier(ctx: dict) -> dict:
-    """B 档评测编排: visible 锚计分 + coverage 门 + holdout 每 K 轮抽检背离.
+    """B 档评测编排: visible 锚计分 + coverage 门(含 accept 意图可选门控) + holdout 每 K 轮抽检背离.
 
     Args:
         ctx: B-tier round context dict with keys:
@@ -141,12 +141,20 @@ def _evaluate_btier(ctx: dict) -> dict:
             with_scores (dict[str, float]): anchor_id -> score with proposal
             holdout_base (float, optional): holdout mean score without proposal
             holdout_with (float, optional): holdout mean score with proposal
+            intended_accept (bool, optional): if provided, gates coverage_floor_violation
+                on both low coverage AND acceptance intent (spec gating);
+                if None, falls back to raw signal (coverage < floor)
             fetcher (callable, optional): injected fetcher for verify_anchor (tests)
 
     Returns:
         dict with keys:
             tier, b_paired, visible_anchor_gain, holdout_gain,
             coverage, coverage_floor_violation, anchors_visible_verified
+        coverage_floor_violation: bool
+            When intended_accept is provided: True iff coverage < floor AND acceptor
+                intends to ACCEPT (spec-gated for M2.13 statemachine).
+            When intended_accept is None: True iff coverage < floor (raw signal;
+                M2.13 statemachine must re-gate via acceptor decision before enforcing).
     """
     vis = _verify_visible(ctx.get("anchors_visible", []), ctx)
     base = ctx.get("base_scores", {})
@@ -165,9 +173,14 @@ def _evaluate_btier(ctx: dict) -> dict:
         gains.append(wg - bg)
     visible_anchor_gain = (sum(gains) / len(gains)) if gains else 0.0
 
-    # ② coverage 门: coverage < coverage_floor → coverage_floor_violation=True
+    # ② coverage 门: coverage < coverage_floor with optional accept-intent gating
     cov = _anchors.coverage(vis)
     cov_floor = float(ctx.get("coverage_floor", 0.5))
+    cov_low = cov < cov_floor
+    # If intended_accept is provided, gate violation on both low coverage AND acceptance intent;
+    # otherwise fall back to raw signal (M2.13 statemachine must gate via acceptor decision).
+    _intent = ctx.get("intended_accept")  # bool | None
+    coverage_floor_violation = cov_low if _intent is None else (cov_low and bool(_intent))
 
     # ③ holdout 每 K 轮抽检: round % K == 0 → 计算 holdout_gain 喂 selfdeception
     K = int(ctx.get("K", 5))
@@ -186,7 +199,7 @@ def _evaluate_btier(ctx: dict) -> dict:
         "visible_anchor_gain": visible_anchor_gain,
         "holdout_gain": holdout_gain,
         "coverage": cov,
-        "coverage_floor_violation": cov < cov_floor,
+        "coverage_floor_violation": coverage_floor_violation,
         "anchors_visible_verified": vis,
     }
 
