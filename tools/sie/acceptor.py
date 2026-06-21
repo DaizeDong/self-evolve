@@ -251,7 +251,7 @@ def decide(paired: list[tuple[float, float]], tier: str,
     else:
         result = {"decision": "REJECT", "evalue": evalue,
                   "reason": f"e={evalue:.2f} < 1/α (C 档, 证据不足)"}
-    result = _apply_c_tier_gates(result, tier, params)
+    result = _apply_c_tier_gates(result, base_tier, params)
     return result
 
 
@@ -270,8 +270,8 @@ def c_tier_no_regression(replay_results: list[dict]) -> bool:
 def alpha_gate(alpha: float, anchor_up: bool, params: dict) -> dict:
     """双向 α 门: alpha<α_low→人审; alpha>α_high 且 not anchor_up→人审+计自欺.
 
-    None 哨兵（judge 不可用）：alpha=None 或负数由调用方传入 None，此处接受 None
-    并直接返回 force_review=True（不可信处理）。正常 float 走双向门逻辑。
+    None 哨兵（judge 不可用）：alpha=None 时直接返回 force_review=True（不可信处理）.
+    正常 float 走双向门逻辑.
 
     Returns {"force_review": bool, "count_selfdeception": bool}
     """

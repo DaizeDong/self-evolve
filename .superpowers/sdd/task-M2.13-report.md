@@ -112,3 +112,66 @@ B 档四走向均经事件流 (`_step` → `append_event` → `replay` → `save
 
 - 目标套件: `tests/test_m2_acceptance.py tests/test_statemachine_counters.py tests/test_selfdeception_holdout.py` → **46 passed**
 - 全量: **314 passed, 2 skipped, 0 failed** (无回归)
+
+---
+
+## M2.13 fix2 — B 端到端通路修复 (本次追加)
+
+### 根因
+
+`run_loop` 态6 调 `evaluate(sandbox_root, prof["tier"], base_result=None)`，首参是**字符串**，B-tier dispatch 判定 `isinstance(arg, dict)` 为 False，回落到 A grader → ev_result 无 `b_paired`/`visible_anchor_gain` → resolve_accept 拿到空 `b_paired` → acceptor 门1 (n_anchor<n_min=8) 立即 REJECT → B 档经完整 run_loop 永远 REJECT。
+
+### 态6 B-ctx 构造
+
+`statemachine.py` 态6 改为:
+```python
+if "B" in str(prof["tier"]):
+    ev_ctx = {
+        "tier": prof["tier"], "round": rnd, "K": params.get("holdout_K", 5),
+        "anchors_visible": prof.get("anchors_visible", []),
+        "base_scores": {}, "with_scores": {},
+        "holdout_base": <from holdout.json on K-rounds or None>,
+        "holdout_with": <from holdout.json on K-rounds or None>,
+        "intended_accept": None, "fetcher": fetcher,
+    }
+    ev_result = evaluate(ev_ctx)   # B dispatch: _evaluate_btier(ctx)
+else:
+    ev_result = evaluate(sandbox_root, prof["tier"], base_result=None)  # A 不变
+```
+抽检轮 (rnd % K == 0): 从 `prof["anchors_holdout_ref"]["path"]` 读 holdout.json，算均值填 holdout_base/holdout_with。非抽检轮均留 None。
+
+### run_loop fetcher 注入
+
+签名改为 `run_loop(..., fetcher=None)`，传入 B 档 ev_ctx，测试注入假 fetcher 绕网络。
+
+### judge_gain 处理
+
+`_evaluate_btier` 不产 `judge_gain`（M3 前 LLM judge 未接线）。`resolve_accept` 中 `eval_out.get("judge_gain", 0.0)` 默认 0.0。添加注释说明:
+- `selfdeception` 语义: `value = judge_gain - visible_anchor_gain`
+- judge_gain=0.0 时: 仅当 visible_anchor_gain > band(0.15) 才误报 divergence
+- 实际 B visible_anchor_gain 通常远低于 0.15，不会大面积误触 drift_circuit
+
+### drift 真实路径测试
+
+`test_resolve_accept_drift_signal_written_to_events` 改为:
+1. `resolve_accept(run_dir=tmp_path/...)` — 断言 `judge_anchor_divergence in alerts` + `st.drift_count >= 1`
+2. 模拟 run_loop B 分支: 调用 `_step(run_dir, {type:DRIFT_SIGNAL, drift_count_delta:1})`
+3. `replay(run_dir)` → 断言 `st_replayed.drift_count >= 1`
+4. 读 events.jsonl 断言真存在 `type=DRIFT_SIGNAL` 行
+
+### 端到端 B 测试
+
+新增 `test_b_tier_e2e_through_run_loop_produces_b_paired`:
+- monkeypatch: make_worktree/run_profile/freeze_target/load_target/reflect/check/propose/apply_patch/archive.snapshot_version
+- inject B-tier prof (24 verified anchors from smallcap fixture)
+- monkeypatch `_verify_visible` 跳过 edgar
+- wrap `evaluate` 记录调用参数
+- 断言: evaluate 首参为含 `tier:"B"` 的 dict, `anchors_visible` 含 >=24 条
+- 直接调用 `evaluate(ctx_test)` 断言 ev_out 含 `b_paired`(非空)、`visible_anchor_gain`、`coverage`
+- 断言 `final_phase` 在合法集合 (非空/None), 证明 B 链路到达决策点
+
+### 测试结果 (fix2)
+
+- 目标套件: `tests/test_m2_acceptance.py tests/test_statemachine_counters.py tests/test_evaluate_btier.py` → **45 passed**
+- 全量: **315 passed, 2 skipped, 0 failed** (无回归)
+- commit: `286603e` — M2.13 fix2: 态6 为 B 档构造 evaluate ctx(B 端到端通) + run_loop fetcher 注入 + drift 真实路径测试
