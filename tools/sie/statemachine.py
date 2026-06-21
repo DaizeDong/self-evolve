@@ -131,7 +131,8 @@ def circuit_check(st: RunState, params: dict) -> str | None:
 # M2.13: B 档 ACCEPT 态接线 (resolve_accept)
 # ---------------------------------------------------------------------------
 
-def resolve_accept(st: RunState, eval_out: dict, params: dict) -> dict:
+def resolve_accept(st: RunState, eval_out: dict, params: dict,
+                   run_dir: str | None = None) -> dict:
     """B 档 ACCEPT 态接线: acceptor + selfdeception 多闸 → 路由到下一态.
 
     Args:
@@ -139,6 +140,7 @@ def resolve_accept(st: RunState, eval_out: dict, params: dict) -> dict:
         eval_out: B 档 evaluate 输出 dict (含 tier/b_paired/coverage_floor_violation/
                   visible_anchor_gain/holdout_gain/anchors_visible_verified 等).
         params:   参数字典 (含 alpha/n_min/effective_independent_anchor_min 等).
+        run_dir:  run 目录 (用于 gate_human.enqueue 写文件); None 时用临时目录兜底.
 
     Returns:
         {
@@ -181,12 +183,12 @@ def resolve_accept(st: RunState, eval_out: dict, params: dict) -> dict:
 
     # selfdeception 多闸
     visible_gain = eval_out.get("visible_anchor_gain", 0.0)
-    holdout_gain = eval_out.get("holdout_gain")
+    holdout_gain = eval_out.get("holdout_gain")   # None 表示非抽检轮，直接传 None 跳过闸③
     judge_gain = eval_out.get("judge_gain", 0.0)
     sd = _selfdeception.index(
         judge_gain=float(judge_gain),
         visible_anchor_gain=float(visible_gain),
-        holdout_gain=float(holdout_gain) if holdout_gain is not None else 0.0,
+        holdout_gain=holdout_gain,   # None → selfdeception.index 跳过过拟合闸③
         st=st,
         params=params,
     )
@@ -205,8 +207,12 @@ def resolve_accept(st: RunState, eval_out: dict, params: dict) -> dict:
     force = cov_violation or sd["force_human"] or ("low_anchor_gain" in sd.get("alerts", []))
 
     if not_rejected and force:
+        import tempfile as _tempfile
+        _enqueue_dir = run_dir or os.path.join(
+            _tempfile.gettempdir(), "sie_gate_human_fallback"
+        )
         st.forced_review += 1
-        _gate_human.enqueue(st.run_id or "unknown", {
+        _gate_human.enqueue(_enqueue_dir, {
             "run_id": st.run_id,
             "round": st.round,
             "action_type": "human_review",
@@ -449,88 +455,175 @@ def run_loop(
         # 态6 EVALUATE — verifiable grader (A-tier: pytest)
         ev_result = evaluate(sandbox_root, prof["tier"], base_result=None)
 
-        # 态7 DECIDE — acceptor outcome routing (ACCEPT/REJECT/CONTINUE/FORCE_HUMAN)
-        dec = decide(ev_result["paired"], prof["tier"], st, params)
-        nxt = apply_acceptor_outcome(st, dec, params)
+        # 态7 DECIDE — B 档走 resolve_accept; A 档走旧 decide+apply_acceptor_outcome
+        base_tier = prof["tier"].split("+")[0] if prof["tier"] else ""
+        if "B" in str(prof["tier"]):
+            # ---- B 档生产路径: resolve_accept 含 selfdeception 多闸 ----
+            ra = resolve_accept(st, ev_result, params, run_dir=run_dir)
+            ra_sd = ra.get("selfdeception", {})
+            ra_next = ra["next_state"]   # "8" | "9" | "9.5" | "6"
 
-        if nxt == "ARCHIVE":
-            # 态8 ACCEPT: add lineage entry + snapshot; apply_acceptor_outcome cleared counters in st
-            vid = f"v{len(accepted) + 1}"
-            # NOTE: add_version receives run_dir (internally joins "archive"),
-            #       snapshot_version receives arch_dir (pre-joined).
-            archive.add_version(run_dir, vid, ev_result["result"]["dimensions"], parent)
-            arch_dir = os.path.join(run_dir, "archive")
-            archive.snapshot_version(arch_dir, vid, sandbox_root)
-            accepted.append(vid)
+            # Critical 2: judge_anchor_divergence → 写 DRIFT_SIGNAL 事件 (replay 持久化)
+            if "judge_anchor_divergence" in ra_sd.get("alerts", []):
+                st = _step(run_dir, {
+                    "type": "DRIFT_SIGNAL",
+                    "phase": "EVALUATE",
+                    "round": rnd,
+                    "drift_count_delta": 1,
+                })
 
-            st = _step(run_dir, {
-                "type": "ACCEPT",
-                "phase": "ARCHIVE",
-                "parent_vid": vid,
-                # ACCEPT semantics in _apply: clears no_progress / forced_review / continue_count
-            })
-            history.append({"round": rnd, "summary": "accepted", "passed": True})
+            if ra_next == "8":
+                # 态8 ACCEPT
+                vid = f"v{len(accepted) + 1}"
+                archive.add_version(run_dir, vid,
+                                    ev_result.get("result", {}).get("dimensions", []),
+                                    parent)
+                arch_dir = os.path.join(run_dir, "archive")
+                archive.snapshot_version(arch_dir, vid, sandbox_root)
+                accepted.append(vid)
+                st = _step(run_dir, {
+                    "type": "ACCEPT",
+                    "phase": "ARCHIVE",
+                    "parent_vid": vid,
+                })
+                history.append({"round": rnd, "summary": "B ACCEPT", "passed": True})
 
-        elif nxt == "EVALUATE":
-            # CONTINUE: accumulate evidence, re-enter evaluation next round
-            st = _step(run_dir, {
-                "type": "CONTINUE",
-                "phase": "REFLECT",
-                "no_progress_delta": 1,
-                "continue_count_delta": 1,
-            })
-            history.append({
-                "round": rnd,
-                "summary": dec["reason"],
-                "passed": False,
-            })
-            cc = circuit_check(st, params)
-            if cc in ("no_progress_circuit", "static_reject_circuit",
-                      "forced_review_circuit", "drift_circuit"):
-                break
+            elif ra_next == "9.5":
+                # 态9.5 PAUSE_FOR_HUMAN — resolve_accept 已 forced_review++ + enqueue
+                # 写事件持久化 forced_review_delta
+                st = _step(run_dir, {
+                    "type": "PAUSE_FOR_HUMAN",
+                    "phase": "PAUSE_FOR_HUMAN",
+                    "forced_review_delta": 1,
+                })
+                history.append({
+                    "round": rnd,
+                    "summary": ra.get("reason", "B forced human review"),
+                    "passed": False,
+                })
+                cc = circuit_check(st, params)
+                if cc in ("no_progress_circuit", "static_reject_circuit",
+                          "forced_review_circuit", "drift_circuit"):
+                    break
 
-        elif nxt == "PAUSE_FOR_HUMAN":
-            # 态9.5 PAUSE_FOR_HUMAN — non-blocking; record & increment forced_review
-            from tools.sie import gate_human
-            note_forced_review(st)   # in-memory counter update
-            gate_human.enqueue(run_dir, {
-                "run_id": run_id,
-                "round": rnd,
-                "action_type": "human_review",
-                "payload": {"reason": dec.get("reason", ""), "evalue": dec.get("evalue", 0.0)},
-            })
-            st = _step(run_dir, {
-                "type": "PAUSE_FOR_HUMAN",
-                "phase": "PAUSE_FOR_HUMAN",
-                "forced_review_delta": 1,
-            })
-            history.append({
-                "round": rnd,
-                "summary": dec["reason"],
-                "passed": False,
-            })
-            # Check forced_review circuit after entering 9.5
-            cc = circuit_check(st, params)
-            if cc in ("no_progress_circuit", "static_reject_circuit",
-                      "forced_review_circuit", "drift_circuit"):
-                break
+            elif ra_next == "6":
+                # CONTINUE — resolve_accept 已 no_progress++
+                st = _step(run_dir, {
+                    "type": "CONTINUE",
+                    "phase": "REFLECT",
+                    "no_progress_delta": 1,
+                    "continue_count_delta": 1,
+                })
+                history.append({
+                    "round": rnd,
+                    "summary": ra.get("reason", "B CONTINUE"),
+                    "passed": False,
+                })
+                cc = circuit_check(st, params)
+                if cc in ("no_progress_circuit", "static_reject_circuit",
+                          "forced_review_circuit", "drift_circuit"):
+                    break
+
+            else:
+                # 态9 REJECT — resolve_accept 已 no_progress++
+                st = _step(run_dir, {
+                    "type": "REJECT",
+                    "phase": "REFLECT",
+                    "no_progress_delta": 1,
+                })
+                history.append({
+                    "round": rnd,
+                    "summary": ra.get("reason", "B REJECT"),
+                    "passed": False,
+                })
+                cc = circuit_check(st, params)
+                if cc in ("no_progress_circuit", "static_reject_circuit",
+                          "forced_review_circuit", "drift_circuit"):
+                    break
 
         else:
-            # 态9 REJECT: no_progress already incremented by apply_acceptor_outcome
-            st = _step(run_dir, {
-                "type": "REJECT",
-                "phase": "REFLECT",
-                "no_progress_delta": 1,
-            })
-            history.append({
-                "round": rnd,
-                "summary": dec["reason"],
-                "passed": False,
-            })
-            cc = circuit_check(st, params)
-            if cc in ("no_progress_circuit", "static_reject_circuit",
-                      "forced_review_circuit", "drift_circuit"):
-                break
+            # ---- A 档旧路径 (保持 M1 行为不变) ----
+            dec = decide(ev_result["paired"], prof["tier"], st, params)
+            nxt = apply_acceptor_outcome(st, dec, params)
+
+            if nxt == "ARCHIVE":
+                # 态8 ACCEPT: add lineage entry + snapshot
+                vid = f"v{len(accepted) + 1}"
+                # NOTE: add_version receives run_dir (internally joins "archive"),
+                #       snapshot_version receives arch_dir (pre-joined).
+                archive.add_version(run_dir, vid, ev_result["result"]["dimensions"], parent)
+                arch_dir = os.path.join(run_dir, "archive")
+                archive.snapshot_version(arch_dir, vid, sandbox_root)
+                accepted.append(vid)
+
+                st = _step(run_dir, {
+                    "type": "ACCEPT",
+                    "phase": "ARCHIVE",
+                    "parent_vid": vid,
+                    # ACCEPT semantics in _apply: clears no_progress / forced_review / continue_count
+                })
+                history.append({"round": rnd, "summary": "accepted", "passed": True})
+
+            elif nxt == "EVALUATE":
+                # CONTINUE: accumulate evidence, re-enter evaluation next round
+                st = _step(run_dir, {
+                    "type": "CONTINUE",
+                    "phase": "REFLECT",
+                    "no_progress_delta": 1,
+                    "continue_count_delta": 1,
+                })
+                history.append({
+                    "round": rnd,
+                    "summary": dec["reason"],
+                    "passed": False,
+                })
+                cc = circuit_check(st, params)
+                if cc in ("no_progress_circuit", "static_reject_circuit",
+                          "forced_review_circuit", "drift_circuit"):
+                    break
+
+            elif nxt == "PAUSE_FOR_HUMAN":
+                # 态9.5 PAUSE_FOR_HUMAN — non-blocking; record & increment forced_review
+                from tools.sie import gate_human
+                note_forced_review(st)   # in-memory counter update
+                gate_human.enqueue(run_dir, {
+                    "run_id": run_id,
+                    "round": rnd,
+                    "action_type": "human_review",
+                    "payload": {"reason": dec.get("reason", ""), "evalue": dec.get("evalue", 0.0)},
+                })
+                st = _step(run_dir, {
+                    "type": "PAUSE_FOR_HUMAN",
+                    "phase": "PAUSE_FOR_HUMAN",
+                    "forced_review_delta": 1,
+                })
+                history.append({
+                    "round": rnd,
+                    "summary": dec["reason"],
+                    "passed": False,
+                })
+                # Check forced_review circuit after entering 9.5
+                cc = circuit_check(st, params)
+                if cc in ("no_progress_circuit", "static_reject_circuit",
+                          "forced_review_circuit", "drift_circuit"):
+                    break
+
+            else:
+                # 态9 REJECT: no_progress already incremented by apply_acceptor_outcome
+                st = _step(run_dir, {
+                    "type": "REJECT",
+                    "phase": "REFLECT",
+                    "no_progress_delta": 1,
+                })
+                history.append({
+                    "round": rnd,
+                    "summary": dec["reason"],
+                    "passed": False,
+                })
+                cc = circuit_check(st, params)
+                if cc in ("no_progress_circuit", "static_reject_circuit",
+                          "forced_review_circuit", "drift_circuit"):
+                    break
 
     return {
         "run_id": run_id,
