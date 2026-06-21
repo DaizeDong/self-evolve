@@ -21,6 +21,9 @@ import subprocess
 
 # ---------------------------------------------------------------------------
 # IMMUTABLE: outward-facing ops are always GATED — not subject to --mode.
+# Ops: push (VCS push), merge_main (main merge), send (external dispatch),
+# delete_outside (boundary deletion), land (human-initiated landing),
+# approve (human-initiated approval).
 # ---------------------------------------------------------------------------
 OUTWARD_OPS = frozenset({"push", "merge_main", "send", "delete_outside", "land", "approve"})
 
@@ -99,9 +102,9 @@ def make_worktree(target: str, base_ref: str, run_id: str) -> str:
     worktrees_dir = os.path.dirname(sandbox_root)
     os.makedirs(worktrees_dir, exist_ok=True)
 
-    # Idempotent: if the worktree's .git file/dir already exists, just return.
+    # Idempotent: if the worktree's .git file already exists (valid worktree), just return.
     dot_git = os.path.join(sandbox_root, ".git")
-    if os.path.exists(dot_git):
+    if os.path.isfile(dot_git):
         return sandbox_root
 
     branch = f"sie/{run_id}"

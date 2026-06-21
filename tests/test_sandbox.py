@@ -4,7 +4,7 @@ import subprocess as sp
 
 import pytest
 
-from tools.sie.sandbox import canonical_in_sandbox, action_class
+from tools.sie.sandbox import canonical_in_sandbox, action_class, OUTWARD_OPS
 
 
 def test_inside(tmp_path):
@@ -45,6 +45,13 @@ def test_sibling_prefix_not_sandbox(tmp_path):
     assert canonical_in_sandbox(p, root) is False
 
 
+def test_fs_root_outside_sandbox(tmp_path):
+    """Filesystem root must never be inside sandbox."""
+    root = str(tmp_path / "sandbox")
+    os.makedirs(root)
+    assert canonical_in_sandbox(os.path.abspath(os.sep), root) is False
+
+
 def test_action_class_auto_vs_gated(tmp_path):
     root = str(tmp_path / "sbx")
     os.makedirs(root)
@@ -53,7 +60,7 @@ def test_action_class_auto_vs_gated(tmp_path):
     outside = {"op": "write", "path": os.path.join(str(tmp_path), "real_target.py")}
     assert action_class(outside, root) == "gated"
     # outward ops are always gated — even if path is inside sandbox
-    for op in ("push", "merge_main", "send", "delete_outside"):
+    for op in OUTWARD_OPS:
         assert action_class({"op": op, "path": os.path.join(root, "f")}, root) == "gated"
 
 
