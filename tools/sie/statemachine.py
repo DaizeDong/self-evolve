@@ -269,6 +269,8 @@ def run_loop(
             if cc in ("no_progress_circuit", "static_reject_circuit",
                       "forced_review_circuit", "drift_circuit"):
                 break
+            # TODO(M3): no_progress_release should upgrade human review frequency (spec §5.4),
+            # currently only logged but takes no action.
             continue
 
         # 态4 PROPOSE — builtin deterministic generator (M3: real LLM fanout)
