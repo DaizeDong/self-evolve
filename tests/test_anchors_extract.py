@@ -31,3 +31,24 @@ def test_coverage_full_when_all_verified():
 
 def test_coverage_empty_is_zero():
     assert anchors.coverage([]) == 0.0
+
+
+def test_coverage_empty_span_anchor_not_counted():
+    """Empty span anchors have 0 weight and don't contribute to coverage."""
+    anchor_with_span = {
+        "anchor_id": "abc123",
+        "claim": "test",
+        "span": "valid text",
+        "source_url": "http://example.com",
+        "verified": True,
+    }
+    anchor_empty_span = {
+        "anchor_id": "def456",
+        "claim": "test",
+        "span": "",
+        "source_url": "http://example.com",
+        "verified": True,
+    }
+    # Only anchor with non-empty span should count
+    cov = anchors.coverage([anchor_with_span, anchor_empty_span])
+    assert cov == 1.0  # 1 verified (with span) / 1 total weight = 100%
