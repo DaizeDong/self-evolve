@@ -13,7 +13,6 @@ NOTE: confseq 需在 Python 3.10 + Boost 环境下编译安装。
 from __future__ import annotations
 
 import numpy as np
-from confseq.betting import betting_mart  # e-process martingale (wealth)
 
 _E_INTERFACE = "confseq.betting.betting_mart"
 
@@ -26,6 +25,7 @@ def _e_process_wealth(diffs: np.ndarray) -> np.ndarray:
     diff>0  -> x>0.5 (偏向有增益, wealth 可增)
     diff<0  -> x<0.5 (反向, wealth 可减)
     """
+    from confseq.betting import betting_mart
     x = np.clip(0.5 + diffs, 0.0, 1.0)
     return np.asarray(betting_mart(x, m=0.5), dtype=float)
 
