@@ -35,5 +35,6 @@ def test_counters_apply(tmp_path):
     final = _drive(run_dir)
     assert final.round == 2
     assert final.no_progress == 0   # ACCEPT 重置
+    assert final.forced_review == 0  # ACCEPT 清零 forced_review
     assert final.parent_vid == "v1"
     assert final.tier == "A"
