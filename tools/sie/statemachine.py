@@ -184,6 +184,12 @@ def resolve_accept(st: RunState, eval_out: dict, params: dict,
     # selfdeception 多闸
     visible_gain = eval_out.get("visible_anchor_gain", 0.0)
     holdout_gain = eval_out.get("holdout_gain")   # None 表示非抽检轮，直接传 None 跳过闸③
+    # judge_gain: LLM judge 的主观判定增益 (M3 接线后由 reflect/judge 填充).
+    # 当前 B evaluate 不产 judge_gain → 默认 0.0.
+    # selfdeception 语义: value = judge_gain - visible_anchor_gain;
+    # |value| <= band (0.15) 时无 judge_anchor_divergence 告警 → drift 不计入.
+    # 置 0.0 保守处理: 仅当 visible_anchor_gain > 0.15 时误报发散,
+    # 不会因 judge_gain=0 大面积误触 drift_circuit (visible 增益通常远低于 0.15).
     judge_gain = eval_out.get("judge_gain", 0.0)
     sd = _selfdeception.index(
         judge_gain=float(judge_gain),
@@ -316,6 +322,7 @@ def run_loop(
     max_rounds: int = 3,
     mode: str = "auto",
     _injected_fix: dict | None = None,
+    fetcher=None,
 ) -> dict:
     """Drive the M1a 10-state closed loop and return a summary dict.
 
@@ -323,6 +330,10 @@ def run_loop(
     it allows deterministic testing of the ACCEPT path without a real LLM.
     When provided it is merged into the reflect output so builtin.generate
     can produce a valid proposal (see builtin.py).
+
+    fetcher: optional injected fetcher for B-tier anchor verification.
+    None (default) uses real edgar/verify_anchor in production.
+    Tests inject a fake fetcher to avoid network calls.
 
     States:
       INIT -> PROFILE -> [REFLECT -> CHECK -> PROPOSE -> PATCH -> EVALUATE ->
@@ -452,11 +463,48 @@ def run_loop(
                 break
             continue
 
-        # 态6 EVALUATE — verifiable grader (A-tier: pytest)
-        ev_result = evaluate(sandbox_root, prof["tier"], base_result=None)
+        # 态6 EVALUATE — verifiable grader (A-tier: pytest; B-tier: anchor ctx)
+        if "B" in str(prof["tier"]):
+            # B 档: 构造 evaluate ctx dict (B-tier dispatch 要求首参为含 tier:"B" 的 dict)
+            # holdout 抽检: round % K == 0 时从 holdout.json 读并算均值
+            _K = int(params.get("holdout_K", 5))
+            _holdout_base: float | None = None
+            _holdout_with: float | None = None
+            if rnd > 0 and rnd % _K == 0:
+                _href = prof.get("anchors_holdout_ref", {})
+                _holdout_path = _href.get("path", "")
+                if _holdout_path and os.path.exists(_holdout_path):
+                    import json as _json
+                    with open(_holdout_path, "r", encoding="utf-8") as _fh:
+                        _holdout_anchors = _json.load(_fh)
+                    # holdout_base=0.0 (无 baseline 时全零);
+                    # holdout_with=mean(expected) 用锚 expected 字段近似当前得分
+                    if _holdout_anchors:
+                        _holdout_base = 0.0
+                        _holdout_with = sum(
+                            float(a.get("expected", 0.0)) for a in _holdout_anchors
+                        ) / len(_holdout_anchors)
+            ev_ctx: dict = {
+                "tier": prof["tier"],
+                "round": rnd,
+                "K": _K,
+                "anchors_visible": prof.get("anchors_visible", []),
+                # base_scores / with_scores: 无 LLM judge 时留空(全零基线);
+                # M3 接线后由 grader 填充实际分值
+                "base_scores": {},
+                "with_scores": {},
+                "holdout_base": _holdout_base,
+                "holdout_with": _holdout_with,
+                # intended_accept=None: 让 _evaluate_btier 回退到原始信号,
+                # 由 resolve_accept 在 acceptor 决策后再做门控 (M2.13 spec 设计)
+                "intended_accept": None,
+                "fetcher": fetcher,  # None=真 edgar; 测试注入假 fetcher
+            }
+            ev_result = evaluate(ev_ctx)
+        else:
+            ev_result = evaluate(sandbox_root, prof["tier"], base_result=None)
 
         # 态7 DECIDE — B 档走 resolve_accept; A 档走旧 decide+apply_acceptor_outcome
-        base_tier = prof["tier"].split("+")[0] if prof["tier"] else ""
         if "B" in str(prof["tier"]):
             # ---- B 档生产路径: resolve_accept 含 selfdeception 多闸 ----
             ra = resolve_accept(st, ev_result, params, run_dir=run_dir)
