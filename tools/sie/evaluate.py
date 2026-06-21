@@ -1,14 +1,24 @@
-"""M1a: evaluate.py — 只走 verifiable(A 档)。B/C 档 evaluate 在 M2/M3 接入。
+"""evaluate.py — A 档 verifiable 编排 (M1a) + B 档 visible/holdout/coverage (M2.12).
 
 Public API:
   evaluate(sandbox_root, tier, base_result=None) -> dict
-    Returns {"result": <A-grade contract>, "paired": [(before, after), ...], "coverage": float}
+    A-tier (M1a): Returns {"result": <A-grade contract>, "paired": [...], "coverage": float}
     paired 给 acceptor: before=parent grade score, after=current sandbox grade score。
-    per-task paired: 每个 pytest test item 产一对 (before, after)，支持 e-process 统计显著性。
-    缺省 base_result=None 时视为全 fail 基线，before=0.0。
+    per-task paired: 每个 pytest test item 产一对 (before, after)。
+    base_result=None 时视为全 fail 基线，before=0.0。
+
+  evaluate(round_ctx: dict) -> dict
+    B-tier dispatch (M2.12): first positional arg is a dict with "tier": "B".
+    Returns A-tier keys PLUS:
+      b_paired: list[tuple[float,float]]  — per-anchor (bg, wg) 零均值化配对喂 acceptor
+      visible_anchor_gain: float          — mean(wg - bg) across verified anchors
+      holdout_gain: float | None          — None 非抽检轮; 抽检轮=max(0, hw-hb)
+      coverage: float                     — 已核验 span / 总 span
+      coverage_floor_violation: bool      — coverage < coverage_floor 且本轮欲 ACCEPT
 """
 from __future__ import annotations
 from tools.sie.verifiable import grade_pytest, minimal_env
+from . import anchors as _anchors
 
 import os
 import subprocess
@@ -100,27 +110,121 @@ def _parse_per_test(stdout: str) -> list[dict]:
     return dims
 
 
-def evaluate(sandbox_root: str, tier: str,
-             base_result: dict | None = None) -> dict:
-    """M1a 只走 verifiable(A 档)。B/C 档 evaluate 在 M2/M3 接入。
+def _verify_visible(anchors: list[dict], ctx: dict) -> list[dict]:
+    """核查 visible 锚列表，未核验的通过 anchors.verify_anchor 处理。
 
-    Returns per-task pairs for e-process statistical evidence:
-    - If per-task grading is available: one (before, after) pair per test item.
-    - Falls back to single aggregate pair if per-task parsing fails.
+    Tests inject a monkeypatch on this module-level function so no network
+    calls are made in the test suite. Production path calls verify_anchor
+    (which may use edgar; always inject fetcher in tests via ctx["fetcher"]).
+    """
+    fetcher = ctx.get("fetcher")
+    out: list[dict] = []
+    for a in anchors:
+        if a.get("verified"):
+            out.append(a)
+        else:
+            out.append(_anchors.verify_anchor(a, fetcher=fetcher))
+    return out
+
+
+def _evaluate_btier(ctx: dict) -> dict:
+    """B 档评测编排: visible 锚计分 + coverage 门 + holdout 每 K 轮抽检背离.
 
     Args:
-        sandbox_root: 沙箱根目录路径。
-        tier: 档位，M1a 只用 "A"。
-        base_result: parent 版本的 grade 结果(A 档 contract dict)。
-                     None 时视为全 fail 基线，before_score=0.0。
+        ctx: B-tier round context dict with keys:
+            tier (str): must contain "B"
+            round (int): current round number
+            K (int): holdout sampling interval (default 5)
+            coverage_floor (float): minimum coverage threshold (default 0.5)
+            anchors_visible (list[dict]): visible anchor set
+            base_scores (dict[str, float]): anchor_id -> score without proposal
+            with_scores (dict[str, float]): anchor_id -> score with proposal
+            holdout_base (float, optional): holdout mean score without proposal
+            holdout_with (float, optional): holdout mean score with proposal
+            fetcher (callable, optional): injected fetcher for verify_anchor (tests)
 
     Returns:
+        dict with keys:
+            tier, b_paired, visible_anchor_gain, holdout_gain,
+            coverage, coverage_floor_violation, anchors_visible_verified
+    """
+    vis = _verify_visible(ctx.get("anchors_visible", []), ctx)
+    base = ctx.get("base_scores", {})
+    with_ = ctx.get("with_scores", {})
+
+    # ① visible 锚逐个 marginal_gain → 零均值化配对 b_paired
+    # bg = gain(anchor, 0 → base[aid])  wg = gain(anchor, 0 → with[aid])
+    # visible_anchor_gain = mean(wg - bg)  across all anchors (incl. unverified → 0)
+    paired: list[tuple[float, float]] = []
+    gains: list[float] = []
+    for a in vis:
+        aid = a["anchor_id"]
+        bg = _anchors.marginal_gain(a, base_score=0.0, with_score=base.get(aid, 0.0))
+        wg = _anchors.marginal_gain(a, base_score=0.0, with_score=with_.get(aid, 0.0))
+        paired.append((bg, wg))
+        gains.append(wg - bg)
+    visible_anchor_gain = (sum(gains) / len(gains)) if gains else 0.0
+
+    # ② coverage 门: coverage < coverage_floor → coverage_floor_violation=True
+    cov = _anchors.coverage(vis)
+    cov_floor = float(ctx.get("coverage_floor", 0.5))
+
+    # ③ holdout 每 K 轮抽检: round % K == 0 → 计算 holdout_gain 喂 selfdeception
+    K = int(ctx.get("K", 5))
+    rnd = int(ctx.get("round", 0))
+    holdout_gain: float | None = None
+    if rnd > 0 and rnd % K == 0:
+        hb = ctx.get("holdout_base")
+        hw = ctx.get("holdout_with")
+        if hb is not None and hw is not None:
+            delta = float(hw) - float(hb)
+            holdout_gain = delta if delta > 0.0 else 0.0
+
+    return {
+        "tier": "B",
+        "b_paired": paired,
+        "visible_anchor_gain": visible_anchor_gain,
+        "holdout_gain": holdout_gain,
+        "coverage": cov,
+        "coverage_floor_violation": cov < cov_floor,
+        "anchors_visible_verified": vis,
+    }
+
+
+def evaluate(sandbox_root_or_ctx, tier: str = "A",
+             base_result: dict | None = None) -> dict:
+    """A 档 verifiable 编排 (M1a) + B 档 visible/holdout/coverage (M2.12).
+
+    Backward-compatible dispatch:
+      - If first arg is a dict with "tier" containing "B" → B-tier path (_evaluate_btier).
+      - Otherwise → A-tier path (sandbox_root: str, tier: str, base_result=None).
+
+    A-tier Returns:
         {
           "result": <A-grade contract from grade_pytest>,
           "paired": [(before_score, after_score), ...],  # per-task
           "coverage": float
         }
+
+    B-tier Returns (additional keys):
+        {
+          "tier": "B",
+          "b_paired": [(bg, wg), ...],       # per-anchor zero-mean pairs for acceptor
+          "visible_anchor_gain": float,       # mean marginal gain across visible anchors
+          "holdout_gain": float | None,       # None on non-K rounds; computed on K rounds
+          "coverage": float,                  # verified span / total span
+          "coverage_floor_violation": bool,   # True if coverage < coverage_floor
+          "anchors_visible_verified": [...],  # verified anchor list
+        }
     """
+    # B-tier dispatch: first arg is a context dict with "tier" containing "B"
+    if isinstance(sandbox_root_or_ctx, dict):
+        ctx = sandbox_root_or_ctx
+        if "B" in str(ctx.get("tier", "")):
+            return _evaluate_btier(ctx)
+
+    # A-tier path (M1a): sandbox_root is a string path
+    sandbox_root: str = sandbox_root_or_ctx
     after = _grade_pytest_per_task(sandbox_root)
     after_dims = after.get("dimensions", [])
 
