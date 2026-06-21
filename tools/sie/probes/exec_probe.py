@@ -29,17 +29,23 @@ def _has_tests(root: str) -> bool:
 def _run_pytest(root: str) -> int:
     env = dict(os.environ)
     env["PYTHONDONTWRITEBYTECODE"] = "1"
-    proc = subprocess.run(PYTEST, cwd=root, capture_output=True, text=True, env=env)
-    return proc.returncode  # 0=pass, 1=fail, 5=no tests collected
+    try:
+        proc = subprocess.run(PYTEST, cwd=root, capture_output=True, text=True, env=env, timeout=60)
+        return proc.returncode  # 0=pass, 1=fail, 5=no tests collected
+    except subprocess.TimeoutExpired:
+        return 1  # timeout treated as test failure / signal unavailable
 
 
 def _pick_src(root: str) -> str | None:
-    for p in glob.glob(os.path.join(root, "**", "*.py"), recursive=True):
-        base = os.path.basename(p)
-        if base.startswith("test_") or base.endswith("_test.py"):
-            continue
-        return p
-    return None
+    # Exclude test files, conftest, __init__, setup, etc. + sort for determinism
+    excludes = {"__init__.py", "setup.py", "conftest.py"}
+    candidates = sorted([
+        p for p in glob.glob(os.path.join(root, "**", "*.py"), recursive=True)
+        if not (os.path.basename(p).startswith("test_")
+                or os.path.basename(p).endswith("_test.py")
+                or os.path.basename(p) in excludes)
+    ])
+    return candidates[0] if candidates else None
 
 
 def run_exec_probe(sandbox_root: str) -> dict:
@@ -62,7 +68,8 @@ def run_exec_probe(sandbox_root: str) -> dict:
     if not src:
         return out
 
-    original = open(src, "r", encoding="utf-8").read()
+    with open(src, "r", encoding="utf-8") as fh:
+        original = fh.read()
     try:
         with open(src, "a", encoding="utf-8") as fh:
             fh.write("\nraise RuntimeError('SIE_MUTANT')\n")
