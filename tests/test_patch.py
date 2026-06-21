@@ -48,3 +48,21 @@ def test_apply_dangerous_rejected(tmp_path):
     res = apply_patch(root, "m.py", "import socket\n", allow={"socket"})
     assert res["status"] == "REJECT"
     assert not os.path.exists(os.path.join(root, "m.py"))  # 未落盘
+
+
+def test_import_from_dangerous_symbol_rejected():
+    """from os import system with allow={'os'} must be rejected."""
+    ok, why = import_gate("from os import system\nsystem('x')\n", allow={"os"})
+    assert not ok and "dangerous import" in why
+
+
+def test_import_from_dangerous_symbol_asname_rejected():
+    """from os import system as s must be rejected (checks original symbol, not asname)."""
+    ok, why = import_gate("from os import system as s\ns('x')\n", allow={"os"})
+    assert not ok and "dangerous import" in why
+
+
+def test_import_from_safe_symbol_allowed():
+    """from os import path should be allowed even with allow={'os'}."""
+    ok, why = import_gate("from os import path\npath.join('a','b')\n", allow={"os"})
+    assert ok, why
