@@ -128,6 +128,98 @@ def circuit_check(st: RunState, params: dict) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# M3.6: 释放阀 + 累计漂移熔断 + 综合闸路由
+# ---------------------------------------------------------------------------
+
+def release_valve(st: "RunState", params: dict) -> int:
+    """no_progress >= M 时只升高人审触发频率；绝不降 acceptor 阈、绝不自动采纳。
+
+    Returns: 当前应使用的 review_frequency (int)。
+    调用方应用此频率决定何时额外触发人审入队，但不得借此修改 acceptor 阈值或
+    自动将当前提案标为 ACCEPT。
+    """
+    M = params.get("no_progress_release_M", 3)
+    base = params.get("review_freq_base", 1)
+    boost = params.get("review_freq_boost", 3)
+    return boost if st.no_progress >= M else base
+
+
+def drift_circuit(st: "RunState", holdout_up: bool, params: dict) -> bool:
+    """连续 ACCEPT 但 holdout/全量回归不涨 → drift_count++；≥N_drift → True（停机人审）。
+
+    drift_count 在此函数中以内存方式更新（st.drift_count += 1）；
+    调用方须在 _step 中写入含 drift_count_delta=1 的事件，以完成 replay 持久化
+    （沿用 M2.13 DRIFT_SIGNAL 事件模式，参见 run_loop 态7 B 档路径）。
+
+    Args:
+        st:         当前 RunState，in-place 修改 drift_count。
+        holdout_up: True 表示本轮 holdout / 全量回归有提升；False 表示无提升。
+        params:     支持键 drift_circuit_N（默认 4）。
+
+    Returns:
+        True 表示累计漂移达到熔断阈（需停机人审）；False 表示未触发。
+    """
+    N = params.get("drift_circuit_N", 4)
+    if holdout_up:
+        st.drift_count = 0
+        return False
+    st.drift_count += 1
+    return st.drift_count >= N
+
+
+def route_accept_with_gates(
+    decision: dict,
+    sd: dict,
+    alpha_gate_out: dict,
+    degrade: dict,
+    mode: str,
+    tier: str,
+    coverage: float,
+) -> str:
+    """综合所有闸返回最终接受态。
+
+    优先级（从高到低）：
+      1. decision != ACCEPT         → "REJECT"
+      2. sd.block_accept            → "REJECT"   (visible 留存增益 < ε，禁 ACCEPT)
+      3. 任一 force_review 信号     → "PAUSE_FOR_HUMAN"
+         （sd / alpha_gate_out / degrade / decision 中任一为 True）
+      4. degrade.single_claude_block → "PAUSE_FOR_HUMAN"  (Codex 不可用禁单 Claude auto)
+      5. 纯 C + auto + coverage=0  → "PAUSE_FOR_HUMAN"  (纯 C auto 强制 gated)
+      6. 否则                       → "ARCHIVE"
+
+    Args:
+        decision:      acceptor.decide 返回的决策 dict，含 "decision"/"force_review"。
+        sd:            selfdeception.index 返回值，含 "block_accept"/"force_review"。
+        alpha_gate_out: acceptor.alpha_gate 返回值，含 "force_review"。
+        degrade:       acceptor.judge_degrade 返回值，含 "single_claude_block"/"force_review"。
+        mode:          "auto" | "gated" — auto 模式才触发纯 C 强制人审。
+        tier:          档位字符串 "A"|"B"|"C"|叠加如"A+B"。
+        coverage:      覆盖率浮点；0.0 表示纯 C 无程序化锚覆盖。
+
+    Returns:
+        "ARCHIVE" | "PAUSE_FOR_HUMAN" | "REJECT"
+    """
+    if decision.get("decision") != "ACCEPT":
+        return "REJECT"
+    # visible 留存增益 < ε → 硬 REJECT（禁 ACCEPT，统计基础不可靠）
+    if sd.get("block_accept"):
+        return "REJECT"
+    # 任一 force_review 信号 → 人审
+    if (sd.get("force_review")
+            or alpha_gate_out.get("force_review")
+            or degrade.get("force_review")
+            or decision.get("force_review")):
+        return "PAUSE_FOR_HUMAN"
+    # Codex 不可用 → 禁单 Claude 自动 ACCEPT（端到端接入 judge_degrade）
+    if degrade.get("single_claude_block"):
+        return "PAUSE_FOR_HUMAN"
+    # 纯 C 档 auto 欲 ACCEPT → 强制 gated（不自动采纳）
+    if tier == "C" and coverage == 0.0 and mode == "auto":
+        return "PAUSE_FOR_HUMAN"
+    return "ARCHIVE"
+
+
+# ---------------------------------------------------------------------------
 # M2.13: B 档 ACCEPT 态接线 (resolve_accept)
 # ---------------------------------------------------------------------------
 
