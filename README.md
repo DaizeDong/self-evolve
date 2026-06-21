@@ -6,9 +6,10 @@
 
 ## 当前状态
 
-仅完成**前期全景调研**（确定研究方向与已有成果）。尚未开始实现。
+仅完成**前期调研**（全景 + 硬信号交叉验证）。尚未开始实现。
 
-- 📄 [`docs/自改进Agent调研.md`](docs/自改进Agent调研.md) — 完整调研报告：研究方向定位（Self-Evolving / Self-Improving Agents）、论文全清单、可复用开源仓库、对本项目 prompt 的逐条对标缺口分析、护栏设计、可发表研究方向。
+- 📄 [`docs/自改进Agent调研.md`](docs/自改进Agent调研.md) — 全景调研：研究方向定位（Self-Evolving / Self-Improving Agents）、论文全清单、可复用开源仓库、对本项目 prompt 的逐条对标缺口分析、护栏设计、可发表研究方向。
+- 📄 [`docs/02-crossval-deepdive.md`](docs/02-crossval-deepdive.md) — 用 market-intel 学术工具链（arXiv / Semantic Scholar / OpenReview / HF）做的**交叉验证 + 2026 新论文深读**：引用量硬信号、ICLR 2026 RSI workshop 录用、14 篇晚于知识截止的新论文逐篇归类到护栏/缺口，并**更新研究空白判断**。原始数据在 [`docs/data/`](docs/data/)。
 
 ## 一句话定位
 
@@ -26,7 +27,13 @@
 
 - **GEPA**（`gepa-ai/gepa`）— 反思 + 遗传 + Pareto，优化任意文本参数
 - **OpenEvolve**（`algorithmicsuperintelligence/openevolve`）— AlphaEvolve 开源复现，island + MAP-Elites
+- **OpenSkill**（`OpenLAIR/OpenSkill`）— 无监督下从外部抽 verification anchor 自建练习任务（最贴本项目场景，= 护栏①蓝图）
+- **MOSS**（`hkgai-official/Moss`）— trial-worker 重放 + health-probe 回滚（= 护栏⑤）
+- **meta-agent-challenge**（`ant-research/meta-agent-challenge`）— 防 reward-hacking 评测 harness 模板
+- **PACE**（论文 arXiv 2606.08106）— anytime-valid acceptor 门，替代「重跑对比涨了就保留」
 - **edgartools** — 外部真值源（small-cap-deepdive 已依赖）
+
+> ⚠️ 研究空白更新（见 doc 02）：原「空白2 自指改进可信认证」已被 **PACE（2026-06）** 基本占据；残留真空白 = **无 ground-truth 的开放调研域** 上把 verification-anchor + anytime-valid acceptor + 对抗式任务-skill 协同进化三者缝合。
 
 ## 相关基建
 
