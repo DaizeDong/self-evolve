@@ -156,14 +156,16 @@ def decide(paired: list[tuple[float, float]], tier: str,
 
     diffs = [after - before for (before, after) in paired]
 
-    # 1. no-regression 硬门 (先查, 有退化立即 REJECT, 覆盖 e-process)
-    regressed = [i for i, (b, a) in enumerate(paired) if b >= _PASS > a]
-    if regressed:
-        return {"decision": "REJECT", "evalue": 0.0,
-                "reason": f"no-regression hard gate: {len(regressed)} task(s) regressed"}
-
-    # 2. A 档 e-process (二态: ACCEPT/REJECT, 禁 CONTINUE)
+    # 1. A 档 e-process (二态: ACCEPT/REJECT, 禁 CONTINUE)
+    #    no-regression 硬门仅适用于 A 档: paired ∈ {0,1}² 二态, b>=1.0>a 表示 pass→fail 退化.
+    #    B 档 paired 是边际增益浮点 ∈ [0,1], before_gain=1.0 合法(满分增益)不代表退化,
+    #    因此硬门仅在 A 档内执行, 避免误判 B 档强增益锚为退化.
     if base_tier == "A":
+        # no-regression 硬门 (A 档专属: 任一 pass→fail → 硬 REJECT, 覆盖 e-process)
+        regressed = [i for i, (b, a) in enumerate(paired) if b >= _PASS > a]
+        if regressed:
+            return {"decision": "REJECT", "evalue": 0.0,
+                    "reason": f"no-regression hard gate: {len(regressed)} task(s) regressed"}
         evalue, _path = _wealth_betting(diffs, alpha)
         if evalue >= thr:
             return {"decision": "ACCEPT", "evalue": evalue,
@@ -200,20 +202,19 @@ def decide(paired: list[tuple[float, float]], tier: str,
         if cluster_ids and len(cluster_ids) == len(b_diffs):
             b_diffs = _decorrelate_downweight(b_diffs, cluster_ids)
 
-        # 门3: evalue_max_step 单轮上限钳 (防单锚爆表)
-        # 对每个 diff 对应的 wealth 因子施加上限: factor = (1+λ*payoff) ≤ step_cap
-        # 等价于截断 diff 使 payoff = d/2 ≤ (step_cap-1)/λ_eff
-        # 简化实现: 钳入 [-step_clamp, step_clamp] 使单步贡献有界
-        # step_cap=5 → payoff_max=2 对应 d=4, clamp 到 d ∈ [-1,1] 已足够
-        # 直接钳入 [-1, 1] 保证 ONS 输入合法 (marginal gain 天然 ∈ [-1,1] 如已是增益差)
-        step_cap = float(params.get("evalue_max_step", 5.0))
-        # 将 diff 值归一化使单步最大 wealth 因子 ≤ step_cap:
-        # 最大 payoff = d/2; 最大 factor ≈ 1 + payoff (λ→1 时); clamp payoff ≤ step_cap-1
-        payoff_cap = min(0.5, (step_cap - 1.0) / 2.0) if step_cap > 1.0 else 0.5
-        diff_cap = 2.0 * payoff_cap  # payoff = d/2 → d_cap = 2*payoff_cap
-        b_diffs = [max(-diff_cap, min(diff_cap, d)) for d in b_diffs]
+        # 输入钳: B diffs 天然 ∈ [-1,1], 此截断对正常增益无效 (仅防异常超范围输入).
+        b_diffs = [max(-1.0, min(1.0, d)) for d in b_diffs]
 
         evalue, _path = _wealth_betting(b_diffs, alpha)
+
+        # 门3: evalue_max_step 总量钳 (防累积 e-value 爆表)
+        # 将路径最大值钳到 step_cap, 保证单次 decide() 调用最多贡献 step_cap 的 e-value.
+        # 默认 1e6 (实际无限制), 仅在显式设置较低值时生效.
+        # 注: 旧 per-diff payoff_cap 方案 (payoff_cap=min(0.5,(step_cap-1)/2) 恒=0.5,
+        #     diff_cap=1.0) 对正常 [-1,1] 完全无截断, step_cap 参数实际失效.
+        #     此处改为总量钳, step_cap 参数真正生效.
+        step_cap = float(params.get("evalue_max_step", 1e6))
+        evalue = min(evalue, step_cap)
 
         if evalue >= thr:
             return {"decision": "ACCEPT", "evalue": evalue,
