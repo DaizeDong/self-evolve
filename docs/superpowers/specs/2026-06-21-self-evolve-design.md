@@ -1,7 +1,7 @@
-# self-evolve 设计规格（Design Spec v3）
+# self-evolve 设计规格（Design Spec v3.1）
 
-- **日期**：2026-06-21（v3：闭合第 2 轮校验的 frozen 锚过拟合 + 状态机 CONTINUE/活性/计数 + 里程碑切分）
-- **状态**：架构获批；两轮对抗式 subagent 校验的全部 blocking 已闭合；待用户复核 → writing-plans
+- **日期**：2026-06-21（v3.1：judge 池收敛为 Claude+Codex，去 gemini/minimax；其余同 v3）
+- **状态**：架构获批；两轮对抗式校验全部 blocking 已闭合；用户已复核批准 → writing-plans
 - **范围**：全光谱，预算 ~50-70h，内部里程碑 M1a/M1b/M2/M3/M4
 - **依据**：本仓 `docs/自改进Agent调研.md`、`docs/02-crossval-deepdive.md`
 - **v3 变更**：见 §0
@@ -15,6 +15,7 @@
 - **接口**：`grade()` 补 per-task `grader_exit_code/task_passed`，喂 A 档配对。
 - **里程碑**：M1 拆 M1a/M1b；confseq spike 设 M1 第 0 步硬前置；出站完整审查挪 M2（M1 仅禁网）；M2 自建题延后；M3 按 R3 两档验收。
 - **安全**：出站改 harness 代发（candidate 不能自选 ticker/时序）+ 跨请求序列异常检测；承认低带宽时序信道为残余风险。
+- **（v3.1）judge 池**：收敛为 **Claude + Codex** 两家（不装 gemini/minimax）；Codex=唯一独立非 proposer judge → **程序化锚成为主防自欺信号、judge 为辅**；移除 R3 登录/付费前置。
 
 ---
 
@@ -35,7 +36,7 @@
 | D4 | 沙箱内全自动；对外落地=人审独立子流程，不在自动循环内。 |
 | R1 | `self-evolve` 仓内 skill，junction 到 `~/.claude/skills/self-evolve`，进 SyncClaudeSkills。 |
 | R2 | 人审=待审队列+Discord 推送+CLI/slash 回执，非阻塞。 |
-| R3 | 异构 judge 需 ≥2 非 proposer 家族；本机仅 codex(gpt-5.5)，gemini/minimax 未装→我配置、用户登录/付费（M3 前置）；未就绪则降级 codex 单异构+程序化锚为主，judge 一致性门挂起。 |
+| R3 | judge 池=**Claude + Codex 两家**（仅此两家，不装 gemini/minimax）。Codex（走 codex skill，最强模型）=唯一真正非 proposer 家族的独立 judge；Claude=去偏后的次 judge。α 退化为两判官配对一致性。**无登录/付费前置**（codex 已就绪）。代价：judge 异构性变薄 → **程序化锚（frozen/holdout/EVE 边际增益）= 主防自欺信号，judge 为辅**。 |
 
 ---
 
@@ -93,7 +94,7 @@
 - 配对优先级 A>B>C，C 极低权重绝不单独触发；控误提交率 α=0.05。
 - **站现成 testing-by-betting 库（confseq 等）拿 e-value/wealth 接口，自写 per-tier 配对包装**；噪声单测为验收闸门。
 
-**5.6 异构 judge**（`judges.py`）：强制≠proposer 家族；双向 α 门（α 过低→人审；α 异常高且 frozen 锚不涨→人审+计自欺）；judge 只对挂可核验 span 的断言计分，无 span 篇幅零/负权重；位置/长度去偏；**judge↔锚相关性校准改用独立 holdout/人审标注集（不用进 e-process 的 visible 锚）**；judge 走独立联网进程（与 candidate 物理隔离，prompt 无真值，纳入出站审查）；可用 judge<下限→不自动 ACCEPT、人审或 CONTINUE，绝不降级单 judge 自动提交。
+**5.6 异构 judge**（`judges.py`，池=Claude+Codex 两家）：**Codex（非 proposer 家族，走 codex skill 最强模型，禁其 browser/playwright、只用 web_search）= 主独立 judge；Claude = 去偏次 judge**。两判官配对一致性 α：α 过低→人审；α 异常高且 frozen 锚不涨→人审+计自欺。judge 只对挂可核验 span 的断言计分，无 span 篇幅零/负权重；位置/长度去偏；**judge↔锚相关性校准改用独立 holdout/人审标注集（不用进 e-process 的 visible 锚）**；judge 走独立联网进程（与 candidate 物理隔离，prompt 无真值，纳入出站审查）。**Codex 不可用（限速/故障）→ 只剩 Claude（proposer 家族）：禁止 Claude 单家自动 ACCEPT，降级为'程序化锚为唯一裁决信号 + 升人审'**。judge 异构性薄是已知取舍，故防自欺重心放程序化锚（§5.3/§5.7）。
 
 **5.7 自欺指数**（`selfdeception.py`）：=`judge 增益 − frozen 锚真实增益`。**多闸防合谋**：① 新增锚不计当轮增益（只算 frozen visible 留存锚）；② visible 留存锚增益<ε 禁 ACCEPT；③ **visible 涨而 holdout 不涨→过拟合报警**；④ **累计漂移预算**：同 lineage 上 visible 累计涨幅 > holdout 累计涨幅×容差→判过拟合漂移、强制人审；态9 独立熔断计数器"连续 ACCEPT 但 holdout/全量回归不涨"。status 分报硬维/软维趋势，软涨硬平→报警。
 
@@ -176,7 +177,7 @@ PACE(2606.08106)·DGM(2505.22954)·GEPA(2507.19457)·OpenEvolve·MARS(2509.20502
 
 ## 12. 校准参数（给初值，跑一轮后校准）
 
-`α=0.05` · `n_min=8` · `anchor_set_min=24` · `effective_independent_anchor_min=12` · `holdout_fraction=0.3` · `continue_count_cap=5` · `no_progress_circuit N=8` · `no_progress_release M=3` · `static_reject_circuit N_sr=6` · `forced_review_circuit N_fr=5` · `drift_circuit N_drift=4` · `cumulative_drift_tolerance=1.5×` · `frozen_anchor_effective_gain_ε=0.02` · `selfdeception_alert_band=0.15` · `evalue_max_step` · `N_reflectors 1(M1)→3(M3)` · `reflection_correctness_threshold=0.5` · `judge_families≥2(R3)` · `judge_agreement α_low=0.4/α_high=0.85` · `active_cap=64` · `K=5`(全量回归/holdout 抽检周期) · `per_round_walltime_cap`。
+`α=0.05` · `n_min=8` · `anchor_set_min=24` · `effective_independent_anchor_min=12` · `holdout_fraction=0.3` · `continue_count_cap=5` · `no_progress_circuit N=8` · `no_progress_release M=3` · `static_reject_circuit N_sr=6` · `forced_review_circuit N_fr=5` · `drift_circuit N_drift=4` · `cumulative_drift_tolerance=1.5×` · `frozen_anchor_effective_gain_ε=0.02` · `selfdeception_alert_band=0.15` · `evalue_max_step` · `N_reflectors 1(M1)→3(M3)` · `reflection_correctness_threshold=0.5` · `judge_pool=Claude+Codex(2 家)` · `judge_agreement α_low=0.4/α_high=0.85` · `active_cap=64` · `K=5`(全量回归/holdout 抽检周期) · `per_round_walltime_cap`。
 
 ---
 
@@ -187,7 +188,7 @@ PACE(2606.08106)·DGM(2505.22954)·GEPA(2507.19457)·OpenEvolve·MARS(2509.20502
 - **M1a 端到端骨架（~14-18h）**：INIT(worktree+run_id 锁+resume)/PROFILE(A/C 二分+变异测试)/SELECT/REFLECT(串行)/PROPOSE(builtin)/PATCH(基础 apply+import 白名单)/EVALUATE(verifiable+最小化环境)/**acceptor=no-regression 硬门(兜底)**/ARCHIVE(lineage+rollback)/events 重放/禁网+realpath 边界+凭证隔离/人审队列(基础)。**验收**：真 pytest repo 全闭环能跑能采纳能回滚、崩溃重放一致。
 - **M1b 防自欺/安全门加硬（~10-14h）**：AST 危险门全清单+变异测试有效性门+**PACE A 档 e-process+噪声/对抗单测(纯噪声拒绝率≈1)**+人审非阻塞队列+三计数器+熔断。**验收**：acceptor 正确采纳/拒绝、安全负向用例全过、活性/计数用例过。
 - **M2 B 档（~14-18h）**：anchors(EDGAR+visible/holdout 拆分+frozen 趋势+EVE 边际增益)+锚集规模/独立性下限+coverage 门+PACE B 档配对+完整出站审查(harness 代发+序列检测)+fact 探针。**自建练习题不在 M2 硬验收**。**验收**：small-cap-deepdive 跑通 B 档、coverage/holdout 背离门生效、小相关锚集+长期微涨对抗序列被拒。
-- **M3 C 档+异构 judge+自欺（~12-16h，前置 R3）**：异构 judge+双向 α 门+C 不退化门+释放阀(仅升人审)+自欺多闸+累计漂移熔断+Pareto 多维硬维门+Library Drift 退役+MARS 并行反思。**两档验收**：R3 就绪→全验收(跨家族合谋报警+双向 α)；R3 未就绪→缩减验收(C 不退化+自欺用 holdout 背离单独验证+judge 一致性门挂起)，"≥2 异构家族联调"独立计 ~3-4h 加到 R3 就绪后。
+- **M3 C 档+异构 judge+自欺（~12-16h）**：judge 池=Claude+Codex（Codex skill 适配器，最强模型，禁 browser/playwright、只用 web_search）+双向 α 门(两判官配对)+C 不退化门+释放阀(仅升人审)+自欺多闸+累计漂移熔断+Pareto 多维硬维门+Library Drift 退役+MARS 并行反思。**验收**：C 不退化门生效、自欺指数对"锚 judge 合谋"报警（以 holdout 背离为主信号、Codex↔Claude 配对 α 为辅）、纯 C 档强制人审、Codex 不可用时不降级单 Claude 自动提交。无 R3 前置。
 - **M4 自举隔离（~6-10h，默认关）**：IMMUTABLE frozen 哈希加载+supervisor+禁 candidate grade()。**验收**：自举负向用例（改裁决码被拒、改 grade() 不采信）过。
 
 ---
@@ -195,6 +196,6 @@ PACE(2606.08106)·DGM(2505.22954)·GEPA(2507.19457)·OpenEvolve·MARS(2509.20502
 ## 14. 前置交接项
 
 - **confseq spike**（M1 第 0 步硬前置，见 §13）。
-- **R3 异构 judge**：我配置 gemini/minimax CLI，登录/付费由用户完成（M3 前置；未就绪走降级）。
+- **Codex judge 适配**：judges.py 走 codex skill（最强模型，禁 browser/playwright、只用 web_search）；无登录/付费前置。**不安装 gemini/minimax**。
 - **edgartools 缓存锁**：M2 前清 `~/.edgar` 或设独立 cache 避 WinError 145。
 - **旧目录清理**：`CodesSelf/self-improving-research-agent`（句柄锁）会话结束后删除。
