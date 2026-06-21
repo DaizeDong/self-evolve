@@ -2,6 +2,8 @@
 from __future__ import annotations
 import json
 import hashlib
+import math
+from urllib.parse import urlparse
 
 _REQUIRED_ANCHOR_KEYS = ("claim", "span", "source_url")
 
@@ -46,3 +48,41 @@ def coverage(anchors: list[dict]) -> float:
     total = sum(len(a.get("span") or "") for a in anchors)
     done = sum(len(a.get("span") or "") for a in anchors if a.get("verified"))
     return done / total if total else 0.0
+
+
+def _source_cluster_key(a: dict) -> tuple:
+    """生成同源聚类键：(host, cik, period)。
+
+    host 从 source_url 提取，去掉 www. 前缀后小写。
+    """
+    host = ""
+    try:
+        host = (urlparse(a.get("source_url") or "").hostname or "").lower()
+    except Exception:
+        host = ""
+    # host 主域 (去 www.) + cik + period 同 => 同源簇
+    if host.startswith("www."):
+        host = host[4:]
+    return (host, str(a.get("cik") or ""), str(a.get("period") or ""))
+
+
+def effective_independent_count(anchors: list[dict]) -> int:
+    """按同源聚类计算有效独立锚数。
+
+    聚类维度：source_url host(去www) + cik + period
+    折算规则：每簇 floor(1 + log2(簇内规模))，各簇求和向下取整。
+
+    例如：8 个同源锚 -> 1 + log2(8) = 1 + 3 = 4，防相关锚虚高 e-value。
+    仅计数 verified=True 的锚。
+    """
+    clusters: dict[tuple, int] = {}
+    for a in anchors:
+        if not a.get("verified"):
+            continue
+        k = _source_cluster_key(a)
+        clusters[k] = clusters.get(k, 0) + 1
+    eff = 0
+    for size in clusters.values():
+        # 同源簇内信息次线性: 1 + log2(size), 向下取整
+        eff += int(math.floor(1.0 + math.log2(size)))
+    return eff
