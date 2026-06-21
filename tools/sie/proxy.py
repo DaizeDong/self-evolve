@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import math
 import os
 import re
@@ -155,6 +156,7 @@ def dispatch(request_spec: dict, run_dir: str, allowlist: dict, fetcher=None) ->
 
     f = fetcher if fetcher is not None else _real_fetch
     result = f("GET", url, {}, b"")
+    record_outbound(run_dir, kind, params)
     return {"ok": True, "reason": "dispatched", "url": url, "result": result}
 
 
@@ -165,3 +167,97 @@ def _real_fetch(method: str, url: str, headers: dict, body: bytes) -> dict:  # p
     req = urllib.request.Request(url, method=method, headers=headers or {})
     with urllib.request.urlopen(req, timeout=30) as resp:
         return {"status": resp.status, "body": resp.read().decode("utf-8", "ignore")}
+
+
+# ── Cross-request sequence anomaly detection (M2.9) ─────────────────────────
+
+_SEQ_FILE = "outbound_seq.jsonl"
+_FREQ_SPIKE_MAX = 100      # 单 run 单 kind 出站次数上限；超过视为频次突刺
+_MONOTONE_RUN_MIN = 6      # 连续单调字典序长度阈；≥此值视为逐字符编码信道
+
+
+def record_outbound(run_dir: str, kind: str, params: dict) -> None:
+    """Append one outbound record to run_dir/outbound_seq.jsonl."""
+    os.makedirs(run_dir, exist_ok=True)
+    with open(os.path.join(run_dir, _SEQ_FILE), "a", encoding="utf-8") as f:
+        f.write(json.dumps({"kind": kind, "params": params}, sort_keys=True) + "\n")
+
+
+def _longest_monotone_run(values: list[str]) -> int:
+    """Return the length of the longest strictly-increasing (lexicographic) run."""
+    if not values:
+        return 0
+    best = cur = 1
+    for i in range(1, len(values)):
+        if values[i] > values[i - 1]:
+            cur += 1
+            best = max(best, cur)
+        else:
+            cur = 1
+    return best
+
+
+def sequence_anomaly(run_dir: str, params_seq_window: int = 32) -> dict:
+    """Detect cross-request covert-channel signals in the outbound sequence log.
+
+    Detection signals implemented (做实):
+      ① Monotone lexicographic run on any single param across the window
+         (consecutive strictly-increasing values = suspected char-by-char encoding).
+      ③ Frequency spike: any kind appears more than _FREQ_SPIKE_MAX times in one run.
+
+    Signal ② (param-choice correlation with holdout answer keys) is **not
+    implemented** here: sequence_anomaly has no access to answer/label data.
+    The interface reserves a "reasons" slot so a caller with answer data can
+    inject the check externally. Residual timing/covert channels below the
+    heuristic thresholds are acknowledged in the spec (§6 residual risk).
+
+    Returns {"anomalous": bool, "score": float, "reasons": [str, ...]}.
+    """
+    path = os.path.join(run_dir, _SEQ_FILE)
+    if not os.path.exists(path):
+        return {"anomalous": False, "score": 0.0, "reasons": []}
+
+    records: list[dict] = []
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                # Corrupted line: skip silently (don't crash the anomaly check)
+                continue
+
+    reasons: list[str] = []
+    score = 0.0
+
+    # ── Signal ③: frequency spike ────────────────────────────────────────────
+    by_kind: dict[str, int] = {}
+    for r in records:
+        k = r.get("kind", "")
+        by_kind[k] = by_kind.get(k, 0) + 1
+    for k, c in by_kind.items():
+        if c > _FREQ_SPIKE_MAX:
+            reasons.append(f"frequency spike for kind '{k}': {c} requests (max {_FREQ_SPIKE_MAX})")
+            score += 1.0
+
+    # ── Signal ①: monotone lexicographic run on any param ───────────────────
+    window = records[-params_seq_window:]
+    param_names: set[str] = set()
+    for r in window:
+        param_names.update((r.get("params") or {}).keys())
+    for name in param_names:
+        vals = [
+            str((r.get("params") or {}).get(name, ""))
+            for r in window
+            if name in (r.get("params") or {})
+        ]
+        if len(vals) >= _MONOTONE_RUN_MIN and _longest_monotone_run(vals) >= _MONOTONE_RUN_MIN:
+            reasons.append(
+                f"monotone lexicographic sequence on param '{name}' "
+                f"(suspected encoding channel, run>={_MONOTONE_RUN_MIN})"
+            )
+            score += 1.0
+
+    return {"anomalous": bool(reasons), "score": score, "reasons": reasons}
