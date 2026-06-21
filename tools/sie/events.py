@@ -32,10 +32,11 @@ def _apply(rs: RunState, ev: dict) -> RunState:
         # 非 ACCEPT 事件的显式 reset 机制
         if ev.get(f"{cnt}_reset") and ev.get("type") != "ACCEPT":
             patch[cnt] = 0
-    # ACCEPT 语义: 清零 no_progress 和 forced_review(单一来源)
+    # ACCEPT 语义: 清零 no_progress / forced_review / continue_count (spec §4 态8)
     if ev.get("type") == "ACCEPT":
         patch["no_progress"] = 0
         patch["forced_review"] = 0
+        patch["continue_count"] = 0
     return replace(rs, **patch)
 
 
