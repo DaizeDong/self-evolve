@@ -37,6 +37,7 @@ def import_gate(source: str, allow: set[str] | None = None) -> tuple[bool, str]:
     - `import X` / `from X import ...` where X is not in (allow | _DEFAULT_ALLOW)
     - Call nodes matching _DANGER_CALLS (eval/exec/compile/__import__)
     - Attribute-call nodes matching _DANGER_ATTR (os.system, os.popen)
+    - `from X import Y` where (X, Y) is in _DANGER_ATTR (blocks symbol smuggling)
 
     *allow* is merged with _DEFAULT_ALLOW; pass an empty set() to allow only defaults.
     """
@@ -61,6 +62,13 @@ def import_gate(source: str, allow: set[str] | None = None) -> tuple[bool, str]:
                 return False, f"dangerous module import: {top}"
             if top and top not in allowed:
                 return False, f"import not in whitelist: {top}"
+            # Check for dangerous symbols imported from the module
+            if node.module:
+                for alias in node.names:
+                    # Check by original symbol name (not asname)
+                    symbol_name = alias.name
+                    if (node.module, symbol_name) in _DANGER_ATTR:
+                        return False, f"dangerous import: from {node.module} import {symbol_name}"
 
         elif isinstance(node, ast.Call):
             fn = node.func
