@@ -5,13 +5,20 @@
 ② 真增益序列 → 高采纳率 (Power)
 ③ A 档二态 (无 CONTINUE)
 ④ 对抗序列 (微漂移, 无真实配对增益) → REJECT
+⑤ e-process 单独 type-I (隔离硬门, 连续 null 直接喂 _wealth_betting)
+
+注意:
+  test_false_commit_rate_under_alpha / test_pure_noise_reject_rate_near_one 测试的是
+  "硬门 + e-process 组合"系统级行为。二元 null 下无回退 + 无增益 ⇒ d≡0, e-process
+  W≡1, 此时 0.0 误采纳完全由 decide() 内硬门+组合机制正确处理, 不单独验证 e-process。
+  e-process 自身的 type-I 须用连续值 null 序列隔离验证 (test_eprocess_standalone_type1)。
 
 无需 confseq 安装; 全走 ONS 回退路径.
 """
 import random
 import pytest
 from tools.sie.state import RunState
-from tools.sie.acceptor import decide
+from tools.sie.acceptor import decide, _wealth_betting
 
 PARAMS = {"α": 0.05, "n_min": 8, "continue_count_cap": 5,
           "evalue_max_step": 4.0, "effective_independent_anchor_min": 12}
@@ -122,3 +129,39 @@ def test_regression_hard_rejects_even_with_gain():
     d = decide(pairs, "A", _rs(), PARAMS)
     assert d["decision"] == "REJECT", f"有退化应 REJECT, 得 {d['decision']}"
     assert "regress" in d["reason"].lower(), f"原因须提 regression: {d['reason']}"
+
+
+def test_eprocess_standalone_type1():
+    """e-process 单独 type-I 验证 (隔离硬门，连续 null 直接喂 _wealth_betting).
+
+    设计说明:
+    - 二元 A 档的 null 由"硬门 + e-process(W=1 当 d≡0)"组合正确处理, 无需单独验证。
+    - e-process 自身的 type-I 必须用连续值 null 来隔离, 此测试做到这一点:
+      直接构造 diffs 序列满足 E[d]=0 (即 u~Uniform(0,1), payoff 均值=0, null 成立),
+      绕过 decide() 的硬门, 直接调 _wealth_betting, 统计 path_max ≥ 1/α 的比例。
+
+    断言: 误采纳率 ≤ α=0.05 (Ville 不等式 e-process 保证).
+    """
+    alpha = PARAMS["α"]
+    threshold = 1.0 / alpha  # 20.0
+    n_seq = 40    # 每 trial 序列长度
+    n_trials = 400
+    rng = random.Random(42)
+
+    false_accepts = 0
+    for _ in range(n_trials):
+        # u ~ Uniform(0,1): null H₀: E[u]=0.5, 连续值, 无配对回退语义
+        # diff = 2*(u - 0.5) ∈ (-1,1), E[diff]=0
+        diffs = [2.0 * (rng.random() - 0.5) for _ in range(n_seq)]
+        evalue, path = _wealth_betting(diffs, alpha)
+        path_max = max(path) if path else 1.0
+        if path_max >= threshold:
+            false_accepts += 1
+
+    rate = false_accepts / n_trials
+    print(f"\n[e-process standalone type-I] 实测误采纳率 = {rate:.4f} "
+          f"(trials={n_trials}, n_seq={n_seq}, α={alpha})")
+    assert rate <= alpha, (
+        f"e-process 单独 type-I 误采纳率 {rate:.4f} > α={alpha:.2f}; "
+        f"e-process 鞅属性可能被破坏"
+    )

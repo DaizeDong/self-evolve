@@ -41,14 +41,25 @@ This means the probability of *ever* exceeding the threshold under H₀ is at mo
 
 ```
 threshold = 1/α
-e-value = max(W_1, ..., W_n)  (running maximum, for early stopping)
+e-value = sup_t W_t = max(W_1, ..., W_n)   ← 路径最大值 (Ville 不等式)
 
 Decision:
   e-value ≥ 1/α  →  ACCEPT  (reject H₀; evidence of improvement)
   e-value  < 1/α  →  REJECT  (insufficient evidence under H₀)
 ```
 
-The running maximum is used because it corresponds to the optimal stopping rule: stop as soon as wealth first exceeds 1/α. This yields more power than using the terminal value W_n while maintaining the same Type I error bound α.
+**e-value = sup_t W_t（路径最大值），而非终值 W_n。** 这是有意对 brief 初稿的修正：
+brief 曾描述"取末值 W_n"，但正确选择是路径最大值 sup_t W_t。理由如下：
+
+1. **Ville 不等式直接控制 sup_t W_t：** P(∃ t: W_t ≥ 1/α) ≤ α，即路径最大值超阈的概率
+   在 H₀ 下 ≤ α。取 e-value = sup_t W_t 等价于"最优停时决策"——只要财富任一时刻
+   超阈即可采纳，获得最大统计功效，同时保持相同 type-I 约束。
+2. **末值 W_n 更保守：** 若财富中途超阈后回落（ONS 自适应可能发生），末值 < 1/α 而
+   路径最大值 ≥ 1/α，用末值会漏判真实增益，损失功效。
+3. **anytime-valid 一致性：** 选 sup_t W_t 与 anytime-valid（任何停时有效）精神一致，
+   不依赖固定样本量，不受多重检验惩罚。
+
+代码已正确实现 `evalue = max(path)` (= sup_t W_t)，此文档与代码一致。
 
 ## 4. No-Regression Hard Gate (Priority Override)
 
@@ -104,23 +115,36 @@ e_value = max(mart)
 Adapts the betting fraction λ using Online Newton Step:
 ```
 Initialize: wealth=1, λ=0, A=0 (sum sq grads), b=0 (sum grads)
+LAM_MAX = 2 - 1e-6  # 收紧上界，见下文
 For each d_t:
     u_t = 0.5*(d_t + 1)
     payoff_t = u_t - 0.5
-    factor_t = max(1e-10, 1 + λ_t * payoff_t)
+    lam_safe_t = clip(λ_t, -LAM_MAX, LAM_MAX)
+    factor_t = 1 + lam_safe_t * payoff_t   # 恒 > 0，无需 max(1e-10, ...)
     W_t = W_{t-1} * factor_t
-    g_t = payoff_t / factor_t          # gradient of log-wealth
+    g_t = payoff_t / factor_t              # gradient of log-wealth
     A ← A + g_t²
     b ← b + g_t
-    λ_{t+1} = clip(b / (A + 1), -2, 2)  # ONS step
-e_value = max(W_1, ..., W_n)
+    λ_{t+1} = clip(b / (A + 1), -LAM_MAX, LAM_MAX)  # ONS step
+e_value = max(W_1, ..., W_n)              # 路径最大值 = e-value
 ```
 
 The ONS strategy is **anytime-valid**: it is a proper betting strategy (λ_t is previsible, i.e., chosen before observing u_t), so the wealth process W_t remains a nonneg martingale under H₀. The false commit rate satisfies P(e-value ≥ 1/α | H₀) ≤ α by Ville's inequality.
 
-### Why λ ∈ (-2, 2)?
-With u ∈ {0, 0.5, 1} and payoff ∈ {-0.5, 0, +0.5}, the worst case is payoff = ±0.5.
-For `1 + λ * payoff > 0`, we need |λ| < 2. Clipping to (-2, 2) with a small buffer (max(1e-10, ...)) ensures wealth stays positive.
+### λ 收紧到 ±(2−δ) 而非截断 factor（I2 修正）
+
+**旧做法的问题：** 原代码对 factor 做 `max(1e-10, 1+λ·payoff)` 截断。当 λ=±2、
+payoff=∓0.5 时 factor=0，截断到 1e-10。此时梯度 `g = payoff/factor` 爆炸（±5×10⁷），
+ONS 步长失控，wealth 永久趋零（过保守），且破坏鞅恒等式（财富乘子与梯度计算不一致）。
+
+**新做法：收紧 λ-clip 而非截断 factor。**
+- `LAM_MAX = 2 − 1e-6 = 1.999999`
+- 最坏情况 payoff = ±0.5：factor = 1 ± LAM_MAX·0.5 = 1 ∓ 0.9999995
+  - 最小值 = 0.0000005 = 5×10⁻⁷ > 0，恒正
+- 正常路径（λ 远离边界）factor 远大于此，梯度有界，鞅恒等式成立
+- ONS 梯度 g = payoff/factor 在所有可能输入下有限，财富更新自洽
+
+**保证：** factor 恒 > 0 → wealth 恒 > 0 → 鞅属性保持 → Ville 不等式成立。
 
 ## 9. Params Reference
 
