@@ -23,8 +23,11 @@ from tools.sie.probes.exec_probe import run_exec_probe
 TARGET_FILE = "target.json"
 
 
-def run_profile(target: str, base_ref: str) -> dict:
-    """Create worktree sandbox, run exec probe, return A/C tier profile dict."""
+def run_profile(target: str, base_ref: str, run_dir: str | None = None) -> dict:
+    """Create worktree sandbox, run exec probe, return A/C tier profile dict.
+
+    If run_dir is provided, automatically freeze the profile to target.json (铁律4).
+    """
     sandbox_root = make_worktree(target, base_ref, "profile_probe")
     exec_res = run_exec_probe(sandbox_root)
     # A 档判定: 有 test + 基线全绿 + 变异被杀死(grader 有效)
@@ -43,6 +46,9 @@ def run_profile(target: str, base_ref: str) -> dict:
         "probes": {"exec": exec_res},
         "base_ref": base_ref,
     }
+    # 铁律4: 如果提供 run_dir，自动冻结 tier（首次 PROFILE 后不重跑）
+    if run_dir is not None:
+        freeze_target(run_dir, prof)
     return prof
 
 
