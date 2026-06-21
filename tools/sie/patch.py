@@ -4,7 +4,8 @@ Security contract (M1a/M1b):
 - import_gate: AST scan; rejects non-whitelisted imports and a baseline set of
   dangerous builtins/module-attribute calls.
 - scan_ast_dangerous: full danger call gate (M1b) — covers alias bypass, importlib,
-  builtins.__import__/getattr, dangerous module prefixes, sandbox-escaping open().
+  builtins.__import__/getattr/__builtins__[...] subscript, dangerous module prefixes,
+  sandbox-escaping open().
 - apply_patch: boundary-first (canonical_in_sandbox), then import_gate, then
   scan_ast_dangerous, then write.  Any failure → REJECT; file is never written.
 """
@@ -49,12 +50,38 @@ DANGEROUS_CALLS: frozenset[str] = frozenset({
     "urlopen", "get", "post", "put", "delete", "patch", "request", "head",
 })
 
+# Subset of DANGEROUS_CALLS that are dangerous as *bare* names (no receiver).
+# run/get/post/delete/etc. are only dangerous via a dangerous module receiver;
+# they must NOT be blocked as bare names to avoid false positives on app.run(), db.run().
+_BARE_DANGEROUS_CALLS: frozenset[str] = frozenset({"eval", "exec", "compile", "__import__"})
+
+# Specific (top_module, method) pairs that are dangerous even when the top module is
+# in DEFAULT_IMPORT_ALLOW (e.g., os is allowed but os.system/os.popen are not).
+_DANGEROUS_MODULE_METHOD_PAIRS: frozenset[tuple[str, str]] = frozenset({
+    ("os", "system"),
+    ("os", "popen"),
+    ("os", "execv"),
+    ("os", "execve"),
+    ("os", "execl"),
+    ("os", "execle"),
+    ("os", "execlp"),
+    ("os", "execlpe"),
+    ("os", "spawnl"),
+    ("os", "spawnv"),
+    ("os", "spawnle"),
+    ("os", "spawnve"),
+})
+
 # Top-level module prefixes whose import or use is forbidden by default.
+# asyncio and concurrent are removed: they are normal concurrency primitives and
+# do not directly exec code or exfiltrate data.  The genuinely dangerous net/exec/proc
+# modules (subprocess, socket, ctypes, multiprocessing, importlib, requests, urllib,
+# httpx, http, aiohttp, ftplib, telnetlib, smtplib) remain.
 DANGEROUS_MODULE_PREFIXES: frozenset[str] = frozenset({
     "subprocess", "socket", "ctypes", "importlib", "imp",
     "requests", "urllib", "httpx", "http", "aiohttp",
-    "ftplib", "telnetlib", "smtplib", "asyncio",
-    "multiprocessing", "concurrent",
+    "ftplib", "telnetlib", "smtplib",
+    "multiprocessing",
 })
 
 # Modules permitted by default without an explicit allow set.
@@ -65,7 +92,7 @@ DEFAULT_IMPORT_ALLOW: frozenset[str] = frozenset({
     "decimal", "copy", "pprint", "struct", "time",
 })
 # Note: "os" is in DEFAULT_IMPORT_ALLOW so patch targets can use os.path etc.,
-# but os.system / os.popen are still caught by DANGEROUS_CALLS.
+# but os.system / os.popen are still caught by _DANGEROUS_MODULE_METHOD_PAIRS.
 
 
 # ---------------------------------------------------------------------------
@@ -101,39 +128,53 @@ def _is_outside_sandbox(literal: str, sandbox_root: str, target_path: str) -> bo
 
 
 def _collect_tainted_names(tree: ast.AST) -> set[str]:
-    """Return names that are directly bound to a dangerous callable or attribute.
+    """Return names that are directly or transitively bound to a dangerous callable.
 
     Tracks assignments of the form:
         fn = eval            # Name bound to a dangerous builtin
         fn = os.system       # Name bound to a dangerous attribute
         g  = importlib.import_module
+        fn2 = fn             # Multi-hop: RHS is already tainted (fixed-point iteration)
     The returned set is then used in the call-site scan so that
-        fn('x')   or   g('cmd')
+        fn('x')   or   g('cmd')   or   fn2('x')
     is also rejected.
 
-    Limitation: only direct-assignment bindings are tracked (one level).
-    Multi-hop (fn2 = fn) and container-based aliasing are not tracked —
-    noted as a known boundary in the task brief.
+    Uses fixed-point iteration so that multi-hop chains like
+        fn1 = eval; fn2 = fn1; fn2('x')
+    are all caught.
+
+    Container-based aliasing (lst=[eval]; lst[0]()) is not tracked —
+    cannot be solved statically in general.
     """
-    tainted: set[str] = set()
+    # Collect all assignments first; then iterate to fixed point.
+    assignments: list[tuple[str, ast.expr]] = []
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Assign):
-            continue
-        # RHS: a plain Name that is a dangerous call name
-        if isinstance(node.value, ast.Name) and node.value.id in DANGEROUS_CALLS:
+        if isinstance(node, ast.Assign):
             for t in node.targets:
                 if isinstance(t, ast.Name):
-                    tainted.add(t.id)
-        # RHS: an attribute chain whose leaf is dangerous, or whose top module
-        # is in DANGEROUS_MODULE_PREFIXES.
-        elif isinstance(node.value, ast.Attribute):
-            chain = _attr_chain(node.value)
+                    assignments.append((t.id, node.value))
+
+    # Seed: direct references to DANGEROUS_CALLS names or dangerous attribute chains.
+    tainted: set[str] = set()
+    for name, rhs in assignments:
+        if isinstance(rhs, ast.Name) and rhs.id in DANGEROUS_CALLS:
+            tainted.add(name)
+        elif isinstance(rhs, ast.Attribute):
+            chain = _attr_chain(rhs)
             leaf = chain.split(".")[-1]
             top = chain.split(".")[0]
             if leaf in DANGEROUS_CALLS or top in DANGEROUS_MODULE_PREFIXES:
-                for t in node.targets:
-                    if isinstance(t, ast.Name):
-                        tainted.add(t.id)
+                tainted.add(name)
+
+    # Fixed-point: propagate taint through Name-to-Name assignments.
+    changed = True
+    while changed:
+        changed = False
+        for name, rhs in assignments:
+            if name not in tainted and isinstance(rhs, ast.Name) and rhs.id in tainted:
+                tainted.add(name)
+                changed = True
+
     return tainted
 
 
@@ -158,13 +199,26 @@ def scan_ast_dangerous(
        - Any top-level module not in that set → rejected.
        - Any top-level module in DANGEROUS_MODULE_PREFIXES → rejected even if
          the caller adds it to allow_imports (hard block).
-    2. Call-site checks:
-       - Bare function calls where the callee name is in DANGEROUS_CALLS.
-       - Attribute calls whose leaf is in DANGEROUS_CALLS.
-       - Attribute calls whose top-level module is in DANGEROUS_MODULE_PREFIXES.
-       - Calls to *tainted* names (alias bypass: fn=eval; fn()).
+    2. Call-site checks — two distinct paths to avoid over-blocking:
+       a. Bare function calls (ast.Name func, no receiver):
+          Only eval/exec/compile/__import__ are blocked here.  Names like
+          run/get/post are only meaningful as dangerous when called on a
+          dangerous module, so they are NOT blocked as bare names (to avoid
+          false positives on app.run(), db.run(q), etc.).
+       b. Attribute calls (x.method(), ast.Attribute func):
+          - importlib bypass: importlib.import_module / importlib.__import__.
+          - builtins bypass: builtins.<dangerous> / __builtins__.<dangerous>.
+          - Dangerous module prefix (e.g. subprocess.run, requests.get) via
+            top ∈ DANGEROUS_MODULE_PREFIXES — this is the primary mechanism
+            for names like run/get/post/delete/socket etc.
+          - Tainted alias attribute call.
+          Note: generic "leaf ∈ DANGEROUS_CALLS" is NOT used for arbitrary
+          receivers — that caused false positives on client.get(), db.run() etc.
+       c. Subscript calls: __builtins__['eval']('x') and builtins['exec']('x').
+       d. Tainted alias bare calls: fn=eval; fn().
     3. importlib bypass: importlib.import_module / importlib.__import__.
-    4. builtins bypass: builtins.__import__(...), getattr(builtins, '__import__').
+    4. builtins bypass: builtins.__import__(...), getattr(builtins, '__import__'),
+       builtins['eval'](...) subscript form.
     5. Sandbox-escaping open(): literal absolute paths outside sandbox_root.
        When sandbox_root is given but the path is non-literal → rejected
        (cannot be statically proven safe).
@@ -201,7 +255,7 @@ def scan_ast_dangerous(
             # Symbol-level check: from builtins import __import__ etc.
             if node.module in ("builtins", "__builtins__"):
                 for alias in node.names:
-                    if alias.name in DANGEROUS_CALLS:
+                    if alias.name in _BARE_DANGEROUS_CALLS:
                         reasons.append(
                             f"dangerous builtins import: from {node.module} import {alias.name}"
                         )
@@ -212,10 +266,13 @@ def scan_ast_dangerous(
         elif isinstance(node, ast.Call):
             fn = node.func
 
-            # --- Plain name call: eval(), exec(), __import__(), tainted() ---
+            # --- Bare name call: eval(), exec(), compile(), __import__() ---
+            # Only real dangerous builtins are blocked here (not run/get/post/etc.,
+            # which are only dangerous when called on a dangerous module — those are
+            # caught via DANGEROUS_MODULE_PREFIXES in the Attribute branch below).
             if isinstance(fn, ast.Name):
                 name = fn.id
-                if name in DANGEROUS_CALLS:
+                if name in _BARE_DANGEROUS_CALLS:
                     reasons.append(f"dangerous call: {name}")
                 elif name in tainted:
                     reasons.append(f"tainted alias call: {name} (alias of dangerous callable)")
@@ -230,15 +287,17 @@ def scan_ast_dangerous(
                 if top == "importlib" and leaf in ("import_module", "__import__"):
                     reasons.append(f"importlib bypass: {chain}")
 
-                # builtins bypass: builtins.__import__ / __builtins__.__import__
-                elif top in ("builtins", "__builtins__") and leaf in DANGEROUS_CALLS:
+                # builtins bypass: builtins.<dangerous> / __builtins__.<dangerous>
+                elif top in ("builtins", "__builtins__") and leaf in _BARE_DANGEROUS_CALLS:
                     reasons.append(f"builtins bypass: {chain}")
 
-                # Generic dangerous leaf name
-                elif leaf in DANGEROUS_CALLS:
+                # Specific dangerous (module, method) pairs on otherwise-allowed modules
+                # (e.g. os.system, os.popen — os itself is allowed but these methods are not).
+                elif (top, leaf) in _DANGEROUS_MODULE_METHOD_PAIRS:
                     reasons.append(f"dangerous call: {chain}")
 
-                # Dangerous module prefix (e.g. subprocess.run)
+                # Dangerous module prefix (e.g. subprocess.run, requests.get, socket.socket).
+                # This is the primary mechanism for run/get/post/delete/socket/etc.
                 elif top in DANGEROUS_MODULE_PREFIXES:
                     reasons.append(f"dangerous module call: {chain}")
 
@@ -246,11 +305,26 @@ def scan_ast_dangerous(
                 elif top in tainted:
                     reasons.append(f"tainted alias call: {chain} (alias of dangerous callable)")
 
-            # --- getattr bypass: getattr(builtins, '__import__') ---
-            elif isinstance(fn, ast.Name) and fn.id == "getattr":
-                # Already caught above since 'getattr' itself is not in DANGEROUS_CALLS,
-                # but we need to catch getattr(builtins, dangerous_name).
-                pass  # handled below via the separate getattr check
+                # Note: generic "leaf in DANGEROUS_CALLS" is intentionally NOT used for
+                # arbitrary receivers to avoid false positives (client.get, db.run, app.run).
+
+            # --- Subscript call: __builtins__['eval']('x') or builtins['exec']('x') ---
+            elif isinstance(fn, ast.Subscript):
+                sub_val = fn.value
+                sub_slice = fn.slice
+                # Unwrap Index node for Python < 3.9 compatibility
+                if isinstance(sub_slice, ast.Index):
+                    sub_slice = sub_slice.value  # type: ignore[attr-defined]
+                if (
+                    isinstance(sub_val, ast.Name)
+                    and sub_val.id in ("builtins", "__builtins__")
+                    and isinstance(sub_slice, ast.Constant)
+                    and isinstance(sub_slice.value, str)
+                    and sub_slice.value in _BARE_DANGEROUS_CALLS
+                ):
+                    reasons.append(
+                        f"builtins subscript bypass: {sub_val.id}['{sub_slice.value}']"
+                    )
 
         # ------------------------------------------------------------------
         # getattr(builtins, '__import__') / getattr(obj, 'eval') bypass
@@ -272,7 +346,7 @@ def scan_ast_dangerous(
                 and _attr_chain(obj_arg).split(".")[0] in ("builtins", "__builtins__")
             )
             if obj_is_builtins and isinstance(attr_arg, ast.Constant):
-                if isinstance(attr_arg.value, str) and attr_arg.value in DANGEROUS_CALLS:
+                if isinstance(attr_arg.value, str) and attr_arg.value in _BARE_DANGEROUS_CALLS:
                     reasons.append(
                         f"builtins getattr bypass: getattr(builtins, '{attr_arg.value}')"
                     )

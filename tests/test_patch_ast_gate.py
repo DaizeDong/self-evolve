@@ -6,7 +6,9 @@ Tests cover:
     1. Alias bypass: fn = eval; fn('x'), g = os.system; g('x')
     2. importlib bypass: importlib.import_module, importlib.__import__
     3. builtins bypass: builtins.__import__(), getattr(builtins, '__import__')
-- Legitimate code not misidentified (no false positives).
+- __builtins__[...] subscript bypass: __builtins__['eval']('x') (M1b.1 fix)
+- Multi-hop alias: fn1=eval; fn2=fn1; fn2('x') (M1b.1 fix, fixed-point iteration)
+- Legitimate code not misidentified (no false positives including app.run(), client.get())
 - apply_patch integration: dangerous content rejected before write.
 """
 import os
@@ -48,6 +50,12 @@ DANGEROUS_SNIPPETS = {
     "builtins_import":  "import builtins\nbuiltins.__import__('os')\n",
     "getattr_builtins": "import builtins\ngetattr(builtins, '__import__')('os')\n",
     "getattr_builtins2": "import builtins\ngetattr(builtins, 'eval')('1+1')\n",
+    # ---- M1b.1 fix: __builtins__[...] subscript bypass ----
+    "builtins_subscript_eval":  "__builtins__['eval']('x')\n",
+    "builtins_subscript_exec":  "builtins['exec']('x=1')\n",
+    # ---- M1b.1 fix: multi-hop alias (two-hop chain) ----
+    "alias_multihop_eval":  "fn1 = eval\nfn2 = fn1\nfn2('x')\n",
+    "alias_multihop_os":    "import os\ng1 = os.system\ng2 = g1\ng2('cmd')\n",
 }
 
 
@@ -191,3 +199,102 @@ def test_apply_patch_allows_clean_file(tmp_path) -> None:
     patch_result = apply_patch(wt, "clean.py", src, allow={"json"})
     assert patch_result["status"] == "APPLIED", f"Unexpected rejection: {patch_result}"
     assert os.path.isfile(os.path.join(wt, "clean.py"))
+
+
+# ---------------------------------------------------------------------------
+# M1b.1: No false positives — common method names on safe receivers must pass
+# ---------------------------------------------------------------------------
+
+def test_client_get_passes() -> None:
+    """client.get('/url') — 'get' on arbitrary receiver must NOT be rejected."""
+    src = "result = client.get('/users')\n"
+    assert scan_ast_dangerous(src) == [], f"client.get should pass: {scan_ast_dangerous(src)}"
+
+
+def test_db_run_passes() -> None:
+    """db.run(q) — 'run' on arbitrary receiver must NOT be rejected."""
+    src = "db.run('SELECT 1')\n"
+    assert scan_ast_dangerous(src) == [], f"db.run should pass: {scan_ast_dangerous(src)}"
+
+
+def test_app_run_passes() -> None:
+    """app.run() — 'run' on arbitrary receiver must NOT be rejected."""
+    src = "app.run(debug=True)\n"
+    assert scan_ast_dangerous(src) == [], f"app.run should pass: {scan_ast_dangerous(src)}"
+
+
+def test_session_post_passes() -> None:
+    """session.post(data) — 'post' on arbitrary receiver must NOT be rejected."""
+    src = "session.post({'key': 'value'})\n"
+    assert scan_ast_dangerous(src) == [], f"session.post should pass: {scan_ast_dangerous(src)}"
+
+
+def test_obj_call_passes() -> None:
+    """self.call(fn) — 'call' on arbitrary receiver must NOT be rejected."""
+    src = "class Foo:\n    def bar(self):\n        return self.call(lambda: 1)\n"
+    assert scan_ast_dangerous(src) == [], f"self.call should pass: {scan_ast_dangerous(src)}"
+
+
+
+# ---------------------------------------------------------------------------
+# M1b.1: Confirm dangerous calls are still rejected (positive/negative cross-check)
+# ---------------------------------------------------------------------------
+
+def test_subprocess_run_still_rejected() -> None:
+    """subprocess.run must still be rejected via DANGEROUS_MODULE_PREFIXES."""
+    reasons = scan_ast_dangerous("import subprocess\nsubprocess.run(['ls'])\n")
+    assert reasons, "subprocess.run must be rejected"
+
+
+def test_requests_get_still_rejected() -> None:
+    """requests.get must still be rejected via DANGEROUS_MODULE_PREFIXES."""
+    reasons = scan_ast_dangerous("import requests\nrequests.get('http://x')\n")
+    assert reasons, "requests.get must be rejected"
+
+
+def test_socket_socket_still_rejected() -> None:
+    """socket.socket() must still be rejected via DANGEROUS_MODULE_PREFIXES."""
+    reasons = scan_ast_dangerous("import socket\ns = socket.socket()\n")
+    assert reasons, "socket.socket() must be rejected"
+
+
+def test_eval_bare_still_rejected() -> None:
+    """eval('x') must still be rejected as bare dangerous builtin."""
+    reasons = scan_ast_dangerous("eval('x')\n")
+    assert reasons, "eval() must be rejected"
+
+
+def test_builtins_subscript_eval_still_rejected() -> None:
+    """__builtins__['eval']('x') must be rejected by subscript check."""
+    reasons = scan_ast_dangerous("__builtins__['eval']('x')\n")
+    assert reasons, "__builtins__['eval'] subscript bypass must be rejected"
+
+
+def test_builtins_subscript_exec_still_rejected() -> None:
+    """builtins['exec']('x') must be rejected by subscript check."""
+    reasons = scan_ast_dangerous("builtins['exec']('x=1')\n")
+    assert reasons, "builtins['exec'] subscript bypass must be rejected"
+
+
+def test_multihop_alias_rejected() -> None:
+    """Multi-hop alias fn1=eval; fn2=fn1; fn2('x') must be rejected via fixed-point taint."""
+    reasons = scan_ast_dangerous("fn1 = eval\nfn2 = fn1\nfn2('x')\n")
+    assert reasons, "multi-hop alias fn2=fn1 where fn1=eval must be rejected"
+
+
+# ---------------------------------------------------------------------------
+# M1b.1: asyncio / concurrent are no longer hard-blocked
+# ---------------------------------------------------------------------------
+
+def test_asyncio_import_passes() -> None:
+    """asyncio is a normal concurrency module — must not be hard-blocked."""
+    reasons = scan_ast_dangerous("import asyncio\n", allow_imports={"asyncio"})
+    assert reasons == [], f"asyncio import should pass with allow: {reasons}"
+
+
+def test_concurrent_import_passes() -> None:
+    """concurrent.futures is a normal concurrency module — must not be hard-blocked."""
+    reasons = scan_ast_dangerous(
+        "import concurrent.futures\n", allow_imports={"concurrent"}
+    )
+    assert reasons == [], f"concurrent import should pass with allow: {reasons}"
