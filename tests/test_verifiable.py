@@ -34,6 +34,12 @@ def test_minimal_env_strips_secrets():
         env = minimal_env()
         assert "MY_API_TOKEN" not in env
         assert env.get("SIE_NO_NETWORK") == "1"
+        # Verify HOME and USERPROFILE are jailed and not the real home.
+        real_home = os.path.expanduser("~")
+        assert env["HOME"] != real_home
+        assert env["USERPROFILE"] != real_home
+        assert env["HOME"] == env["USERPROFILE"]
+        assert os.path.exists(env["HOME"])
     finally:
         del os.environ["MY_API_TOKEN"]
 
@@ -80,3 +86,16 @@ def test_discord_import_blocked(tmp_path):
     tgt = _mk(tmp_path, body)
     res = grade_pytest(tgt)
     assert res["task_passed"] is False  # import blocked by sitecustomize
+
+
+def test_network_blocked_udp_sendto(tmp_path):
+    # UDP sendto does not call connect; test that it's blocked anyway.
+    body = (
+        "import socket\n"
+        "def test_udp():\n"
+        "    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)\n"
+        "    s.sendto(b'test', ('8.8.8.8', 53))\n"
+    )
+    tgt = _mk(tmp_path, body)
+    res = grade_pytest(tgt)
+    assert res["task_passed"] is False  # UDP sendto blocked -> test fails
