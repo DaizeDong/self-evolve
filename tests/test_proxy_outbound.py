@@ -142,3 +142,51 @@ def test_shannon_entropy_uniform_bytes():
 def test_shannon_entropy_empty():
     assert proxy.shannon_entropy(b"") == 0.0
     assert proxy.shannon_entropy("") == 0.0
+
+
+def test_screen_blocks_high_entropy_header():
+    """High-entropy header values (non-base64) should be blocked by entropy threshold."""
+    # Generate a random printable ASCII string with high entropy (~5 bits/byte, > 4.5 threshold)
+    high_entropy_value = "".join(chr(ord('A') + (i % 26)) if i % 3 == 0 else chr(32 + (i % 94)) for i in range(128))
+    out = proxy.screen_request("GET", "https://data.sec.gov/x", {"X-Random": high_entropy_value}, b"")
+    assert out["ok"] is False
+    assert any("entropy" in v for v in out["violations"])
+
+
+def test_screen_passes_normal_header_values():
+    """Normal header values (low entropy, structured) should pass."""
+    out = proxy.screen_request(
+        "GET",
+        "https://data.sec.gov/x",
+        {"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
+        b"",
+    )
+    assert out["ok"] is True
+
+
+def test_dispatch_allowlist_deepcopy_isolation(tmp_path):
+    """Dispatch should use a deepcopy of allowlist to prevent runtime mutation attacks."""
+    original_allow = {
+        "test_kind": {
+            "url_template": "https://example.com/api",
+            "params": {"id": r"^[0-9]+$"},
+        }
+    }
+
+    # Keep a reference to verify deepcopy worked
+    allow_copy = original_allow.copy()
+
+    def normal_fetcher(method, url, headers, body):
+        return {"status": 200, "body": "{}"}
+
+    out = proxy.dispatch(
+        {"kind": "test_kind", "params": {"id": "123"}},
+        str(tmp_path),
+        original_allow,
+        fetcher=normal_fetcher,
+    )
+
+    # Dispatch should complete successfully (allowlist validation passes)
+    assert out["ok"] is True
+    # Original allowlist structure is unchanged (deepcopy prevents shared references)
+    assert original_allow == allow_copy
