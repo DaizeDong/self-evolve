@@ -128,6 +128,144 @@ def circuit_check(st: RunState, params: dict) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# M2.13: B 档 ACCEPT 态接线 (resolve_accept)
+# ---------------------------------------------------------------------------
+
+def resolve_accept(st: RunState, eval_out: dict, params: dict) -> dict:
+    """B 档 ACCEPT 态接线: acceptor + selfdeception 多闸 → 路由到下一态.
+
+    Args:
+        st:       当前 RunState (in-place 修改计数器, 调用方再 _step 持久化).
+        eval_out: B 档 evaluate 输出 dict (含 tier/b_paired/coverage_floor_violation/
+                  visible_anchor_gain/holdout_gain/anchors_visible_verified 等).
+        params:   参数字典 (含 alpha/n_min/effective_independent_anchor_min 等).
+
+    Returns:
+        {
+          "next_state":         "8" | "9" | "9.5" | "6",
+          "acceptor_decision":  "ACCEPT" | "REJECT" | "CONTINUE" | "FORCED_REVIEW",
+          "selfdeception":      dict (selfdeception.index 返回值),
+          "reason":             str,
+        }
+
+    路由规则 (B 档):
+        1. 调用 acceptor.decide 得到 dec (ACCEPT/REJECT/CONTINUE).
+        2. 调用 selfdeception.index 得到 sd.
+           - judge_anchor_divergence 信号 → st.drift_count += 1 (in-memory;
+             调用方负责写 drift_count_delta 事件完成 replay 持久化).
+        3. 欲 ACCEPT 但触发强制人审条件:
+               coverage_floor_violation OR sd["force_human"] OR "low_anchor_gain" in alerts
+           → 态9.5: st.forced_review += 1, enqueue, return next_state="9.5"
+        4. ACCEPT (无强制条件) → next_state="8"
+        5. CONTINUE               → st.no_progress += 1, next_state="6"
+        6. REJECT                 → st.no_progress += 1, next_state="9"
+
+    非 B 档路由到 _resolve_accept_legacy (M1 A/C 行为不变).
+    """
+    from . import selfdeception as _selfdeception
+    from . import gate_human as _gate_human
+
+    tier = eval_out.get("tier", st.tier)
+
+    if "B" not in str(tier):
+        # 非 B 档: 交还旧有逻辑 (A/C 路径, M1 已实现)
+        return _resolve_accept_legacy(st, eval_out, params)
+
+    # --- B 档路径 ---
+    dec = decide(
+        eval_out.get("b_paired", []),
+        "B",
+        st,
+        {**params, "anchors": eval_out.get("anchors_visible_verified", [])},
+    )
+
+    # selfdeception 多闸
+    visible_gain = eval_out.get("visible_anchor_gain", 0.0)
+    holdout_gain = eval_out.get("holdout_gain")
+    judge_gain = eval_out.get("judge_gain", 0.0)
+    sd = _selfdeception.index(
+        judge_gain=float(judge_gain),
+        visible_anchor_gain=float(visible_gain),
+        holdout_gain=float(holdout_gain) if holdout_gain is not None else 0.0,
+        st=st,
+        params=params,
+    )
+
+    # drift_count 累计 (in-memory; 调用方写 drift_count_delta 事件持久化到 replay)
+    if "judge_anchor_divergence" in sd.get("alerts", []):
+        st.drift_count += 1
+
+    # 强制人审条件检查:
+    # coverage_floor_violation 或 selfdeception.force_human 是全局拦截条件——
+    # 无论 acceptor 返回 ACCEPT 还是 CONTINUE (有可能在下一轮变 ACCEPT),
+    # 只要这些信号存在就必须提前走人审, 防止在次优数据上持续迭代积累。
+    # REJECT 路径不需要额外拦截 (REJECT 已阻断进展)。
+    not_rejected = dec["decision"] in ("ACCEPT", "CONTINUE")
+    cov_violation = bool(eval_out.get("coverage_floor_violation", False))
+    force = cov_violation or sd["force_human"] or ("low_anchor_gain" in sd.get("alerts", []))
+
+    if not_rejected and force:
+        st.forced_review += 1
+        _gate_human.enqueue(st.run_id or "unknown", {
+            "run_id": st.run_id,
+            "round": st.round,
+            "action_type": "human_review",
+            "payload": {
+                "reason": "B forced human review",
+                "coverage_floor_violation": cov_violation,
+                "selfdeception": sd,
+                "acceptor": dec,
+            },
+        })
+        return {
+            "next_state": "9.5",
+            "acceptor_decision": "FORCED_REVIEW",
+            "selfdeception": sd,
+            "reason": "B forced human review",
+        }
+
+    if dec["decision"] == "ACCEPT":
+        return {
+            "next_state": "8",
+            "acceptor_decision": "ACCEPT",
+            "selfdeception": sd,
+            "reason": dec.get("reason", "B ACCEPT"),
+        }
+
+    if dec["decision"] == "CONTINUE":
+        st.no_progress += 1
+        return {
+            "next_state": "6",
+            "acceptor_decision": "CONTINUE",
+            "selfdeception": sd,
+            "reason": dec.get("reason", "B CONTINUE"),
+        }
+
+    # REJECT (default)
+    st.no_progress += 1
+    return {
+        "next_state": "9",
+        "acceptor_decision": "REJECT",
+        "selfdeception": sd,
+        "reason": dec.get("reason", "B REJECT"),
+    }
+
+
+def _resolve_accept_legacy(st: RunState, eval_out: dict, params: dict) -> dict:
+    """M1 A/C 档旧路由 (保留兼容性, 不改变已有行为).
+
+    A 档在 run_loop 中直接调用 acceptor.decide + apply_acceptor_outcome;
+    本函数仅作为 resolve_accept 非 B 档分支的安全兜底, 返回 REJECT。
+    """
+    return {
+        "next_state": "9",
+        "acceptor_decision": "REJECT",
+        "selfdeception": {},
+        "reason": "non-B tier: delegated to legacy path (A/C handled in run_loop)",
+    }
+
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
