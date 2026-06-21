@@ -171,18 +171,68 @@ def decide(paired: list[tuple[float, float]], tier: str,
         return {"decision": "REJECT", "evalue": evalue,
                 "reason": f"e={evalue:.2f} < 1/α={thr:.1f} (A 档二态, 证据不足)"}
 
-    # 3. B/C 档: 主观分缩放 + n_min 门 + CONTINUE 机制 (M2/M3 接全, 此处占位)
-    n = len(paired)
-    n_min = params.get("n_min", 8)
-    if base_tier == "B" and n < n_min:
-        return {"decision": "REJECT", "evalue": 0.0,
-                "reason": f"n_anchor={n} < n_min={n_min} 禁 ACCEPT"}
+    # 3. B 档: per-anchor 边际增益配对 + 三道硬门 + CONTINUE 机制
+    if base_tier == "B":
+        from . import anchors as _anchors
+        n_min = int(params.get("n_min", 8))
+        eff_min = int(params.get("effective_independent_anchor_min", 12))
+        n_anchor = len(paired)
+        visible_verified = [a for a in params.get("anchors", []) if a.get("verified")]
+        eff = _anchors.effective_independent_count(visible_verified)
+        base = {"effective_independent": eff, "n_anchor": n_anchor}
+
+        # 门1: 锚数下限 (n_anchor < n_min → 禁 ACCEPT)
+        if n_anchor < n_min:
+            return {"decision": "REJECT", "evalue": 0.0,
+                    "reason": f"n_anchor {n_anchor} < n_min {n_min}", **base}
+
+        # 门2: 有效独立锚下限 (小相关锚集 → 禁 B 档单独 ACCEPT)
+        if eff < eff_min:
+            return {"decision": "REJECT", "evalue": 0.0,
+                    "reason": f"effective_independent {eff} < min {eff_min}", **base}
+
+        # e-process: per-anchor 边际增益配对 (客观增益, 不走 _scale_subjective)
+        # diffs = (after_gain - before_gain) per anchor; H₀: diff=0 (无改进)
+        # ONS betting 鞅: u=0.5*(d+1) ∈ [0,1], null m=0.5, 即 d=0 为零假设中心
+        # 可选: 若 params 提供 cluster_ids, 先去相关降权
+        cluster_ids = params.get("cluster_ids")
+        b_diffs = diffs  # per-anchor (after_gain - before_gain)
+        if cluster_ids and len(cluster_ids) == len(b_diffs):
+            b_diffs = _decorrelate_downweight(b_diffs, cluster_ids)
+
+        # 门3: evalue_max_step 单轮上限钳 (防单锚爆表)
+        # 对每个 diff 对应的 wealth 因子施加上限: factor = (1+λ*payoff) ≤ step_cap
+        # 等价于截断 diff 使 payoff = d/2 ≤ (step_cap-1)/λ_eff
+        # 简化实现: 钳入 [-step_clamp, step_clamp] 使单步贡献有界
+        # step_cap=5 → payoff_max=2 对应 d=4, clamp 到 d ∈ [-1,1] 已足够
+        # 直接钳入 [-1, 1] 保证 ONS 输入合法 (marginal gain 天然 ∈ [-1,1] 如已是增益差)
+        step_cap = float(params.get("evalue_max_step", 5.0))
+        # 将 diff 值归一化使单步最大 wealth 因子 ≤ step_cap:
+        # 最大 payoff = d/2; 最大 factor ≈ 1 + payoff (λ→1 时); clamp payoff ≤ step_cap-1
+        payoff_cap = min(0.5, (step_cap - 1.0) / 2.0) if step_cap > 1.0 else 0.5
+        diff_cap = 2.0 * payoff_cap  # payoff = d/2 → d_cap = 2*payoff_cap
+        b_diffs = [max(-diff_cap, min(diff_cap, d)) for d in b_diffs]
+
+        evalue, _path = _wealth_betting(b_diffs, alpha)
+
+        if evalue >= thr:
+            return {"decision": "ACCEPT", "evalue": evalue,
+                    "reason": f"B e-value {evalue:.2f} >= 1/alpha={thr:.1f}", **base}
+        if 1.0 < evalue < thr:
+            # B 是随机档, 允许 CONTINUE 累积证据
+            if st.continue_count < int(params.get("continue_count_cap", 5)):
+                return {"decision": "CONTINUE", "evalue": evalue,
+                        "reason": f"B accumulating evidence e={evalue:.2f}", **base}
+        return {"decision": "REJECT", "evalue": evalue,
+                "reason": f"B e-value {evalue:.2f} below threshold", **base}
+
+    # 4. C 档及其他: 主观分缩放 + CONTINUE 机制 (M3 接全, 此处保留占位)
     evalue, _path = _wealth_betting(_scale_subjective(diffs, params), alpha)
     if evalue >= thr:
         return {"decision": "ACCEPT", "evalue": evalue,
-                "reason": f"e={evalue:.2f} >= 1/α (B/C 档)"}
+                "reason": f"e={evalue:.2f} >= 1/α (C 档)"}
     if 1.0 <= evalue < thr and st.continue_count < params.get("continue_count_cap", 5):
         return {"decision": "CONTINUE", "evalue": evalue,
                 "reason": f"e={evalue:.2f} ∈ [1, 1/α) 继续取证"}
     return {"decision": "REJECT", "evalue": evalue,
-            "reason": f"e={evalue:.2f} < 1/α (B/C 档, 证据不足)"}
+            "reason": f"e={evalue:.2f} < 1/α (C 档, 证据不足)"}
