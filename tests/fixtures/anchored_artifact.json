@@ -1,0 +1,34 @@
+{
+  "title": "ACME Corp deep-dive",
+  "sections": [
+    {
+      "text": "ACME reported FY2024 revenue of $1.20B.",
+      "anchors": [
+        {
+          "claim": "FY2024 revenue = 1.20e9 USD",
+          "span": "revenue of $1.20B",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?CIK=0000320193&type=10-K",
+          "metric": "Revenues",
+          "expected": 1.20e9,
+          "cik": "320193",
+          "period": "FY2024"
+        }
+      ]
+    },
+    {
+      "text": "Cash and equivalents stood at $0.30B.",
+      "anchors": [
+        {
+          "claim": "cash = 0.30e9 USD",
+          "span": "Cash and equivalents stood at $0.30B",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?CIK=0000320193&type=10-Q",
+          "metric": "CashAndCashEquivalentsAtCarryingValue",
+          "expected": 0.30e9,
+          "cik": "320193",
+          "period": "FY2024"
+        }
+      ],
+      "no_anchor_prose": "We think the outlook is bright."
+    }
+  ]
+}
