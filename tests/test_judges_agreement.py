@@ -38,16 +38,16 @@ def test_agreement_opposite_is_low():
 # ── Step 3: sentinel on unavailable ─────────────────────────────────────────
 
 def test_agreement_unavailable_returns_sentinel():
-    """任一判官不可用 → α=-1.0（sentinel）。"""
+    """任一判官不可用 → 返回 None（防下游将不可用误作真实低一致性分）。"""
     a = _sc([("s1", 0.5)])
     b = {"span_scores": [], "available": False, "aggregate": 0.0}
-    assert judges.pairwise_agreement(a, b) == -1.0
+    assert judges.pairwise_agreement(a, b) is None
 
 
 def test_agreement_both_unavailable_returns_sentinel():
-    """两判官均不可用 → α=-1.0。"""
+    """两判官均不可用 → 返回 None。"""
     u = {"span_scores": [], "available": False, "aggregate": 0.0}
-    assert judges.pairwise_agreement(u, u) == -1.0
+    assert judges.pairwise_agreement(u, u) is None
 
 
 # ── 边界：无共同 span ────────────────────────────────────────────────────────

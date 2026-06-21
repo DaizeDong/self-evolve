@@ -181,9 +181,17 @@ def test_invoke_codex_judge_argv_flags(monkeypatch):
     assert cmd[model_idx + 1] == "gpt-5.5", f"expected gpt-5.5, got {cmd[model_idx+1]}"
 
 
-# ── I2: claude stub via score() 返回契约 sentinel（不外抛）── ──────────────
-def test_claude_stub_via_score_returns_sentinel(tmp_path):
-    """family='claude' 时 score() 捕获 NotImplementedError，返回 available=False 契约 dict。"""
+# ── I2: claude 不可用时 score() 返回契约 sentinel（显式 mock，脱离环境依赖）─
+def test_score_claude_unavailable_returns_sentinel(monkeypatch, tmp_path):
+    """family='claude' 且 invoke_claude_judge 返回 available=False 时，
+    score() 须返回完整契约 sentinel：available=False + 全部必要键。
+    使用显式 monkeypatch，不依赖 node 是否安装等环境条件。"""
+    from tools.sie import judge_claude
+
+    def fake_invoke(prompt, timeout_s):
+        return {"available": False, "raw": ""}
+
+    monkeypatch.setattr(judge_claude, "invoke_claude_judge", fake_invoke)
     art = tmp_path / "a.md"
     art.write_text("body text", encoding="utf-8")
     out = judges.score(str(art), anchors_visible=[{"span": "body"}], family="claude")
