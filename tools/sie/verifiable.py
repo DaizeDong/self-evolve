@@ -74,6 +74,12 @@ class _BlockedSocket(_OrigSocket):
         raise OSError('SIE network disabled (M1 no-network gate)')
     def connect_ex(self, *a, **k):
         raise OSError('SIE network disabled (M1 no-network gate)')
+    def sendto(self, *a, **k):
+        raise OSError('SIE network disabled (M1 no-network gate)')
+    def sendmsg(self, *a, **k):
+        raise OSError('SIE network disabled (M1 no-network gate)')
+    def sendall(self, *a, **k):
+        raise OSError('SIE network disabled (M1 no-network gate)')
 
 # Force ssl to load before we swap socket.socket, so SSLSocket class body
 # runs against the real class; then swap for candidate code.
@@ -126,18 +132,21 @@ def minimal_env() -> dict:
     # tempfile.mkdtemp returns a directory only readable by the current user,
     # but more importantly it is empty — no .credentials.json can exist there.
     jail = tempfile.mkdtemp(prefix="sie_home_")
+    # Note: jail is readable/writable to allow subprocess to create temp files.
+    # The security model depends on the jail being initially empty, not on permissions.
     base["HOME"] = jail
     base["USERPROFILE"] = jail  # Windows equivalent of HOME
 
     return base
 
 
-def _grader_env(sandbox_root: str) -> tuple[dict, str]:
+def _grader_env(sandbox_root: str) -> tuple[dict, str, str]:
     """Build subprocess env with sitecustomize injected.
 
-    Returns (env_dict, site_dir) — caller owns site_dir cleanup if desired.
+    Returns (env_dict, site_dir, jail_dir) — caller owns cleanup of site_dir and jail_dir.
     """
     env = minimal_env()
+    jail_dir = env["HOME"]  # Extract jail from minimal_env before it gets shadowed
 
     # Write sitecustomize.py into a temporary directory that precedes sandbox
     # on PYTHONPATH, so Python loads it before any user code.
@@ -162,7 +171,7 @@ def _grader_env(sandbox_root: str) -> tuple[dict, str]:
         parts.append(existing)
     env["PYTHONPATH"] = os.pathsep.join(parts)
 
-    return env, site_dir
+    return env, site_dir, jail_dir
 
 
 def grade_pytest(sandbox_root: str) -> dict:
@@ -174,38 +183,50 @@ def grade_pytest(sandbox_root: str) -> dict:
         "grader_exit_code": int,
         "dimensions": [{"name": "pytest", "tier": "A", "score": 0.0|1.0, "weight": 1.0}],
         "anchors": [],
-        "verifiable_coverage": 1.0,
-        "stdout": str  (last 2000 chars, for debugging)
+        "verifiable_coverage": 1.0
       }
 
     score mapping (A-grade binary):
       grader_exit_code == 0  ->  score=1.0, task_passed=True
       otherwise              ->  score=0.0, task_passed=False
     """
-    env, _ = _grader_env(sandbox_root)
+    env, site_dir, jail_dir = _grader_env(sandbox_root)
 
-    proc = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "--no-header"],
-        cwd=sandbox_root,
-        capture_output=True,
-        text=True,
-        env=env,
-    )
+    try:
+        # Disable anyio plugin via environment variable to avoid asyncio issues on Windows
+        # with the stripped PYTHONPATH.
+        grader_env = env.copy()
+        grader_env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
 
-    code = proc.returncode
-    passed = code == 0
-    score = 1.0 if passed else 0.0
+        proc = subprocess.run(
+            [sys.executable, "-m", "pytest", "-q", "--no-header"],
+            cwd=sandbox_root,
+            capture_output=True,
+            text=True,
+            env=grader_env,
+        )
 
-    return {
-        "task_passed": passed,
-        "grader_exit_code": code,
-        "dimensions": [
-            {"name": "pytest", "tier": "A", "score": score, "weight": 1.0}
-        ],
-        "anchors": [],
-        "verifiable_coverage": 1.0,
-        "stdout": proc.stdout[-2000:],
-    }
+        code = proc.returncode
+        passed = code == 0
+        score = 1.0 if passed else 0.0
+
+        return {
+            "task_passed": passed,
+            "grader_exit_code": code,
+            "dimensions": [
+                {"name": "pytest", "tier": "A", "score": score, "weight": 1.0}
+            ],
+            "anchors": [],
+            "verifiable_coverage": 1.0,
+        }
+    finally:
+        # Clean up temporary directories.
+        import shutil
+        for tmpdir in [site_dir, jail_dir]:
+            try:
+                shutil.rmtree(tmpdir, ignore_errors=True)
+            except Exception:
+                pass
 
 
 def snapshot_hash(sandbox_root: str) -> str:
