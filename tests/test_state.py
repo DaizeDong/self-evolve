@@ -16,7 +16,11 @@ def test_atomic_no_tmp_left(tmp_path):
     assert leftovers == []
     assert os.path.exists(os.path.join(tmp_path, "state.json"))
 
-def test_partial_write_does_not_corrupt(tmp_path):
+def test_stale_tmp_does_not_affect_load(tmp_path):
+    """Verify that load_state only reads state.json and ignores stale .tmp files.
+
+    Note: True mid-write atomicity is ensured by os.replace() semantics, not by this test.
+    """
     rs1 = RunState(run_id="r1", phase="INIT", round=0, parent_vid=None, tier="A")
     save_state(rs1, str(tmp_path))
     # 写一个损坏的 tmp 不应影响已有 state.json
