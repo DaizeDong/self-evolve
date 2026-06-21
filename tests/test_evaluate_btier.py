@@ -132,3 +132,60 @@ def test_atier_backward_compat(tmp_path):
     assert "result" in ev
     assert "paired" in ev
     assert "coverage" in ev
+
+
+def test_coverage_floor_violation_with_intent_false(monkeypatch):
+    """intended_accept=False + low coverage → coverage_floor_violation False (spec gating)."""
+    vis = [_anchor(str(i), f"h{i}", verified=(i < 4)) for i in range(16)]  # 4/16 verified → cov=0.25
+    ctx = {
+        "tier": "B",
+        "round": 1,
+        "K": 5,
+        "coverage_floor": 0.5,
+        "anchors_visible": vis,
+        "base_scores": {a["anchor_id"]: 0.0 for a in vis},
+        "with_scores": {a["anchor_id"]: 0.3 for a in vis},
+        "intended_accept": False,  # explicit rejection
+    }
+    monkeypatch.setattr(evaluate, "_verify_visible", lambda anchors, ctx: anchors)
+    out = evaluate.evaluate(ctx)
+    assert out["coverage"] < 0.5
+    assert out["coverage_floor_violation"] is False  # gated: cov_low AND intent → False
+
+
+def test_coverage_floor_violation_with_intent_true(monkeypatch):
+    """intended_accept=True + low coverage → coverage_floor_violation True (spec gating)."""
+    vis = [_anchor(str(i), f"h{i}", verified=(i < 4)) for i in range(16)]  # 4/16 verified → cov=0.25
+    ctx = {
+        "tier": "B",
+        "round": 1,
+        "K": 5,
+        "coverage_floor": 0.5,
+        "anchors_visible": vis,
+        "base_scores": {a["anchor_id"]: 0.0 for a in vis},
+        "with_scores": {a["anchor_id"]: 0.3 for a in vis},
+        "intended_accept": True,  # explicit acceptance
+    }
+    monkeypatch.setattr(evaluate, "_verify_visible", lambda anchors, ctx: anchors)
+    out = evaluate.evaluate(ctx)
+    assert out["coverage"] < 0.5
+    assert out["coverage_floor_violation"] is True  # gated: cov_low AND intent → True
+
+
+def test_coverage_floor_violation_without_intent(monkeypatch):
+    """No intended_accept + low coverage → coverage_floor_violation True (raw signal fallback)."""
+    vis = [_anchor(str(i), f"h{i}", verified=(i < 4)) for i in range(16)]  # 4/16 verified → cov=0.25
+    ctx = {
+        "tier": "B",
+        "round": 1,
+        "K": 5,
+        "coverage_floor": 0.5,
+        "anchors_visible": vis,
+        "base_scores": {a["anchor_id"]: 0.0 for a in vis},
+        "with_scores": {a["anchor_id"]: 0.3 for a in vis},
+        # No intended_accept — intent is None
+    }
+    monkeypatch.setattr(evaluate, "_verify_visible", lambda anchors, ctx: anchors)
+    out = evaluate.evaluate(ctx)
+    assert out["coverage"] < 0.5
+    assert out["coverage_floor_violation"] is True  # raw signal: cov < floor → True
