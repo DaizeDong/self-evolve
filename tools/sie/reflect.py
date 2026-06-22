@@ -32,6 +32,8 @@ def _reflect_one(run_dir: str, history: list[dict], idx: int) -> dict:
         input=json.dumps({"history": history}),
         capture_output=True,
         text=True,
+        encoding="utf-8",      # 中文 Windows: 勿用 locale(GBK)解码 node 的 UTF-8 输出
+        errors="replace",
     )
     if proc.returncode != 0 or not proc.stdout.strip():
         return {"reflector": idx, "findings": []}
