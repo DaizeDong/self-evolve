@@ -26,3 +26,6 @@ runs/
 # stray test run dirs (run_id used as cwd-relative)
 r/
 */pending_actions.jsonl
+
+# SDD process scratch (per-task reports/diffs; canonical ledger in docs/superpowers/)
+.superpowers/
