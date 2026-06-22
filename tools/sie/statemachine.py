@@ -416,6 +416,9 @@ def run_loop(
     mode: str = "auto",
     _injected_fix: dict | None = None,
     fetcher=None,
+    judge_codex_available: bool = True,
+    judge_claude_available: bool = True,
+    _extra_params: dict | None = None,
 ) -> dict:
     """Drive the M1a 10-state closed loop and return a summary dict.
 
@@ -427,6 +430,10 @@ def run_loop(
     fetcher: optional injected fetcher for B-tier anchor verification.
     None (default) uses real edgar/verify_anchor in production.
     Tests inject a fake fetcher to avoid network calls.
+
+    judge_codex_available: inject judge availability for C-tier path (tests).
+    judge_claude_available: inject claude availability for C-tier path (tests).
+    _extra_params: optional dict to override/extend default params (tests).
 
     States:
       INIT -> PROFILE -> [REFLECT -> CHECK -> PROPOSE -> PATCH -> EVALUATE ->
@@ -449,6 +456,8 @@ def run_loop(
         "drift_circuit": 4,
         "drift_circuit_N": 4,
     }
+    if _extra_params:
+        params.update(_extra_params)
     accepted: list[str] = []
 
     # ------------------------------------------------------------------
@@ -557,8 +566,9 @@ def run_loop(
                 break
             continue
 
-        # 态6 EVALUATE — verifiable grader (A-tier: pytest; B-tier: anchor ctx)
-        if "B" in str(prof["tier"]):
+        # 态6 EVALUATE — verifiable grader (A-tier: pytest; B-tier: anchor ctx; C-tier: judge)
+        _tier_str = str(prof["tier"])
+        if "B" in _tier_str:
             # B 档: 构造 evaluate ctx dict (B-tier dispatch 要求首参为含 tier:"B" 的 dict)
             # holdout 抽检: round % K == 0 时从 holdout.json 读并算均值
             _K = int(params.get("holdout_K", 5))
@@ -578,6 +588,11 @@ def run_loop(
                         _holdout_with = sum(
                             float(a.get("expected", 0.0)) for a in _holdout_anchors
                         ) / len(_holdout_anchors)
+                # 支持测试注入 holdout 数值覆盖 (via _extra_params)
+                if params.get("holdout_base") is not None:
+                    _holdout_base = float(params["holdout_base"])
+                if params.get("holdout_with") is not None:
+                    _holdout_with = float(params["holdout_with"])
             ev_ctx: dict = {
                 "tier": prof["tier"],
                 "round": rnd,
@@ -595,11 +610,52 @@ def run_loop(
                 "fetcher": fetcher,  # None=真 edgar; 测试注入假 fetcher
             }
             ev_result = evaluate(ev_ctx)
+        elif "C" in _tier_str:
+            # ---- M3.11 C 档评测接线 ----
+            # 态6 C 档: inject_judge_scores(独立进程,测试可注入 mock) +
+            #           evaluate_c_tier(no_regression/consistency)
+            from tools.sie import evaluate as _ev_mod
+            _c_artifact = sandbox_root  # artifact 路径 (信息性)
+            _c_regression_replay: list[dict] = []  # 历史成功 replay (M3 生产由 history 填充)
+            for h in history:
+                _c_regression_replay.append({
+                    "task": h.get("summary", ""),
+                    "before": h.get("passed", False),
+                    "after": h.get("passed", False),
+                })
+            _c_internal_consistency: list[tuple] = []  # 内部一致性配对 (本轮由 judge 填充)
+
+            # judge 主观分注入 (独立进程, 测试可 monkeypatch)
+            _c_anchors_visible = prof.get("anchors_visible", [])
+            _c_holdout: list[dict] = []  # holdout 锚列表 (生产由 prof 提供)
+            _judge_scores = _ev_mod.inject_judge_scores(
+                artifact_path=_c_artifact,
+                anchors_visible=_c_anchors_visible,
+                holdout=_c_holdout,
+            )
+            # 一致性配对: (before_judge_gain, after_judge_gain) 若两轮均有 judge 打分
+            _cj_gain = float(_judge_scores.get("judge_gain", 0.0))
+            _c_internal_consistency = [(_cj_gain, _cj_gain)]  # 单轮: 一致性配对退化为相同值
+
+            _c_ev = _ev_mod.evaluate_c_tier(
+                artifact_path=_c_artifact,
+                regression_replay=_c_regression_replay,
+                internal_consistency=_c_internal_consistency,
+            )
+            ev_result = {
+                "tier": "C",
+                "no_regression": _c_ev["no_regression"],
+                "consistency_paired": _c_ev["consistency_paired"],
+                "coverage": _c_ev["coverage"],   # 恒 0.0 (C 档无可验证锚)
+                "judge_scores": _judge_scores,
+                "judge_gain": _cj_gain,
+                "alpha": _judge_scores.get("alpha"),
+            }
         else:
             ev_result = evaluate(sandbox_root, prof["tier"], base_result=None)
 
-        # 态7 DECIDE — B 档走 resolve_accept; A 档走旧 decide+apply_acceptor_outcome
-        if "B" in str(prof["tier"]):
+        # 态7 DECIDE — B 档走 resolve_accept; C 档走 route_accept_with_gates; A 档走旧路径
+        if "B" in _tier_str:
             # ---- B 档生产路径: resolve_accept 含 selfdeception 多闸 ----
             ra = resolve_accept(st, ev_result, params, run_dir=run_dir)
             ra_sd = ra.get("selfdeception", {})
@@ -682,6 +738,185 @@ def run_loop(
                 if cc in ("no_progress_circuit", "static_reject_circuit",
                           "forced_review_circuit", "drift_circuit"):
                     break
+
+        elif "C" in _tier_str:
+            # ---- M3.11 C 档决策接线 ----
+            # 态7 C 档: acceptor.decide(C) + selfdeception.index +
+            #           acceptor.alpha_gate(alpha) + acceptor.judge_degrade +
+            #           route_accept_with_gates → ARCHIVE/PAUSE_FOR_HUMAN/REJECT
+            from . import selfdeception as _selfdeception
+            from . import gate_human as _gate_human
+            from .acceptor import alpha_gate as _alpha_gate, judge_degrade as _judge_degrade
+
+            # no_regression 硬门: 退化直接 REJECT, 跳过后续多闸
+            if not ev_result.get("no_regression", True):
+                st.no_progress += 1
+                st = _step(run_dir, {
+                    "type": "REJECT",
+                    "phase": "REFLECT",
+                    "no_progress_delta": 1,
+                    "reason": "C no_regression hard gate",
+                })
+                history.append({
+                    "round": rnd,
+                    "summary": "C no_regression hard gate",
+                    "passed": False,
+                })
+                cc = circuit_check(st, params)
+                if cc in ("no_progress_circuit", "static_reject_circuit",
+                          "forced_review_circuit", "drift_circuit"):
+                    break
+                # 态9: no_progress 释放阀检查
+                elif cc == "no_progress_release":
+                    _rf = release_valve(st, params)  # 升人审频率; 不降阈; 不自动采纳
+                    # freq 仅供日志/未来入队用; 当前轮继续
+                continue
+
+            # acceptor.decide(C): consistency_paired → e-process 决策
+            _c_paired = ev_result.get("consistency_paired", [])
+            _c_coverage = float(ev_result.get("coverage", 0.0))
+            _c_dec = decide(
+                _c_paired, "C", st,
+                {**params, "coverage": _c_coverage},
+            )
+
+            # selfdeception 多闸
+            # C 档无可见锚 (visible_anchor_gain=0.0 是结构性特征, 非统计不可靠信号):
+            # 为避免 visible_anchor_gain<eps 误触 block_accept (C 档无锚是设计如此, 非失效),
+            # 构造 selfdeception 后覆盖 block_accept=False.
+            # 闸④ judge_anchor_divergence 仍有效: |judge_gain - 0.0| > band → 发散报警.
+            _c_judge_gain = float(ev_result.get("judge_gain", 0.0))
+            _c_sd = _selfdeception.index(
+                judge_gain=_c_judge_gain,
+                visible_anchor_gain=0.0,   # C 档无可见锚 → visible_gain=0
+                holdout_gain=None,          # C 档无 holdout → 跳过闸③
+                st=st,
+                params=params,
+            )
+            # 纯 C 无锚: block_accept=True 是假阳性 (无锚而非锚增益不足), 覆盖为 False.
+            # ACCEPT 已由 route_accept_with_gates 的 force_review / single_claude_block /
+            # 纯 C auto 门把守, block_accept 在此冗余且会遮蔽 PAUSE_FOR_HUMAN 路由.
+            _c_sd = {**_c_sd, "block_accept": False}
+            # judge_anchor_divergence → drift_count++ (in-memory + DRIFT_SIGNAL 事件)
+            if "judge_anchor_divergence" in _c_sd.get("alerts", []):
+                st.drift_count += 1
+                st = _step(run_dir, {
+                    "type": "DRIFT_SIGNAL",
+                    "phase": "EVALUATE",
+                    "round": rnd,
+                    "drift_count_delta": 1,
+                })
+
+            # alpha_gate: alpha=None (judge 不可用) 或双向 α 门
+            _c_alpha = ev_result.get("alpha")      # None 表示 judge 不可用
+            _c_anchor_up = False                    # C 档无锚 → 锚不涨
+            _c_alpha_gate_out = _alpha_gate(
+                alpha=_c_alpha,
+                anchor_up=_c_anchor_up,
+                params=params,
+            )
+
+            # judge_degrade: Codex 不可用 → 禁单 Claude auto ACCEPT
+            _c_degrade = _judge_degrade(
+                codex_available=judge_codex_available,
+                claude_available=judge_claude_available,
+            )
+
+            # C 档强制人审条件: 在 route_accept_with_gates 优先级① (decision != ACCEPT → REJECT)
+            # 之前检查; 纯 C auto / force_review / Codex 不可用 → 强制 PAUSE_FOR_HUMAN,
+            # 无论 acceptor 返回 ACCEPT/CONTINUE/REJECT.
+            _c_force_human = (
+                (_c_dec.get("force_review") or _c_sd.get("force_review")
+                 or _c_alpha_gate_out.get("force_review") or _c_degrade.get("force_review"))
+                or (_c_degrade.get("single_claude_block"))
+                or (mode == "auto" and _c_coverage == 0.0)   # 纯 C auto 兜底
+            )
+
+            # 综合闸路由
+            # 若强制人审, 直接路由 PAUSE_FOR_HUMAN (不经 route_accept_with_gates 优先级①拦截).
+            # 仅当无强制条件时, 才经 route_accept_with_gates 判断 ARCHIVE vs REJECT.
+            if _c_force_human:
+                _c_route = "PAUSE_FOR_HUMAN"
+            else:
+                _c_route = route_accept_with_gates(
+                    decision=_c_dec,
+                    sd=_c_sd,
+                    alpha_gate_out=_c_alpha_gate_out,
+                    degrade=_c_degrade,
+                    mode=mode,
+                    tier="C",
+                    coverage=_c_coverage,
+                )
+
+            if _c_route == "ARCHIVE":
+                # 态8 ACCEPT (纯 C 在 auto 模式下不会到达此处: coverage=0 → PAUSE_FOR_HUMAN)
+                vid = f"v{len(accepted) + 1}"
+                archive.add_version(run_dir, vid, [], parent)
+                arch_dir = os.path.join(run_dir, "archive")
+                archive.snapshot_version(arch_dir, vid, sandbox_root)
+                accepted.append(vid)
+                st.no_progress = 0
+                st.forced_review = 0
+                st.continue_count = 0
+                st = _step(run_dir, {
+                    "type": "ACCEPT",
+                    "phase": "ARCHIVE",
+                    "parent_vid": vid,
+                })
+                history.append({"round": rnd, "summary": "C ACCEPT", "passed": True})
+
+            elif _c_route == "PAUSE_FOR_HUMAN":
+                # 态9.5 PAUSE_FOR_HUMAN — C 档强制人审 (纯 C + auto, 或 Codex 不可用)
+                note_forced_review(st)   # in-memory forced_review++
+                _gate_human.enqueue(run_dir, {
+                    "run_id": run_id,
+                    "round": rnd,
+                    "action_type": "human_review",
+                    "payload": {
+                        "reason": "C tier forced human review",
+                        "coverage": _c_coverage,
+                        "alpha": _c_alpha,
+                        "degrade": _c_degrade,
+                        "selfdeception": _c_sd,
+                        "acceptor": _c_dec,
+                    },
+                })
+                st = _step(run_dir, {
+                    "type": "PAUSE_FOR_HUMAN",
+                    "phase": "PAUSE_FOR_HUMAN",
+                    "forced_review_delta": 1,
+                })
+                history.append({
+                    "round": rnd,
+                    "summary": "C forced human review",
+                    "passed": False,
+                })
+                cc = circuit_check(st, params)
+                if cc in ("no_progress_circuit", "static_reject_circuit",
+                          "forced_review_circuit", "drift_circuit"):
+                    break
+                elif cc == "no_progress_release":
+                    _rf = release_valve(st, params)  # 升人审频率
+
+            else:
+                # 态9 REJECT — C 档拒绝
+                st.no_progress += 1
+                st = _step(run_dir, {
+                    "type": "REJECT",
+                    "phase": "REFLECT",
+                    "no_progress_delta": 1,
+                })
+                history.append({
+                    "round": rnd,
+                    "summary": _c_dec.get("reason", "C REJECT"),
+                    "passed": False,
+                })
+                cc = circuit_check(st, params)
+                if cc in ("no_progress_circuit", "static_reject_circuit",
+                          "forced_review_circuit", "drift_circuit"):
+                    break
+                elif cc == "no_progress_release":
+                    _rf = release_valve(st, params)  # 升人审频率
 
         else:
             # ---- A 档旧路径 (保持 M1 行为不变) ----
