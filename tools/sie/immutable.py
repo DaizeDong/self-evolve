@@ -52,12 +52,20 @@ def is_immutable_relpath(relpath: str) -> bool:
     return _normalize(relpath) in _IMMUTABLE_SET
 
 
-def hash_file(path: str) -> str:
-    """返回文件的 SHA-256 hexdigest。"""
+def hash_file(path: str, normalize_crlf: bool = False) -> str:
+    """返回文件的 SHA-256 hexdigest。
+
+    Args:
+        path: 文件路径
+        normalize_crlf: 若为 True，读入后将 CRLF 统一为 LF 再哈希（处理跨平台行尾）；
+                        默认 False 直接对二进制内容哈希。
+    """
     h = hashlib.sha256()
     with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            h.update(chunk)
+        data = f.read()
+    if normalize_crlf:
+        data = data.replace(b"\r\n", b"\n")
+    h.update(data)
     return h.hexdigest()
 
 
@@ -82,7 +90,7 @@ def materialize_frozen(base_ref: str, sie_root: str, frozen_dir: str) -> dict[st
                 ["git", "show", f"{base_ref}:{git_path}"], cwd=repo_root,
                 check=True, capture_output=True).stdout
         except subprocess.CalledProcessError:
-            # base ref 尚无该文件（新文件未提交）：跳过物化，记空哈希以便启动门发现缺口。
+            # base ref 尚无该文件（新文件未提交）：跳过物化（不入 digests），supervisor 待启动门才发现缺口。
             continue
         out = os.path.join(frozen_dir, rp)
         with open(out, "wb") as f:
@@ -102,7 +110,7 @@ def verify_immutable(candidate_sie_root: str, frozen_digests: dict[str, str]) ->
     任一文件缺失、哈希不符或 frozen_digests 为空，raise ImmutableViolation。
     fail-closed：绝无静默通过的异常路径。
 
-    处理跨平台行尾差异：候选文件的内容先转换为 LF（与 frozen 的 git show 产物一致）后再哈希。
+    处理跨平台行尾差异：通过 hash_file(normalize_crlf=True) 统一规范化，与 frozen 的 git show 产物保持一致。
     """
     if not frozen_digests:
         raise ImmutableViolation("frozen 哈希记录为空，拒绝在无基线下运行 IMMUTABLE 锁")
@@ -112,14 +120,8 @@ def verify_immutable(candidate_sie_root: str, frozen_digests: dict[str, str]) ->
         if not os.path.isfile(cand):
             bad.append(f"{rp}: 缺失")
             continue
-        # 规范化行尾为 LF（与 git show 产物一致），计算规范化后的哈希
-        with open(cand, "rb") as f:
-            content = f.read()
-        # 转换 CRLF → LF（处理 Windows 工作区行尾转换）
-        normalized = content.replace(b"\r\n", b"\n")
-        h = hashlib.sha256()
-        h.update(normalized)
-        actual = h.hexdigest()
+        # 调用 hash_file 的规范化哈希，确保与 frozen 的计算方式一致
+        actual = hash_file(cand, normalize_crlf=True)
         if actual != expected:
             bad.append(f"{rp}: 哈希不符 expected={expected[:12]} got={actual[:12]}")
     if bad:
