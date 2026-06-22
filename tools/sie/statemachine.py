@@ -598,15 +598,20 @@ def run_loop(
                 _holdout_path = _href.get("path", "")
                 if _holdout_path and os.path.exists(_holdout_path):
                     import json as _json
-                    with open(_holdout_path, "r", encoding="utf-8") as _fh:
-                        _holdout_anchors = _json.load(_fh)
-                    # holdout_base=0.0 (无 baseline 时全零);
-                    # holdout_with=mean(expected) 用锚 expected 字段近似当前得分
-                    if _holdout_anchors:
-                        _holdout_base = 0.0
-                        _holdout_with = sum(
-                            float(a.get("expected", 0.0)) for a in _holdout_anchors
-                        ) / len(_holdout_anchors)
+                    try:
+                        with open(_holdout_path, "r", encoding="utf-8") as _fh:
+                            _holdout_anchors = _json.load(_fh)
+                        # holdout_base=0.0 (无 baseline 时全零);
+                        # holdout_with=mean(expected) 用锚 expected 字段近似当前得分
+                        if _holdout_anchors:
+                            _holdout_base = 0.0
+                            _holdout_with = sum(
+                                float(a.get("expected", 0.0)) for a in _holdout_anchors
+                            ) / len(_holdout_anchors)
+                    except (json.JSONDecodeError, ValueError, IOError):
+                        # Corrupted/missing holdout.json: treat as missing data
+                        # (no holdout signal available for this round)
+                        pass
                 # 支持测试注入 holdout 数值覆盖 (via _extra_params)
                 if params.get("holdout_base") is not None:
                     _holdout_base = float(params["holdout_base"])

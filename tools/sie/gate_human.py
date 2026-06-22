@@ -34,8 +34,13 @@ def _read_all(run_dir: str) -> list[dict]:
     with open(path, "r", encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
-            if line:
+            if not line:
+                continue
+            try:
                 out.append(json.loads(line))
+            except json.JSONDecodeError:
+                # Corrupted/half-written line: skip silently (don't break pending action lookup)
+                continue
     return out
 
 
