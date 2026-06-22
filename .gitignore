@@ -22,3 +22,7 @@ logs/
 runs/
 *.log
 .cache/
+
+# stray test run dirs (run_id used as cwd-relative)
+r/
+*/pending_actions.jsonl
