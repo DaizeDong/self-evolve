@@ -20,8 +20,11 @@
 
 'use strict';
 
-const { execFileSync } = require('child_process');
+const { spawnSync } = require('child_process');
 const readline = require('readline');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 // ── CLI flag 解析 ──────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -68,36 +71,52 @@ rl.on('close', () => {
 
 // ── codex CLI 调用 ─────────────────────────────────────────────────────────
 function runCodex(promptText) {
-  // codex CLI 调用；--no-browser/--no-playwright 已在此层强制检查，
-  // codex 本身的 approval-mode=full-auto 确保无交互；
-  // 工具约束通过 --allowed-tools 传递（codex CLI 实际支持的 flag 名）。
+  // 真实非交互接口: `codex exec`。
+  // 安全边界: -s read-only(沙箱只读,judge 不能写盘/逃逸 shell) 是 --no-browser/
+  //   --no-playwright 约束的实际落地(已在上层校验过这些 flag 必须传)。
+  // -o <FILE>: 只取 codex 的最终消息(避开 header/MCP 噪声)，比解析全 stdout 稳。
+  // effort 经 -c model_reasoning_effort 注入(无 --strict-config,未知键被容忍)。
+  const outFile = path.join(os.tmpdir(),
+    `sie-codex-judge-${process.pid}-${Date.now()}.txt`);
+  // prompt 走 stdin(不进 args) → shell:true 下无注入面; codex exec 无 prompt arg 时读 stdin。
+  // -c 值不加引号: TOML 解析失败回退字面量(避免跨平台 shell 引号问题)。
+  // shell:true: Windows 解析 npm 全局 codex.cmd(execFile 裸名找不到 .cmd → ENOENT)。
   const codexArgs = [
-    '--model', model,
-    '--approval-mode', 'full-auto',
-    '--allowed-tools', 'web_search',
-    '--quiet',
-    promptText,
+    'exec',
+    '-m', model,
+    '-s', 'read-only',
+    '--skip-git-repo-check',
+    '--color', 'never',
+    '-c', `model_reasoning_effort=${effort}`,
+    '-o', outFile,
   ];
 
-  let stdout = '';
   let exitCode = 0;
-  try {
-    stdout = execFileSync('codex', codexArgs, {
-      encoding: 'utf8',
-      maxBuffer: 8 * 1024 * 1024,
-      timeout: 590000,  // 略低于 invoke_codex_judge 的 600s，让 Python 侧 TimeoutExpired 先触发
-    });
-  } catch (err) {
-    // execFileSync 失败（非0退出/超时/ENOENT）
-    process.stderr.write(`codex error: ${err.message}\n`);
-    exitCode = err.status || 1;
-    if (!exitCode) exitCode = 1;
+  const r = spawnSync('codex', codexArgs, {
+    input: promptText,
+    encoding: 'utf8',
+    shell: true,
+    maxBuffer: 8 * 1024 * 1024,
+    timeout: 590000,  // 略低于 invoke_codex_judge 的 600s，让 Python 侧先 TimeoutExpired
+  });
+  if (r.error) {
+    process.stderr.write(`codex error: ${r.error.message}\n`);
+    exitCode = 1;
+  } else if (r.status !== 0) {
+    process.stderr.write(`codex exit ${r.status}: ${(r.stderr || '').slice(-300)}\n`);
+    exitCode = r.status || 1;
   }
 
-  if (exitCode !== 0 || !stdout.trim()) {
+  let lastMessage = '';
+  try {
+    lastMessage = fs.readFileSync(outFile, 'utf8');
+  } catch (_) { /* 文件缺失=失败 */ }
+  try { fs.unlinkSync(outFile); } catch (_) {}
+
+  if (exitCode !== 0 || !lastMessage.trim()) {
     process.exit(exitCode || 1);
   }
 
-  process.stdout.write(stdout);
+  process.stdout.write(lastMessage);  // 含 judge 的 span_scores JSON, 供 _parse_span_scores 提取
   process.exit(0);
 }
