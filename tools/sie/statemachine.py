@@ -33,6 +33,7 @@ from tools.sie.reflect import reflect
 from tools.sie.check_reflection import check
 from tools.sie.propose import propose
 from tools.sie.patch import apply_patch
+from tools.sie import patch as _patch_module
 from tools.sie.evaluate import evaluate
 from tools.sie.acceptor import decide
 from tools.sie import archive
@@ -408,6 +409,31 @@ def select_parent(run_dir: str, st: RunState) -> str:
     return lin[-1]["vid"]           # lineage 末版 (最新已采纳)
 
 
+def state_patch(
+    proposals: list[dict],
+    worktree: str,
+    enforce_immutable: bool = False,
+) -> list[dict]:
+    """态5 PATCH：对每个 proposal 调用 apply_patch，返回结果列表。
+
+    Args:
+        proposals:         提案列表，每项含 "target"（relpath 列表）和 "diff"（新内容）字段。
+        worktree:          sandbox worktree 路径。
+        enforce_immutable: 是否开启 IMMUTABLE 硬拒门（透传给 apply_patch）。
+                           True → 命中 IMMUTABLE 路径的 patch 被拒（自举/enforce 路径）。
+                           False（默认）→ 不拦截（非自举行为不变）。
+
+    Returns:
+        每个 proposal 对应的 apply_patch 结果 dict 列表。
+    """
+    results = []
+    for p in proposals:
+        # 通过模块引用调用，允许测试用 monkeypatch.setattr(patch, "apply_patch", ...) 替换
+        res = _patch_module.apply_patch(p, worktree, enforce_immutable=enforce_immutable)
+        results.append(res)
+    return results
+
+
 def run_loop(
     target: str,
     base_ref: str,
@@ -419,6 +445,7 @@ def run_loop(
     judge_codex_available: bool = True,
     judge_claude_available: bool = True,
     _extra_params: dict | None = None,  # test-only: 覆盖默认 params，生产勿传
+    enforce_immutable: bool = False,    # M4.6: --self/--enforce-immutable 透传
 ) -> dict:
     """Drive the M1a 10-state closed loop and return a summary dict.
 
@@ -547,9 +574,11 @@ def run_loop(
             continue
 
         # 态5 PATCH — apply each proposal; AST + boundary gates enforced by apply_patch
+        # M4.6: enforce_immutable 由 --self/--enforce-immutable 透传，默认 False（非自举不变）
         applied = False
         for p in props:
-            res = apply_patch(sandbox_root, p["file_rel"], p["new_content"])
+            res = apply_patch(sandbox_root, p["file_rel"], p["new_content"],
+                              enforce_immutable=enforce_immutable)
             if res["status"] == "APPLIED":
                 applied = True
 
