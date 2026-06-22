@@ -97,3 +97,28 @@ def test_build_btier_scores_empty_candidate_falls_back():
     bsc = evaluate.build_btier_scores(base, [], fetcher)
     assert bsc["anchors_visible"] == []
     assert bsc["base_scores"] == {} and bsc["with_scores"] == {}
+
+
+def test_btier_no_spurious_drift_when_positive_gain_no_judge():
+    """回归: B 档真打分后 visible_anchor_gain>band 且无 judge_gain 时, 不应误报
+    judge_anchor_divergence(此前 judge_gain 默认 0 → value=-gain → |value|>band 误触发,
+    drift_circuit 误停正在改进的 B run)。修复: 缺 judge_gain → judge_gain=visible_gain → value=0。"""
+    from tools.sie import statemachine
+    from tools.sie.state import RunState
+    base, cand, fetcher = _build(24)
+    bsc = evaluate.build_btier_scores(base, cand, fetcher)
+    ev = evaluate.evaluate({"tier": "B", "round": 1, "K": 5,
+                            "anchors_visible": bsc["anchors_visible"],
+                            "base_scores": bsc["base_scores"], "with_scores": bsc["with_scores"],
+                            "fetcher": fetcher, "intended_accept": None})
+    assert ev["visible_anchor_gain"] > 0.15   # 远超 band, 旧逻辑会误报
+    # eval_out 不含 judge_gain (B 档无 judge)
+    dec = statemachine.resolve_accept(
+        RunState(run_id="v", phase="ACCEPT", round=1, parent_vid=None, tier="B"),
+        eval_out={**ev, "tier": "B"},
+        params={"alpha": 0.05, "n_min": 8, "continue_count_cap": 5,
+                "anchors": ev.get("anchors_visible_verified", bsc["anchors_visible"])},
+    )
+    sd = dec.get("selfdeception", {})
+    assert "judge_anchor_divergence" not in sd.get("alerts", []), \
+        f"B 档无 judge 不应误报 judge_anchor_divergence; got alerts={sd.get('alerts')}"
