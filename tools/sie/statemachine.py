@@ -628,15 +628,28 @@ def run_loop(
                     _holdout_base = float(params["holdout_base"])
                 if params.get("holdout_with") is not None:
                     _holdout_with = float(params["holdout_with"])
+            # B 档真打分: 从 baseline frozen visible 锚 + candidate(改后)产物锚, 用真
+            # verify_anchor 构造 per-anchor base/with scores(改正错锚→base0/with1→正增益)。
+            from tools.sie import evaluate as _ev_mod
+            from tools.sie import anchors as _anc_mod
+            from tools.sie.probes import fact_probe as _fp_mod
+            _cand_anchors: list[dict] = []
+            for _ap in _fp_mod._find_artifacts(sandbox_root):
+                try:
+                    _cand_anchors.extend(_anc_mod.extract_anchors(_ap))
+                except Exception:
+                    pass
+            _bsc = _ev_mod.build_btier_scores(
+                prof.get("anchors_visible", []), _cand_anchors, fetcher)
             ev_ctx: dict = {
                 "tier": prof["tier"],
                 "round": rnd,
                 "K": _K,
-                "anchors_visible": prof.get("anchors_visible", []),
-                # base_scores / with_scores: 无 LLM judge 时留空(全零基线);
-                # M3 接线后由 grader 填充实际分值
-                "base_scores": {},
-                "with_scores": {},
+                # anchors_visible = candidate 锚(已 verify); 空则回退 baseline(无候选产物时)
+                "anchors_visible": _bsc["anchors_visible"] or prof.get("anchors_visible", []),
+                # base/with: baseline vs candidate 真 verify(0/1), 经 build_btier_scores
+                "base_scores": _bsc["base_scores"],
+                "with_scores": _bsc["with_scores"],
                 "holdout_base": _holdout_base,
                 "holdout_with": _holdout_with,
                 # intended_accept=None: 让 _evaluate_btier 回退到原始信号,
