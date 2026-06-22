@@ -5,17 +5,24 @@ Public API (contract-locked, do not rename):
   snapshot_version(archive_dir, vid, sandbox_root) -> None
   lineage(archive_dir) -> list[dict]
   rollback(archive_dir, vid) -> None
-  pareto_front(archive_dir) -> list[str]   # M1a placeholder; full Pareto → M3
-  retire_stale(archive_dir, active_cap) -> None  # M1a placeholder
+  pareto_front(archive_dir) -> list[str]   # M3.8: full multi-dim Pareto front
+  retire_stale(archive_dir, active_cap) -> None  # M3.8: Library Drift, cold-store not delete
+  selectable_parents(archive_dir) -> list[str]  # M3.8: front members passing hard-dim gate
 """
 from __future__ import annotations
 
 import json
 import os
 import shutil
+import statistics
 
 LINEAGE = "lineage.json"
 RETIRED = "retired.jsonl"
+
+# Hard dimensions: objectively verifiable metrics (A-score and frozen anchors).
+# Soft dimensions: subjective judge scores.
+_HARD_DIMS = ("A", "anchor")
+_SOFT_DIMS = ("judge",)
 
 
 # ---------------------------------------------------------------------------
@@ -27,6 +34,29 @@ def _arch_dir(run_dir: str) -> str:
     d = os.path.join(run_dir, "archive")
     os.makedirs(os.path.join(d, "versions"), exist_ok=True)
     return d
+
+
+def _load_versions(archive_dir: str) -> list[dict]:
+    """Load version entries from lineage.json (plain list format)."""
+    path = os.path.join(archive_dir, LINEAGE)
+    if not os.path.exists(path):
+        return []
+    with open(path, "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+    # Support both plain list (M1a add_version format) and
+    # dict-with-versions-key (legacy/alt format).
+    if isinstance(data, list):
+        return data
+    return data.get("versions", [])
+
+
+def _dominates(a: dict, b: dict, dims: tuple) -> bool:
+    """Return True if *a* Pareto-dominates *b* across *dims*."""
+    a_scores = a.get("scores", {})
+    b_scores = b.get("scores", {})
+    ge = all(a_scores.get(d, 0) >= b_scores.get(d, 0) for d in dims)
+    gt = any(a_scores.get(d, 0) > b_scores.get(d, 0) for d in dims)
+    return ge and gt
 
 
 # ---------------------------------------------------------------------------
@@ -100,26 +130,79 @@ def rollback(archive_dir: str, vid: str) -> None:
 
 
 def pareto_front(archive_dir: str) -> list[str]:
-    """Return the list of active (non-dominated) version IDs.
+    """Return the list of non-dominated version IDs across all dimensions.
 
-    M1a placeholder — returns *all* recorded vids.
-    Full multi-objective Pareto filtering is gated to M3.
+    M3.8: Full multi-objective Pareto filtering across both hard dims (A, anchor)
+    and soft dims (judge).  A version is on the front if no other version
+    dominates it (i.e., is >= on every dimension and strictly > on at least one).
     """
-    return [e["vid"] for e in lineage(archive_dir)]
+    vs = _load_versions(archive_dir)
+    if not vs:
+        return []
+    dims = _HARD_DIMS + _SOFT_DIMS
+    front = []
+    for v in vs:
+        dominated = any(
+            _dominates(other, v, dims)
+            for other in vs
+            if other["vid"] != v["vid"]
+        )
+        if not dominated:
+            front.append(v["vid"])
+    return front
+
+
+def selectable_parents(archive_dir: str) -> list[str]:
+    """Return version IDs that are both on the Pareto front AND pass the hard-dim gate.
+
+    Hard-dim gate: a front member is selectable only if its score on every hard
+    dimension (A, anchor) is >= the median of those dimensions across ALL front
+    members.  This prevents "soft-only winners" (high judge but low A/anchor)
+    from becoming parents — they are cold-stored, not selectable.
+    """
+    vs = {v["vid"]: v for v in _load_versions(archive_dir)}
+    front = pareto_front(archive_dir)
+    if not front:
+        return []
+    # Compute per-dimension median across the full Pareto front.
+    medians = {
+        d: statistics.median([vs[f]["scores"].get(d, 0) for f in front])
+        for d in _HARD_DIMS
+    }
+    return [
+        f for f in front
+        if all(vs[f]["scores"].get(d, 0) >= medians[d] for d in _HARD_DIMS)
+    ]
 
 
 def retire_stale(archive_dir: str, active_cap: int) -> None:
-    """Append stale entries to ``retired.jsonl`` when lineage exceeds *active_cap*.
+    """Cold-store stale versions when the active count exceeds *active_cap*.
 
-    M1a placeholder — the oldest ``len(lineage) - active_cap`` entries are
-    written to the retired log.  No snapshot deletion occurs here; that is
-    also gated to M3.
+    M3.8 Library Drift semantics:
+    - Selectable parents (hard-dim front members) are preferred to keep, but
+      non-selectable candidates are retired first.
+    - Among candidates, the oldest (lowest last_used_round) are retired first.
+    - If non-selectable candidates are insufficient, the oldest selectable
+      parents are retired too (Library Drift must enforce the cap).
+    - Retirement = append to ``retired.jsonl``; the original lineage.json is
+      NEVER modified (cold-store, not delete).
     """
-    lin = lineage(archive_dir)
-    if len(lin) <= active_cap:
+    vs = _load_versions(archive_dir)
+    if len(vs) <= active_cap:
         return
-    stale = lin[: len(lin) - active_cap]
+    n_retire = len(vs) - active_cap
+    keep = set(selectable_parents(archive_dir))
+    # Non-selectable candidates retire first (oldest → lowest last_used_round).
+    non_sel = [v for v in vs if v["vid"] not in keep]
+    non_sel.sort(key=lambda v: v.get("last_used_round", 0))
+    # Selectable parents retire only if non-selectable pool is exhausted.
+    sel_candidates = [v for v in vs if v["vid"] in keep]
+    sel_candidates.sort(key=lambda v: v.get("last_used_round", 0))
+    retirement_order = non_sel + sel_candidates
+    retired_entries = retirement_order[:n_retire]
+    if not retired_entries:
+        return
     retired_path = os.path.join(archive_dir, RETIRED)
     with open(retired_path, "a", encoding="utf-8") as fh:
-        for entry in stale:
-            fh.write(json.dumps({"vid": entry["vid"], "reason": "active_cap"}) + "\n")
+        for v in retired_entries:
+            fh.write(json.dumps({"vid": v["vid"], "reason": "stale_active_cap"}) + "\n")
