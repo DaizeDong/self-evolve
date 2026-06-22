@@ -90,3 +90,37 @@ def materialize_frozen(base_ref: str, sie_root: str, frozen_dir: str) -> dict[st
         os.chmod(out, 0o444)  # 设置为只读（POSIX 去写权、Windows 只读属性）
         digests[rp] = hash_file(out)
     return digests
+
+
+class ImmutableViolation(Exception):
+    """candidate 篡改/缺失 IMMUTABLE 裁决文件——启动 fail-closed 拒绝。"""
+
+
+def verify_immutable(candidate_sie_root: str, frozen_digests: dict[str, str]) -> None:
+    """比对 candidate 内 IMMUTABLE 文件哈希是否与 frozen 记录一致。
+
+    任一文件缺失、哈希不符或 frozen_digests 为空，raise ImmutableViolation。
+    fail-closed：绝无静默通过的异常路径。
+
+    处理跨平台行尾差异：候选文件的内容先转换为 LF（与 frozen 的 git show 产物一致）后再哈希。
+    """
+    if not frozen_digests:
+        raise ImmutableViolation("frozen 哈希记录为空，拒绝在无基线下运行 IMMUTABLE 锁")
+    bad: list[str] = []
+    for rp, expected in frozen_digests.items():
+        cand = os.path.join(candidate_sie_root, rp)
+        if not os.path.isfile(cand):
+            bad.append(f"{rp}: 缺失")
+            continue
+        # 规范化行尾为 LF（与 git show 产物一致），计算规范化后的哈希
+        with open(cand, "rb") as f:
+            content = f.read()
+        # 转换 CRLF → LF（处理 Windows 工作区行尾转换）
+        normalized = content.replace(b"\r\n", b"\n")
+        h = hashlib.sha256()
+        h.update(normalized)
+        actual = h.hexdigest()
+        if actual != expected:
+            bad.append(f"{rp}: 哈希不符 expected={expected[:12]} got={actual[:12]}")
+    if bad:
+        raise ImmutableViolation("IMMUTABLE 校验失败: " + "; ".join(bad))
