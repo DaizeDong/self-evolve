@@ -78,6 +78,21 @@ def main(argv: list[str] | None = None) -> int:
     # ------------------------------------------------------------------
     if args.cmd == "run":
         enforce = args.self_mode or args.enforce_immutable
+        # M4.6: 自举模式调 selfboot_init 建独立 worktree + frozen + Supervisor
+        _supervisor = None
+        _candidate_worktree = None
+        if args.self_mode:
+            from tools.sie import selfboot as _selfboot
+            import os as _os
+            _runs_root = _os.path.join(_os.path.abspath(args.target), ".sie", "runs")
+            _boot = _selfboot.selfboot_init(
+                args.target,
+                args.base_ref,
+                args.run_id,
+                _runs_root,
+            )
+            _supervisor = _boot["supervisor"]
+            _candidate_worktree = _boot["candidate_worktree"]
         summary = run_loop(
             args.target,
             args.base_ref,
@@ -85,6 +100,8 @@ def main(argv: list[str] | None = None) -> int:
             max_rounds=args.max_rounds,
             mode=args.mode,
             enforce_immutable=enforce,
+            supervisor=_supervisor,
+            candidate_worktree=_candidate_worktree,
         )
         print(json.dumps(summary, ensure_ascii=False))
         return 0
