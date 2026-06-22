@@ -15,6 +15,7 @@ import ast
 import os
 
 from tools.sie.sandbox import canonical_in_sandbox
+from tools.sie import immutable as _im
 
 # ---------------------------------------------------------------------------
 # Baseline dangerous calls — used by import_gate (M1a baseline).
@@ -426,22 +427,60 @@ def import_gate(source: str, allow: set[str] | None = None) -> tuple[bool, str]:
     return True, ""
 
 
+def immutable_gate(target_relpaths: list[str], enforce: bool) -> dict | None:
+    """自举/enforce 时拦截命中 IMMUTABLE 裁决路径的 patch。
+
+    Args:
+        target_relpaths: 本次 patch 要写入的相对路径列表。
+        enforce: True → 命中即返回 REJECT dict；False → 全放行返回 None。
+
+    Returns:
+        {"decision": "REJECT", "reason": "immutable_hit", "paths": [...]} 命中时；
+        None 未命中或 enforce=False 时（放行，继续后续门）。
+    """
+    if not enforce:
+        return None
+    hits = [p for p in target_relpaths if _im.is_immutable_relpath(p)]
+    if hits:
+        return {"decision": "REJECT", "reason": "immutable_hit", "paths": hits}
+    return None
+
+
 def apply_patch(
     sandbox_root: str,
     file_rel: str,
     new_content: str,
     allow: set[str] | None = None,
+    enforce_immutable: bool = False,
 ) -> dict:
     """Write *new_content* to *<sandbox_root>/<file_rel>* after passing all gates.
 
-    Gates (in order, IMMUTABLE):
+    Gates (in order):
+    0. immutable_gate (M4.3) — IMMUTABLE 路径硬拒（仅 enforce_immutable=True 时生效）
     1. canonical_in_sandbox — boundary hard gate (path traversal / symlink escape)
     2. import_gate (only for .py files) — AST whitelist + danger call check
+    3. scan_ast_dangerous (M1b) — full danger surface
+
+    Args:
+        sandbox_root: Root directory of the sandbox worktree.
+        file_rel: Relative path within sandbox_root to write.
+        new_content: New file content (text).
+        allow: Extra import module names to whitelist for AST gates.
+        enforce_immutable: When True (self-bootstrap mode), any write to an
+            IMMUTABLE path is rejected before all other gates. Default False
+            preserves backward compatibility with existing callers.
 
     Returns:
         {"status": "APPLIED", "reason": "ok"}     — written successfully
         {"status": "REJECT",  "reason": <str>}    — rejected; file NOT written
     """
+    # Gate 0: IMMUTABLE 硬拒门（独立于 AST 门，先于一切应用）。
+    # enforce_immutable=False（默认）时跳过，向后兼容 M1/M3 调用方。
+    _gate = immutable_gate([file_rel], enforce_immutable)
+    if _gate is not None:
+        paths_str = ", ".join(_gate["paths"])
+        return {"status": "REJECT", "reason": f"immutable_hit: {paths_str}"}
+
     target = os.path.normpath(os.path.join(sandbox_root, file_rel))
 
     # Gate 1: boundary — must run BEFORE any I/O.
