@@ -138,6 +138,37 @@ def test_candidate_path_is_isolated_false_when_cwd_is_candidate(tmp_path, monkey
         sys.path.remove("")
 
 
+def test_candidate_path_isolated_true_when_worktree_under_path_entry(tmp_path, monkeypatch):
+    """方向修复：worktree 是 sys.path 条目(如 repo/cwd)的**子目录**时仍隔离(True)——
+    子孙关系不让 candidate 的包被 import(import 仍解析到该条目自己的包)。
+    （回归: 早期实现用 cand.startswith(pr) 误判此为不隔离, 致 --self 无法运行）"""
+    frozen = _make_frozen(tmp_path, "MARK='F'\n")
+    parent = tmp_path / "repo"
+    cand = parent / ".sie" / "wt"
+    cand.mkdir(parents=True)
+    monkeypatch.chdir(str(parent))      # cwd = parent(candidate 的祖先), 非 candidate 本身
+    sys.path.insert(0, "")
+    try:
+        assert sup.candidate_path_is_isolated(str(frozen), str(cand)) is True, \
+            "worktree 在 cwd 子目录下(cwd≠worktree)应判隔离"
+    finally:
+        sys.path.remove("")
+
+
+def test_candidate_path_isolated_false_when_subdir_on_path(tmp_path):
+    """风险方向(b): candidate 的**子目录**在 sys.path 上 → candidate 代码可 import → False。"""
+    frozen = _make_frozen(tmp_path, "MARK='F'\n")
+    cand = tmp_path / "candidate"
+    sub = cand / "pkg"
+    sub.mkdir(parents=True)
+    sys.path.insert(0, str(sub))
+    try:
+        assert sup.candidate_path_is_isolated(str(frozen), str(cand)) is False, \
+            "candidate 子目录在 sys.path 上应判不隔离"
+    finally:
+        sys.path.remove(str(sub))
+
+
 def test_load_frozen_decider_sys_modules_cleanup(tmp_path):
     """load-and-pop：exec 后唯一名应从 sys.modules 移除，防止跨版本污染"""
     frozen = _make_frozen(tmp_path, "MARK='F'\n")

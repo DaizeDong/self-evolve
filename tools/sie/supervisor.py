@@ -61,21 +61,24 @@ def load_frozen_decider(frozen_dir: str, module: str) -> ModuleType:
 def candidate_path_is_isolated(frozen_dir: str, candidate_worktree: str) -> bool:
     """断言 candidate worktree 不在 supervisor 的模块解析路径（sys.path）上。
 
-    检查逻辑：
-    - 将 candidate_worktree realpath 与 sys.path 中每个条目的 realpath 比对。
-    - 若 candidate_worktree == sys.path[i] 或 candidate_worktree 是 sys.path[i]
-      的子目录，则视为"candidate 在解析路径上"，返回 False。
-    - 空串代表 cwd，展开为 os.getcwd() 再比对（堵隔离漏洞）。
-    - frozen_dir 本身允许在 sys.path（虽然 load_frozen_decider 不依赖此），不算违规。
+    检查逻辑（真实 import 风险方向）：
+    - candidate 的 `tools.sie` 被 import 成的真实风险只有两种：
+        (a) worktree 根**本身**在 sys.path 上（pr == candidate）→ 顶层模块直接可 import;
+        (b) candidate 的**子目录**在 sys.path 上（pr 在 candidate 之下）→ 该子目录模块可 import。
+      而"candidate 是某 sys.path 条目的子孙"(pr 是 candidate 的祖先) **不**构成风险
+      ——`import tools.sie` 仍解析到该 sys.path 条目自己的 tools/sie，不是 worktree 的；
+      故 worktree 建在 repo 子目录下(repo 在 sys.path)是安全的，不算违规。
+    - 空串代表 cwd，展开为 os.getcwd()（覆盖 cwd==candidate：经 cwd 可 import 的风险）。
+    - frozen_dir 本身允许在 sys.path（load_frozen_decider 不依赖此），不算违规。
     - Windows 大小写不敏感，用 os.path.normcase 规范化后比对。
 
     Args:
         frozen_dir:          frozen 副本目录（supervisor 私有，允许存在于解析路径）。
-        candidate_worktree:  candidate 工作区路径，不得出现在 sys.path 上。
+        candidate_worktree:  candidate 工作区路径。
 
     Returns:
-        True  → candidate 未在解析路径上（隔离正确）。
-        False → candidate 在解析路径上（安全违规）。
+        True  → candidate 不可经 sys.path import（隔离正确）。
+        False → candidate 根或其子目录在 sys.path 上（安全违规）。
     """
     cand_real = os.path.normcase(os.path.realpath(candidate_worktree))
     frozen_real = os.path.normcase(os.path.realpath(frozen_dir))
@@ -87,10 +90,10 @@ def candidate_path_is_isolated(frozen_dir: str, candidate_worktree: str) -> bool
             pr = os.path.normcase(os.path.realpath(raw))
         except OSError:
             continue
-        # candidate 在此 sys.path 条目上（精确匹配或为子目录）
-        if pr == cand_real or cand_real.startswith(pr + os.sep):
-            # frozen_dir 自身允许（不算 candidate 污染）
-            if pr != frozen_real:
+        # 风险方向: pr 是 candidate 根 (a) 或 pr 在 candidate 之下 (b);
+        # "candidate 在 pr 之下" 不算 (import 仍解析到 pr 自己的包)。
+        if pr == cand_real or pr.startswith(cand_real + os.sep):
+            if pr != frozen_real:   # frozen_dir 自身允许
                 return False
     return True
 
