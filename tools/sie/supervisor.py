@@ -25,6 +25,7 @@ def load_frozen_decider(frozen_dir: str, module: str) -> ModuleType:
     - 以唯一名 "sie_frozen_{module}" 注册到 sys.modules，
       避免与 candidate 的同名模块（标准名）冲突或被其覆盖。
     - 标准名（如 "acceptor"）不写入 sys.modules，防止影响 candidate import 解析。
+    - exec 后立即移除唯一名（load-and-pop），防止跨版本命名空间污染和多次调用累积。
 
     Args:
         frozen_dir: frozen 副本目录路径（由 materialize_frozen 生成）。
@@ -48,9 +49,12 @@ def load_frozen_decider(frozen_dir: str, module: str) -> ModuleType:
         raise ImmutableViolation(f"无法为 frozen 模块建 spec: {module}（路径: {path}）")
 
     mod = importlib.util.module_from_spec(spec)
-    # 注册唯一名，不注册标准名（如 "acceptor"），防污染 candidate import 解析。
+    # 注册唯一名供模块内部自引用，exec 后移除（防止跨版本命名空间污染）。
     sys.modules[uniq] = mod
-    spec.loader.exec_module(mod)
+    try:
+        spec.loader.exec_module(mod)
+    finally:
+        sys.modules.pop(uniq, None)
     return mod
 
 
@@ -61,7 +65,9 @@ def candidate_path_is_isolated(frozen_dir: str, candidate_worktree: str) -> bool
     - 将 candidate_worktree realpath 与 sys.path 中每个条目的 realpath 比对。
     - 若 candidate_worktree == sys.path[i] 或 candidate_worktree 是 sys.path[i]
       的子目录，则视为"candidate 在解析路径上"，返回 False。
+    - 空串代表 cwd，展开为 os.getcwd() 再比对（堵隔离漏洞）。
     - frozen_dir 本身允许在 sys.path（虽然 load_frozen_decider 不依赖此），不算违规。
+    - Windows 大小写不敏感，用 os.path.normcase 规范化后比对。
 
     Args:
         frozen_dir:          frozen 副本目录（supervisor 私有，允许存在于解析路径）。
@@ -71,15 +77,14 @@ def candidate_path_is_isolated(frozen_dir: str, candidate_worktree: str) -> bool
         True  → candidate 未在解析路径上（隔离正确）。
         False → candidate 在解析路径上（安全违规）。
     """
-    cand_real = os.path.realpath(candidate_worktree)
-    frozen_real = os.path.realpath(frozen_dir)
+    cand_real = os.path.normcase(os.path.realpath(candidate_worktree))
+    frozen_real = os.path.normcase(os.path.realpath(frozen_dir))
 
     for p in sys.path:
-        if not p:
-            # 空串代表 cwd，暂跳过（cwd 可能变化，不做 realpath 误判）
-            continue
+        # 空串代表 cwd，展开为实际工作目录
+        raw = p if p else os.getcwd()
         try:
-            pr = os.path.realpath(p)
+            pr = os.path.normcase(os.path.realpath(raw))
         except OSError:
             continue
         # candidate 在此 sys.path 条目上（精确匹配或为子目录）
