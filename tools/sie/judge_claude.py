@@ -25,6 +25,8 @@ def invoke_claude_judge(prompt: str, timeout_s: int = 600) -> dict:
             input=prompt,
             capture_output=True,
             text=True,
+            encoding="utf-8",      # 勿用 locale(GBK)解码 UTF-8 输出
+            errors="replace",
             timeout=timeout_s,
         )
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):

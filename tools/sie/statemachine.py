@@ -423,6 +423,8 @@ def run_loop(
     enforce_immutable: bool = False,    # M4.6: --self/--enforce-immutable 透传
     supervisor=None,                    # M4.6: 自举 Supervisor（None=非自举，行为完全不变）
     candidate_worktree: str | None = None,  # M4.6: 自举 candidate worktree 路径
+    proposer: str = "builtin",          # propose 后端: "builtin"(默认,确定性) | "llm"(真 Claude)
+    reflect_mode: str = "serial",       # 反思: "serial"(默认,M1a) | "parallel"(N=3 MARS, 真 Claude)
 ) -> dict:
     """Drive the M1a 10-state closed loop and return a summary dict.
 
@@ -509,8 +511,17 @@ def run_loop(
             "parent_vid": parent,
         })
 
-        # 态3 REFLECT — M1a: serial single reflection
-        refs = reflect(sandbox_root, history, n=1)
+        # 态3 REFLECT — serial(M1a 默认) 或 parallel(N=3 MARS 真 Claude fanout)
+        if reflect_mode == "parallel":
+            from tools.sie.reflect import run_reflections_parallel, meta_aggregate
+            agg = meta_aggregate(run_reflections_parallel(run_dir, history, n_reflectors=3))
+            # merged_findings(list[str]) 经统一 reflection dict 传给 propose(llm 提取 findings)
+            refs = [{"merged_findings": agg.get("merged_findings", [])}]
+            if not agg.get("merged_findings"):
+                # 首轮/无历史 → 退回串行静态审查, 给 proposer 一点上下文
+                refs = reflect(sandbox_root, history, n=1)
+        else:
+            refs = reflect(sandbox_root, history, n=1)
         # M1a scaffold: merge _injected_fix into first reflection for ACCEPT path testing.
         # (This parameter is removed in M3 when real LLM fanout is wired.)
         if _injected_fix:
@@ -535,8 +546,8 @@ def run_loop(
             # currently only logged but takes no action.
             continue
 
-        # 态4 PROPOSE — builtin deterministic generator (M3: real LLM fanout)
-        props = propose(sandbox_root, refs, backend="builtin")
+        # 态4 PROPOSE — backend: builtin(确定性,默认) 或 llm(真 Claude proposer)
+        props = propose(sandbox_root, refs, backend=proposer)
         if not props:
             note_static_reject(st)   # in-memory counter update
             st = _step(run_dir, {
