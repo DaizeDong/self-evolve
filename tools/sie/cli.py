@@ -48,8 +48,10 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--enforce-immutable", dest="enforce_immutable",
                        action="store_true",
                        help="显式开 IMMUTABLE 哈希锁(非自举也可强制)")
-    p_run.add_argument("--proposer", default="builtin", choices=["builtin", "llm"],
-                       help="propose 后端: builtin(确定性,默认) | llm(真 Claude, cc 优先)")
+    p_run.add_argument("--proposer", default="builtin",
+                       choices=["builtin", "llm", "llm-artifact"],
+                       help="propose 后端: builtin(确定性,默认) | llm(真 Claude 改代码) | "
+                            "llm-artifact(真 Claude 改 B 档研究产物 JSON)")
     p_run.add_argument("--reflect-mode", dest="reflect_mode", default="serial",
                        choices=["serial", "parallel"],
                        help="反思: serial(M1a,默认) | parallel(N=3 MARS 真 Claude)")
