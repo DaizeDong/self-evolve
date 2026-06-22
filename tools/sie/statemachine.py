@@ -418,7 +418,7 @@ def run_loop(
     fetcher=None,
     judge_codex_available: bool = True,
     judge_claude_available: bool = True,
-    _extra_params: dict | None = None,
+    _extra_params: dict | None = None,  # test-only: 覆盖默认 params，生产勿传
 ) -> dict:
     """Drive the M1a 10-state closed loop and return a summary dict.
 
@@ -616,12 +616,30 @@ def run_loop(
             #           evaluate_c_tier(no_regression/consistency)
             from tools.sie import evaluate as _ev_mod
             _c_artifact = sandbox_root  # artifact 路径 (信息性)
-            _c_regression_replay: list[dict] = []  # 历史成功 replay (M3 生产由 history 填充)
+
+            # M3.11 fix #1: 不退化门 fail-safe 构造
+            # 正确比较需要"当前候选对历史任务的重评结果"(after)，
+            # 但当前 infra 不对历史任务重新运行当前候选——history 中只有历史轮的 passed 字段，
+            # 无法得到当前候选 per-task 结果，故 before==after 哑构造永远不触发退化。
+            # Fail-safe 策略: 若存在历史 passed=True 的轮次（有退化风险），
+            # 不能盲目判 no_regression=True；改为 no_regression=False（保守），
+            # 强制走人审路径，并在 ev_result 中标记 regression_unverified=True。
+            # 「完整 historical-replay-under-candidate 重评」是已知 infra 待补项。
+            _c_regression_replay: list[dict] = []
+            _c_has_prior_passed = any(h.get("passed") for h in history)
             for h in history:
+                # before = 该轮历史结果(已知); after = 当前候选对同任务的结果(未知/无法重评)
+                # 无法真比较时保守标记: before=True 的历史任务 after 设 False(强制触发退化检测)
+                _h_passed = bool(h.get("passed", False))
                 _c_regression_replay.append({
                     "task": h.get("summary", ""),
-                    "before": h.get("passed", False),
-                    "after": h.get("passed", False),
+                    "before": _h_passed,
+                    # after: 当前候选对历史任务的重评结果——infra 未实现，无法得知。
+                    # 保守 fail-safe: 一律置 False。
+                    # c_tier_no_regression 仅在 before=True AND after=False 时触发，
+                    # 所以历史 passed=True 的任务会保守触发退化检测 → no_regression=False
+                    # → 强制人审（不静默放行）。历史 passed=False 的任务不触发（正确）。
+                    "after": False,
                 })
             _c_internal_consistency: list[tuple] = []  # 内部一致性配对 (本轮由 judge 填充)
 
@@ -650,6 +668,9 @@ def run_loop(
                 "judge_scores": _judge_scores,
                 "judge_gain": _cj_gain,
                 "alpha": _judge_scores.get("alpha"),
+                # M3.11 fix #1: 若存在历史 passed=True 轮次，no_regression 由保守 fail-safe 判定
+                # (不是真比较，而是「无法重评→强制不通过」)，标记供报告说明
+                "regression_unverified": _c_has_prior_passed,
             }
         else:
             ev_result = evaluate(sandbox_root, prof["tier"], base_result=None)
@@ -797,9 +818,9 @@ def run_loop(
             # ACCEPT 已由 route_accept_with_gates 的 force_review / single_claude_block /
             # 纯 C auto 门把守, block_accept 在此冗余且会遮蔽 PAUSE_FOR_HUMAN 路由.
             _c_sd = {**_c_sd, "block_accept": False}
-            # judge_anchor_divergence → drift_count++ (in-memory + DRIFT_SIGNAL 事件)
+            # judge_anchor_divergence → drift_count++ 经 DRIFT_SIGNAL 事件持久化
+            # (与 B 档一致: 只靠 _step 的 drift_count_delta 持久, 无 in-memory st.drift_count += 1)
             if "judge_anchor_divergence" in _c_sd.get("alerts", []):
-                st.drift_count += 1
                 st = _step(run_dir, {
                     "type": "DRIFT_SIGNAL",
                     "phase": "EVALUATE",
