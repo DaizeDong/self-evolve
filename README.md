@@ -15,11 +15,15 @@ lineage，出沙箱的落地动作走人审。
 - 52 任务 / 5 里程碑 / **521 测试通过**（2 个 confseq 用例按环境跳过）。
 - 全分支终审通过：跨任务整合自洽、反自欺六路径全闭合、自举安全四铁律端到端守。
 
-> ⚠️ **成熟度说明**：裁决 / 门控 / 反自欺 / 自举隔离 / crash-replay 全部是**真实可用
-> 代码**。但**生成式 LLM 接缝目前为确定性占位 / 桩**，需填 3 处才能真正"自我迭代"：
-> ① `tools/sie/backends/builtin.py` 的 propose 后端接真模型；
-> ② `workflows/{reflect,review}-fanout.js` 接真 Claude / Codex 子代理；
-> ③ B 档真实 judge 评分接线。架构已为这 3 处留好钩子（"最后一公里"）。
+> ✅ **成熟度**：裁决 / 门控 / 反自欺 / 自举隔离 / crash-replay 全部真实可用，**生成式
+> LLM 接缝也已接通真 agent 并 live 验证**——proposer / reflector / 两个 judge 走本机
+> `cc`（split-billing 网关，fallback `claude`）+ `codex` CLI：
+> ① propose（`backends/llm.py` + `claude-propose.js`）— live 生成正确代码修复；
+> ② reflect / review fanout（`workflows/*-fanout.js`）— live N=3 并行 MARS；
+> ③ C 档异质 judge（`claude-judge.js` + `codex-judge.js`）— live 双家族评分 + pairwise。
+> 默认 `builtin` / `serial`（确定性，521 测试用，不调外部）；`--live`（= `--proposer llm
+> --reflect-mode parallel`）开真 agent 闭环。注：纯 A 档自动 ACCEPT 需"改后更多测试通过"
+> 的改进空间（绿基线无此空间，按设计），真正的开放域改进信号在 B / C 质量档。
 
 ## 这是什么
 
