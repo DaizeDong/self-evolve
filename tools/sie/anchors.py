@@ -131,18 +131,56 @@ _REL_TOL = 0.01   # 1% relative tolerance
 _ABS_TOL = 0.01   # absolute tolerance for near-zero anchors (|expected| < 1)
 
 
+def _ensure_edgar_identity() -> bool:
+    """设 edgartools identity（SEC 强制的 UA 联系串）。
+
+    顺序：已设则跳过 → EDGAR_IDENTITY 环境变量 → ~/.sie/edgar_identity（本地不入库，
+    因 self-evolve 公开发表故邮箱不进仓库；放 home 目录以跨 cwd/worktree 可读）。
+    返回 True 表示 identity 生效；False → 调用方降级为 unverified（不崩）。
+    """
+    import os
+    from edgar import set_identity, get_identity
+    try:
+        if get_identity():
+            return True
+    except Exception:
+        pass
+    ident = os.environ.get("EDGAR_IDENTITY", "").strip()
+    if not ident:
+        for p in (os.path.join(os.path.expanduser("~"), ".sie", "edgar_identity"),
+                  os.path.join(os.path.expanduser("~"), ".edgar_identity")):
+            try:
+                if os.path.exists(p):
+                    ident = open(p, encoding="utf-8").read().strip()
+                    if ident:
+                        break
+            except OSError:
+                continue
+    if not ident:
+        return False
+    set_identity(ident)
+    return True
+
+
 def _default_fetcher(anchor: dict) -> float | None:
     """Production path: use edgartools to fetch anchor.metric @ cik/period.
 
     Lazily imports edgar (inside fetcher=None branch) so the default test
     suite never imports or loads edgar, keeping tests network-free.
     WinError 145 is pre-empted by prepare_cache before any edgar call.
+    无 identity → None（unverified）。FinancialFact 用 .numeric_value（已是 float）。
     """
     edgar_cache.prepare_cache(None)
+    if not _ensure_edgar_identity():
+        return None  # SEC 要求 identity；未配 → 无法核验 → unverified
     from edgar import Company  # lazy: ImportError -> unverified via caller's except
     comp = Company(str(anchor["cik"]))
     facts = comp.get_facts()
-    return float(facts.get_fact(anchor["metric"], period=anchor.get("period")))
+    fact = facts.get_fact(anchor["metric"], period=anchor.get("period"))
+    if fact is None:
+        return None
+    nv = getattr(fact, "numeric_value", None)  # edgartools 5.36: FinancialFact.numeric_value
+    return float(nv) if nv is not None else None
 
 
 def _within_tol(observed: float, expected: float) -> bool:
