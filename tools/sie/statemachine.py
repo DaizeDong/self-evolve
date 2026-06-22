@@ -33,7 +33,6 @@ from tools.sie.reflect import reflect
 from tools.sie.check_reflection import check
 from tools.sie.propose import propose
 from tools.sie.patch import apply_patch
-from tools.sie import patch as _patch_module
 from tools.sie.evaluate import evaluate
 from tools.sie.acceptor import decide
 from tools.sie import archive
@@ -575,6 +574,19 @@ def run_loop(
 
         # 态6 EVALUATE — verifiable grader (A-tier: pytest; B-tier: anchor ctx; C-tier: judge)
         _tier_str = str(prof["tier"])
+
+        # M4.7 纵深防御：自举限 A 档。自举时若 tier 含 B 或 C → 明确拒绝。
+        # B/C 路径的 evaluate 调 LLM judge / anchor 验证，无 supervisor 隔离保护，
+        # candidate 可通过伪造锚得分自评——自举场景下不安全。
+        # 自举（supervisor is not None）仅走 A 档（frozen pytest grader），
+        # 若目标 tier 为 B/C，操作员应使用非自举流程（supervisor=None）。
+        if supervisor is not None and ("B" in _tier_str or "C" in _tier_str):
+            raise ValueError(
+                f"自举（supervisor 注入）仅支持 A 档：tier={_tier_str!r} 含 B/C，"
+                "B/C 路径无 supervisor 保护（candidate 可自评），自举被拒绝。"
+                "请用非自举流程（supervisor=None）处理 B/C 档目标。"
+            )
+
         if "B" in _tier_str:
             # B 档: 构造 evaluate ctx dict (B-tier dispatch 要求首参为含 tier:"B" 的 dict)
             # holdout 抽检: round % K == 0 时从 holdout.json 读并算均值
