@@ -206,3 +206,22 @@ def retire_stale(archive_dir: str, active_cap: int) -> None:
     with open(retired_path, "a", encoding="utf-8") as fh:
         for v in retired_entries:
             fh.write(json.dumps({"vid": v["vid"], "reason": "stale_active_cap"}) + "\n")
+
+
+def _read_retired(archive_dir: str) -> list[dict]:
+    """Read retired.jsonl, skipping corrupted lines (robust to crash-time half-writes)."""
+    path = os.path.join(archive_dir, RETIRED)
+    if not os.path.exists(path):
+        return []
+    out = []
+    with open(path, "r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                out.append(json.loads(line))
+            except json.JSONDecodeError:
+                # Corrupted/half-written line: skip silently
+                continue
+    return out
