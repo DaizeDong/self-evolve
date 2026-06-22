@@ -360,6 +360,7 @@ def _resolve_accept_legacy(st: RunState, eval_out: dict, params: dict) -> dict:
 
     A 档在 run_loop 中直接调用 acceptor.decide + apply_acceptor_outcome;
     本函数仅作为 resolve_accept 非 B 档分支的安全兜底, 返回 REJECT。
+    注: 当前 C 档亦走此分支得到 REJECT; C 档 run_loop 接线(route_accept_with_gates/release_valve/drift_circuit 态7/9/9.5)依赖 evaluate-C(M3.7), 待 M3.11 端到端接入。
     """
     return {
         "next_state": "9",
@@ -446,6 +447,7 @@ def run_loop(
         "static_reject_circuit": 6,
         "forced_review_circuit": 5,
         "drift_circuit": 4,
+        "drift_circuit_N": 4,
     }
     accepted: list[str] = []
 
