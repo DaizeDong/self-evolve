@@ -43,6 +43,11 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--base-ref", default="HEAD")
     p_run.add_argument("--max-rounds", type=int, default=3)
     p_run.add_argument("--mode", default="auto", choices=["auto", "gated"])
+    p_run.add_argument("--self", dest="self_mode", action="store_true",
+                       help="自举：把 self-evolve 自身当 target，开 IMMUTABLE 锁+supervisor 隔离(默认关)")
+    p_run.add_argument("--enforce-immutable", dest="enforce_immutable",
+                       action="store_true",
+                       help="显式开 IMMUTABLE 哈希锁(非自举也可强制)")
 
     # status
     p_st = sub.add_parser("status", help="Print run status")
@@ -72,12 +77,14 @@ def main(argv: list[str] | None = None) -> int:
 
     # ------------------------------------------------------------------
     if args.cmd == "run":
+        enforce = args.self_mode or args.enforce_immutable
         summary = run_loop(
             args.target,
             args.base_ref,
             args.run_id,
             max_rounds=args.max_rounds,
             mode=args.mode,
+            enforce_immutable=enforce,
         )
         print(json.dumps(summary, ensure_ascii=False))
         return 0
