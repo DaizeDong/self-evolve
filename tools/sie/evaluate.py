@@ -270,3 +270,85 @@ def evaluate(sandbox_root_or_ctx, tier: str = "A",
         "paired": paired,
         "coverage": after.get("verifiable_coverage", 0.0),
     }
+
+
+# ---------------------------------------------------------------------------
+# M3.7: C 档评测 + contract 外 judge 主观分注入
+# ---------------------------------------------------------------------------
+
+from tools.sie.acceptor import c_tier_no_regression  # noqa: E402
+from tools.sie import judges as _judges  # noqa: E402
+
+
+def evaluate_c_tier(artifact_path: str, regression_replay: list[dict],
+                    internal_consistency: list[tuple[float, float]]) -> dict:
+    """C 档兜底评测: 无客观信号; 硬门=不退化(历史成功 replay 全保持)+内部一致性配对.
+
+    Args:
+        artifact_path: Path to artifact file (informational; not read here).
+        regression_replay: List of {"task": str, "before": bool, "after": bool} dicts.
+            任一 before=True 且 after=False → no_regression=False (退化).
+        internal_consistency: List of (before_score, after_score) float tuples.
+            Passed through verbatim as consistency_paired.
+
+    Returns:
+        {
+            "no_regression": bool,            # c_tier_no_regression(regression_replay)
+            "consistency_paired": list[tuple], # internal_consistency passed through
+            "coverage": 0.0,                  # C 档无可验证锚，恒 0.0
+        }
+    """
+    return {
+        "no_regression": c_tier_no_regression(regression_replay),
+        "consistency_paired": list(internal_consistency),
+        "coverage": 0.0,
+    }
+
+
+def inject_judge_scores(artifact_path: str, anchors_visible: list[dict],
+                        holdout: list[dict]) -> dict:
+    """Contract 外注入 judge 主观分（spec §8）——candidate 不能自报 judge 分.
+
+    Judge 走独立联网进程（codex / claude）由 harness 独立调用；alpha 由 harness
+    计算，候选人无法干预。candidate 提供的任何 judge 字段均被忽略——此函数是
+    judge 主观分进入评测系统的唯一入口。
+
+    Args:
+        artifact_path: Path to artifact file (UTF-8 text).
+        anchors_visible: Visible anchor list; only "span" field used by judges.
+        holdout: Independent holdout anchors for judge↔anchor calibration.
+            Must be separate from visible set (caller responsible for isolation).
+
+    Returns:
+        {
+            "codex": dict,        # judges.score(..., "codex") result
+            "claude": dict,       # judges.score(..., "claude") result
+            "alpha": float|None,  # pairwise_agreement(codex, claude); None if either unavailable
+            "calibration": dict,  # calibrate_judge_anchor(primary_judge, holdout)
+            "judge_gain": float,  # primary judge aggregate (codex if available, else claude, else 0)
+        }
+    """
+    codex = _judges.score(artifact_path, anchors_visible, "codex")
+    claude = _judges.score(artifact_path, anchors_visible, "claude")
+
+    # alpha: pairwise agreement; None if either judge unavailable (下游 alpha_gate 处理 None)
+    alpha = _judges.pairwise_agreement(codex, claude)
+
+    # 主 judge=codex 优先；不可用→claude；双不可用→零分 degenerate
+    if codex.get("available"):
+        judge_gain = float(codex["aggregate"])
+        calibration = _judges.calibrate_judge_anchor(codex, holdout)
+    elif claude.get("available"):
+        judge_gain = float(claude["aggregate"])
+        calibration = _judges.calibrate_judge_anchor(claude, holdout)
+    else:
+        judge_gain = 0.0
+        calibration = {"corr": 0.0, "n_used": 0, "degenerate": True}
+
+    return {
+        "codex": codex,
+        "claude": claude,
+        "alpha": alpha,
+        "calibration": calibration,
+        "judge_gain": judge_gain,
+    }
