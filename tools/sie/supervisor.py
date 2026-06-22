@@ -135,3 +135,34 @@ class Supervisor:
             {"decision": "ACCEPT"|"REJECT"|"CONTINUE", "evalue": float, "reason": str, ...}
         """
         return self._acceptor.decide(paired, tier, st, params)
+
+    def grade(self, task: dict, candidate_worktree: str, *, self_mode: bool) -> dict:
+        """评测一个 task。
+
+        self_mode=True（自举）：用 frozen verifiable.run_grader（外部 grader），
+            完全不调用、不 import candidate worktree 内的 grade()。
+        self_mode=False：非自举，正常由上层用 candidate contract grade
+            （此路径不由 Supervisor 处理，直接 raise 引导走原路径）。
+
+        铁律：自举时被评测代码不能给自己打分——grader 必须是 frozen/外部的。
+        """
+        if not self_mode:
+            raise RuntimeError(
+                "Supervisor.grade 仅用于 self_mode 自举评测；非自举走 evaluate 正常路径"
+            )
+        if not hasattr(self, "_verifiable"):
+            self._verifiable = load_frozen_decider(self.frozen_dir, "verifiable")
+        res = self._verifiable.run_grader(task)
+        # 强制标记裁决来源，便于负向用例断言 candidate grade 未被采信。
+        res.setdefault("graded_by", "FROZEN")
+        return res
+
+
+def candidate_grade_is_trusted(self_mode: bool) -> bool:
+    """自举时 candidate 的 grade() 不被采信（spec §6 自举：用 frozen/外部 grader）。
+
+    Returns:
+        False 当 self_mode=True（自举，不信任 candidate grade）。
+        True  当 self_mode=False（非自举，正常信任 candidate contract grade）。
+    """
+    return not self_mode

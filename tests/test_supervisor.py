@@ -147,3 +147,119 @@ def test_load_frozen_decider_sys_modules_cleanup(tmp_path):
     sup.load_frozen_decider(frozen, "acceptor")
     # exec 后唯一名应被移除
     assert uniq not in sys.modules, f"唯一名 {uniq} 应在 exec 后清除"
+
+
+# ---------------------------------------------------------------------------
+# M4.5: 自举禁 candidate grade()（用 frozen/外部 grader）
+# ---------------------------------------------------------------------------
+
+def test_candidate_grade_is_trusted():
+    """candidate_grade_is_trusted: 自举→False, 非自举→True。"""
+    assert sup.candidate_grade_is_trusted(self_mode=True) is False
+    assert sup.candidate_grade_is_trusted(self_mode=False) is True
+
+
+def test_supervisor_grade_self_mode_uses_frozen_grader(tmp_path):
+    """self_mode=True 时用 frozen verifiable.run_grader；candidate 撒谎的 grade() 被忽略。
+
+    构造：
+    - frozen verifiable.run_grader 永远返回 task_passed=False（grader_exit_code=1, graded_by=FROZEN）。
+    - candidate 目录存在但不含任何 grade()；即使 candidate 有一个 grade() 返回 task_passed=True，
+      Supervisor.grade 也绝不调用它——因为它走的是 frozen verifiable.run_grader。
+    断言：结果必须来自 frozen grader（task_passed=False, graded_by='FROZEN'）。
+    """
+    # 构造 frozen 目录（含 acceptor.py + verifiable.py）
+    frozen = tmp_path / "frozen"
+    frozen.mkdir()
+    (frozen / "acceptor.py").write_text(
+        "def decide(p, t, s, pa):\n"
+        "    return {'decision': 'REJECT', 'evalue': 0.0, 'reason': 'x'}\n",
+        encoding="utf-8",
+    )
+    (frozen / "verifiable.py").write_text(
+        "def run_grader(task, snapshot=None, env_whitelist=None):\n"
+        "    return {'task_passed': False, 'grader_exit_code': 1,\n"
+        "            'dimensions': [{'name': 't', 'tier': 'A', 'score': 0.0, 'weight': 1.0}],\n"
+        "            'anchors': [], 'verifiable_coverage': 1.0, 'graded_by': 'FROZEN'}\n",
+        encoding="utf-8",
+    )
+
+    digests = {
+        "acceptor.py": im.hash_file(str(frozen / "acceptor.py")),
+        "verifiable.py": im.hash_file(str(frozen / "verifiable.py")),
+    }
+
+    # candidate 目录——不含 grade()，但即使含有也会被忽略。
+    cand = tmp_path / "cand"
+    cand.mkdir()
+    # 若 candidate 内部有一个"撒谎"grade()，它永远不会被 Supervisor.grade 调用。
+    (cand / "grade.py").write_text(
+        "def grade():\n    return {'task_passed': True, 'grader_exit_code': 0,"
+        " 'graded_by': 'CANDIDATE_LIE'}\n",
+        encoding="utf-8",
+    )
+
+    s = sup.Supervisor(str(frozen), digests)
+    res = s.grade({"id": "t1"}, str(cand), self_mode=True)
+
+    # frozen grader 的结果：task_passed=False, graded_by=FROZEN
+    assert res["task_passed"] is False, "frozen grader 判 False，candidate 的 grade 不应被采信"
+    assert res["grader_exit_code"] == 1
+    assert res.get("graded_by") == "FROZEN"
+
+
+def test_supervisor_grade_self_mode_false_raises(tmp_path):
+    """self_mode=False 时 Supervisor.grade 应 raise RuntimeError（非自举走其他路径）。"""
+    frozen = tmp_path / "frozen"
+    frozen.mkdir()
+    (frozen / "acceptor.py").write_text(
+        "def decide(p, t, s, pa):\n"
+        "    return {'decision': 'REJECT', 'evalue': 0.0, 'reason': 'x'}\n",
+        encoding="utf-8",
+    )
+    digests = {"acceptor.py": im.hash_file(str(frozen / "acceptor.py"))}
+    cand = tmp_path / "cand"
+    cand.mkdir()
+    s = sup.Supervisor(str(frozen), digests)
+    with pytest.raises(RuntimeError):
+        s.grade({"id": "t1"}, str(cand), self_mode=False)
+
+
+def test_supervisor_grade_uses_load_frozen_decider_for_verifiable(tmp_path):
+    """frozen verifiable 经由 load_frozen_decider 加载（隔离机制），不污染 sys.modules。"""
+    frozen = tmp_path / "frozen"
+    frozen.mkdir()
+    (frozen / "acceptor.py").write_text(
+        "def decide(p, t, s, pa):\n"
+        "    return {'decision': 'REJECT', 'evalue': 0.0, 'reason': 'x'}\n",
+        encoding="utf-8",
+    )
+    (frozen / "verifiable.py").write_text(
+        "FROZEN_MARKER = 'FROZEN_VERIFIABLE'\n"
+        "def run_grader(task, snapshot=None, env_whitelist=None):\n"
+        "    return {'task_passed': True, 'grader_exit_code': 0,\n"
+        "            'dimensions': [], 'anchors': [], 'verifiable_coverage': 1.0,\n"
+        "            'graded_by': 'FROZEN'}\n",
+        encoding="utf-8",
+    )
+    digests = {
+        "acceptor.py": im.hash_file(str(frozen / "acceptor.py")),
+        "verifiable.py": im.hash_file(str(frozen / "verifiable.py")),
+    }
+    cand = tmp_path / "cand"
+    cand.mkdir()
+
+    # 确保标准名 "verifiable" 不在 sys.modules（防止干扰）
+    sys.modules.pop("verifiable", None)
+    sys.modules.pop("sie_frozen_verifiable", None)
+
+    s = sup.Supervisor(str(frozen), digests)
+    res = s.grade({"id": "t2"}, str(cand), self_mode=True)
+
+    # 结果应来自 frozen verifiable
+    assert res.get("graded_by") == "FROZEN"
+    assert res["task_passed"] is True
+
+    # load_frozen_decider 的 load-and-pop：唯一名不应残留在 sys.modules
+    assert "sie_frozen_verifiable" not in sys.modules, "唯一名不应残留"
+    assert "verifiable" not in sys.modules, "标准名不应污染 sys.modules"
