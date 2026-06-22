@@ -276,13 +276,13 @@ def resolve_accept(st: RunState, eval_out: dict, params: dict,
     # selfdeception 多闸
     visible_gain = eval_out.get("visible_anchor_gain", 0.0)
     holdout_gain = eval_out.get("holdout_gain")   # None 表示非抽检轮，直接传 None 跳过闸③
-    # judge_gain: LLM judge 的主观判定增益 (M3 接线后由 reflect/judge 填充).
-    # 当前 B evaluate 不产 judge_gain → 默认 0.0.
-    # selfdeception 语义: value = judge_gain - visible_anchor_gain;
-    # |value| <= band (0.15) 时无 judge_anchor_divergence 告警 → drift 不计入.
-    # 置 0.0 保守处理: 仅当 visible_anchor_gain > 0.15 时误报发散,
-    # 不会因 judge_gain=0 大面积误触 drift_circuit (visible 增益通常远低于 0.15).
-    judge_gain = eval_out.get("judge_gain", 0.0)
+    # judge_gain: judge 主观判定增益. judge_anchor_divergence 闸检测"judge 声称高于锚
+    # 真实核验"(合谋方向 = judge_gain > visible). B 档**无 judge** → 无此发散方向;
+    # 缺 judge_gain 时令 judge_gain = visible_gain → value=0 → 不误触发散闸.
+    # (此前默认 0.0, 当 visible_anchor_gain 变成真正正值[#1 修复后]会误报 judge_anchor_
+    #  divergence → 累计 drift_circuit 误停正在改进的 B 档 run; 锚核验充分是好方向, 非合谋.)
+    _jg = eval_out.get("judge_gain")
+    judge_gain = float(_jg) if _jg is not None else float(visible_gain)
     sd = _selfdeception.index(
         judge_gain=float(judge_gain),
         visible_anchor_gain=float(visible_gain),
