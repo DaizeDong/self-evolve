@@ -1,0 +1,426 @@
+{
+  "title": "Mega-cap balance-sheet & income deep-dive (FY2023/FY2024)",
+  "note": "B-tier ACCEPT night-run target. Anchors point at real SEC/EDGAR facts. Several 'expected' values in this PARENT version are intentionally WRONG or unverifiable so a proposer can correct them (raising verified-anchor count -> marginal_gain -> possible ACCEPT). Holdout truth is split & isolated by profile.run_profile per 铁律5.",
+  "sections": [
+    {
+      "text": "Apple FY2024 total net sales.",
+      "anchors": [
+        {
+          "claim": "AAPL FY2024 revenue = 391.035B USD",
+          "span": "total net sales of $391.035 billion in fiscal 2024",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0000320193&type=10-K",
+          "metric": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+          "expected": 391035000000,
+          "cik": "320193",
+          "period": "2024-FY"
+        }
+      ]
+    },
+    {
+      "text": "Apple FY2024 net income.",
+      "anchors": [
+        {
+          "claim": "AAPL FY2024 net income = 93.736B USD",
+          "span": "net income of $93.736 billion",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0000320193&type=10-K",
+          "metric": "us-gaap:NetIncomeLoss",
+          "expected": 99000000000,
+          "cik": "320193",
+          "period": "2024-FY"
+        }
+      ]
+    },
+    {
+      "text": "Apple FY2024 total assets.",
+      "anchors": [
+        {
+          "claim": "AAPL FY2024 total assets = 364.980B USD",
+          "span": "total assets of $364.980 billion",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0000320193&type=10-K",
+          "metric": "us-gaap:Assets",
+          "expected": 364980000000,
+          "cik": "320193",
+          "period": "2024-FY"
+        }
+      ]
+    },
+    {
+      "text": "Apple FY2023 revenue (prior year).",
+      "anchors": [
+        {
+          "claim": "AAPL FY2023 revenue = 383.285B USD",
+          "span": "total net sales of $383.285 billion in fiscal 2023",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0000320193&type=10-K",
+          "metric": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+          "expected": 383285000000,
+          "cik": "320193",
+          "period": "2023-FY"
+        }
+      ]
+    },
+    {
+      "text": "Apple FY2023 operating income.",
+      "anchors": [
+        {
+          "claim": "AAPL FY2023 operating income = 114.301B USD",
+          "span": "operating income of $114.301 billion",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0000320193&type=10-K",
+          "metric": "us-gaap:OperatingIncomeLoss",
+          "expected": 120000000000,
+          "cik": "320193",
+          "period": "2023-FY"
+        }
+      ]
+    },
+    {
+      "text": "Apple FY2024 cash and equivalents.",
+      "anchors": [
+        {
+          "claim": "AAPL FY2024 cash = 29.943B USD",
+          "span": "cash and cash equivalents of $29.943 billion",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0000320193&type=10-K",
+          "metric": "us-gaap:CashAndCashEquivalentsAtCarryingValue",
+          "expected": 29943000000,
+          "cik": "320193",
+          "period": "2024-FY"
+        }
+      ]
+    },
+    {
+      "text": "Microsoft FY2024 revenue.",
+      "anchors": [
+        {
+          "claim": "MSFT FY2024 revenue = 245.122B USD",
+          "span": "total revenue of $245.122 billion in fiscal 2024",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0000789019&type=10-K",
+          "metric": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+          "expected": 245122000000,
+          "cik": "789019",
+          "period": "2024-FY"
+        }
+      ]
+    },
+    {
+      "text": "Microsoft FY2024 net income.",
+      "anchors": [
+        {
+          "claim": "MSFT FY2024 net income = 88.136B USD",
+          "span": "net income of $88.136 billion",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0000789019&type=10-K",
+          "metric": "us-gaap:NetIncomeLoss",
+          "expected": 72000000000,
+          "cik": "789019",
+          "period": "2024-FY"
+        }
+      ]
+    },
+    {
+      "text": "Microsoft FY2024 stockholders equity.",
+      "anchors": [
+        {
+          "claim": "MSFT FY2024 stockholders equity = 268.477B USD",
+          "span": "total stockholders equity of $268.477 billion",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0000789019&type=10-K",
+          "metric": "us-gaap:StockholdersEquity",
+          "expected": 268477000000,
+          "cik": "789019",
+          "period": "2024-FY"
+        }
+      ]
+    },
+    {
+      "text": "Microsoft FY2023 revenue (prior year).",
+      "anchors": [
+        {
+          "claim": "MSFT FY2023 revenue = 211.915B USD",
+          "span": "total revenue of $211.915 billion in fiscal 2023",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0000789019&type=10-K",
+          "metric": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+          "expected": 211915000000,
+          "cik": "789019",
+          "period": "2023-FY"
+        }
+      ]
+    },
+    {
+      "text": "Microsoft FY2023 net income.",
+      "anchors": [
+        {
+          "claim": "MSFT FY2023 net income = 72.361B USD",
+          "span": "net income of $72.361 billion",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0000789019&type=10-K",
+          "metric": "us-gaap:NetIncomeLoss",
+          "expected": 72361000000,
+          "cik": "789019",
+          "period": "2023-FY"
+        }
+      ]
+    },
+    {
+      "text": "Microsoft FY2024 total assets.",
+      "anchors": [
+        {
+          "claim": "MSFT FY2024 total assets = 512.163B USD",
+          "span": "total assets of $512.163 billion",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0000789019&type=10-K",
+          "metric": "us-gaap:Assets",
+          "expected": 500000000000,
+          "cik": "789019",
+          "period": "2024-FY"
+        }
+      ]
+    },
+    {
+      "text": "Alphabet FY2024 revenue.",
+      "anchors": [
+        {
+          "claim": "GOOGL FY2024 revenue = 350.018B USD",
+          "span": "total revenues of $350.018 billion in 2024",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001652044&type=10-K",
+          "metric": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+          "expected": 350018000000,
+          "cik": "1652044",
+          "period": "2024-FY"
+        }
+      ]
+    },
+    {
+      "text": "Alphabet FY2024 net income.",
+      "anchors": [
+        {
+          "claim": "GOOGL FY2024 net income = 100.118B USD",
+          "span": "net income of $100.118 billion",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001652044&type=10-K",
+          "metric": "us-gaap:NetIncomeLoss",
+          "expected": 100118000000,
+          "cik": "1652044",
+          "period": "2024-FY"
+        }
+      ]
+    },
+    {
+      "text": "Alphabet FY2024 total assets.",
+      "anchors": [
+        {
+          "claim": "GOOGL FY2024 total assets = 450.256B USD",
+          "span": "total assets of $450.256 billion",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001652044&type=10-K",
+          "metric": "us-gaap:Assets",
+          "expected": 440000000000,
+          "cik": "1652044",
+          "period": "2024-FY"
+        }
+      ]
+    },
+    {
+      "text": "Alphabet FY2023 revenue (prior year).",
+      "anchors": [
+        {
+          "claim": "GOOGL FY2023 revenue = 307.394B USD",
+          "span": "total revenues of $307.394 billion in 2023",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001652044&type=10-K",
+          "metric": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+          "expected": 307394000000,
+          "cik": "1652044",
+          "period": "2023-FY"
+        }
+      ]
+    },
+    {
+      "text": "Alphabet FY2023 operating income.",
+      "anchors": [
+        {
+          "claim": "GOOGL FY2023 operating income = 84.293B USD",
+          "span": "operating income of $84.293 billion",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001652044&type=10-K",
+          "metric": "us-gaap:OperatingIncomeLoss",
+          "expected": 84293000000,
+          "cik": "1652044",
+          "period": "2023-FY"
+        }
+      ]
+    },
+    {
+      "text": "Amazon FY2024 revenue.",
+      "anchors": [
+        {
+          "claim": "AMZN FY2024 revenue = 637.959B USD",
+          "span": "total net sales of $637.959 billion in 2024",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001018724&type=10-K",
+          "metric": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+          "expected": 600000000000,
+          "cik": "1018724",
+          "period": "2024-FY"
+        }
+      ]
+    },
+    {
+      "text": "Amazon FY2024 net income.",
+      "anchors": [
+        {
+          "claim": "AMZN FY2024 net income = 59.248B USD",
+          "span": "net income of $59.248 billion",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001018724&type=10-K",
+          "metric": "us-gaap:NetIncomeLoss",
+          "expected": 59248000000,
+          "cik": "1018724",
+          "period": "2024-FY"
+        }
+      ]
+    },
+    {
+      "text": "Amazon FY2024 total assets.",
+      "anchors": [
+        {
+          "claim": "AMZN FY2024 total assets = 624.894B USD",
+          "span": "total assets of $624.894 billion",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001018724&type=10-K",
+          "metric": "us-gaap:Assets",
+          "expected": 624894000000,
+          "cik": "1018724",
+          "period": "2024-FY"
+        }
+      ]
+    },
+    {
+      "text": "Amazon FY2024 operating income.",
+      "anchors": [
+        {
+          "claim": "AMZN FY2024 operating income = 68.593B USD",
+          "span": "operating income of $68.593 billion",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001018724&type=10-K",
+          "metric": "us-gaap:OperatingIncomeLoss",
+          "expected": 50000000000,
+          "cik": "1018724",
+          "period": "2024-FY"
+        }
+      ]
+    },
+    {
+      "text": "Amazon FY2023 net income (prior year).",
+      "anchors": [
+        {
+          "claim": "AMZN FY2023 net income = 30.425B USD",
+          "span": "net income of $30.425 billion in 2023",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001018724&type=10-K",
+          "metric": "us-gaap:NetIncomeLoss",
+          "expected": 30425000000,
+          "cik": "1018724",
+          "period": "2023-FY"
+        }
+      ]
+    },
+    {
+      "text": "Amazon FY2023 revenue (prior year).",
+      "anchors": [
+        {
+          "claim": "AMZN FY2023 revenue = 574.785B USD",
+          "span": "total net sales of $574.785 billion in 2023",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001018724&type=10-K",
+          "metric": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+          "expected": 574785000000,
+          "cik": "1018724",
+          "period": "2023-FY"
+        }
+      ]
+    },
+    {
+      "text": "NVIDIA FY2024 net income.",
+      "anchors": [
+        {
+          "claim": "NVDA FY2024 net income = 29.760B USD",
+          "span": "net income of $29.760 billion in fiscal 2024",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001045810&type=10-K",
+          "metric": "us-gaap:NetIncomeLoss",
+          "expected": 29760000000,
+          "cik": "1045810",
+          "period": "2024-FY"
+        }
+      ]
+    },
+    {
+      "text": "NVIDIA FY2024 total assets.",
+      "anchors": [
+        {
+          "claim": "NVDA FY2024 total assets = 65.728B USD",
+          "span": "total assets of $65.728 billion",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001045810&type=10-K",
+          "metric": "us-gaap:Assets",
+          "expected": 65728000000,
+          "cik": "1045810",
+          "period": "2024-FY"
+        }
+      ]
+    },
+    {
+      "text": "NVIDIA FY2024 stockholders equity.",
+      "anchors": [
+        {
+          "claim": "NVDA FY2024 stockholders equity = 42.978B USD",
+          "span": "total stockholders equity of $42.978 billion",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001045810&type=10-K",
+          "metric": "us-gaap:StockholdersEquity",
+          "expected": 40000000000,
+          "cik": "1045810",
+          "period": "2024-FY"
+        }
+      ]
+    },
+    {
+      "text": "NVIDIA FY2024 operating income.",
+      "anchors": [
+        {
+          "claim": "NVDA FY2024 operating income = 32.972B USD",
+          "span": "operating income of $32.972 billion",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001045810&type=10-K",
+          "metric": "us-gaap:OperatingIncomeLoss",
+          "expected": 32972000000,
+          "cik": "1045810",
+          "period": "2024-FY"
+        }
+      ]
+    },
+    {
+      "text": "NVIDIA FY2023 net income (prior year).",
+      "anchors": [
+        {
+          "claim": "NVDA FY2023 net income = 4.368B USD",
+          "span": "net income of $4.368 billion in fiscal 2023",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001045810&type=10-K",
+          "metric": "us-gaap:NetIncomeLoss",
+          "expected": 5000000000,
+          "cik": "1045810",
+          "period": "2023-FY"
+        }
+      ]
+    },
+    {
+      "text": "NVIDIA FY2023 total assets (prior year).",
+      "anchors": [
+        {
+          "claim": "NVDA FY2023 total assets = 41.182B USD",
+          "span": "total assets of $41.182 billion",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001045810&type=10-K",
+          "metric": "us-gaap:Assets",
+          "expected": 41182000000,
+          "cik": "1045810",
+          "period": "2023-FY"
+        }
+      ]
+    },
+    {
+      "text": "Apple FY2024 total liabilities.",
+      "anchors": [
+        {
+          "claim": "AAPL FY2024 total liabilities = 308.030B USD",
+          "span": "total liabilities of $308.030 billion",
+          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0000320193&type=10-K",
+          "metric": "us-gaap:Liabilities",
+          "expected": 308030000000,
+          "cik": "320193",
+          "period": "2024-FY"
+        }
+      ]
+    }
+  ]
+}
