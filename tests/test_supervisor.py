@@ -160,12 +160,12 @@ def test_candidate_grade_is_trusted():
 
 
 def test_supervisor_grade_self_mode_uses_frozen_grader(tmp_path):
-    """self_mode=True 时用 frozen verifiable.run_grader；candidate 撒谎的 grade() 被忽略。
+    """self_mode=True 时用 frozen verifiable.grade_pytest(sandbox_root)；candidate 撒谎的 grade() 被忽略。
 
     构造：
-    - frozen verifiable.run_grader 永远返回 task_passed=False（grader_exit_code=1, graded_by=FROZEN）。
+    - frozen verifiable.grade_pytest 永远返回 task_passed=False（grader_exit_code=1, graded_by=FROZEN）。
     - candidate 目录存在但不含任何 grade()；即使 candidate 有一个 grade() 返回 task_passed=True，
-      Supervisor.grade 也绝不调用它——因为它走的是 frozen verifiable.run_grader。
+      Supervisor.grade 也绝不调用它——因为它走的是 frozen verifiable.grade_pytest。
     断言：结果必须来自 frozen grader（task_passed=False, graded_by='FROZEN'）。
     """
     # 构造 frozen 目录（含 acceptor.py + verifiable.py）
@@ -177,7 +177,7 @@ def test_supervisor_grade_self_mode_uses_frozen_grader(tmp_path):
         encoding="utf-8",
     )
     (frozen / "verifiable.py").write_text(
-        "def run_grader(task, snapshot=None, env_whitelist=None):\n"
+        "def grade_pytest(sandbox_root):\n"
         "    return {'task_passed': False, 'grader_exit_code': 1,\n"
         "            'dimensions': [{'name': 't', 'tier': 'A', 'score': 0.0, 'weight': 1.0}],\n"
         "            'anchors': [], 'verifiable_coverage': 1.0, 'graded_by': 'FROZEN'}\n",
@@ -236,7 +236,7 @@ def test_supervisor_grade_uses_load_frozen_decider_for_verifiable(tmp_path):
     )
     (frozen / "verifiable.py").write_text(
         "FROZEN_MARKER = 'FROZEN_VERIFIABLE'\n"
-        "def run_grader(task, snapshot=None, env_whitelist=None):\n"
+        "def grade_pytest(sandbox_root):\n"
         "    return {'task_passed': True, 'grader_exit_code': 0,\n"
         "            'dimensions': [], 'anchors': [], 'verifiable_coverage': 1.0,\n"
         "            'graded_by': 'FROZEN'}\n",
