@@ -50,5 +50,11 @@ def replay(run_dir: str) -> RunState:
             line = line.strip()
             if not line:
                 continue
-            rs = _apply(rs, json.loads(line))
+            try:
+                rs = _apply(rs, json.loads(line))
+            except json.JSONDecodeError:
+                # Corrupted/half-written line (crashed mid-append): skip silently
+                # (crash-replay invariant: events.jsonl is source of truth, incomplete
+                # events are never fully committed and should not affect state reconstruction)
+                continue
     return rs
