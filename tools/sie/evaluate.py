@@ -127,6 +127,46 @@ def _verify_visible(anchors: list[dict], ctx: dict) -> list[dict]:
     return out
 
 
+def _btier_match_key(a: dict) -> tuple:
+    """匹配 baseline↔candidate 锚的稳定键: (cik, metric, period)。
+    跨 claim/expected 编辑稳定(proposer 改正错值会改 claim → anchor_id 变, 故不能用 id 匹配)。"""
+    return (str(a.get("cik", "")), str(a.get("metric", "")), str(a.get("period", "")))
+
+
+def build_btier_scores(prof_visible_anchors: list[dict],
+                       candidate_anchors: list[dict],
+                       fetcher=None) -> dict:
+    """从 baseline frozen visible 锚 + candidate(改后)锚, 用真 verify 构造 B 档 per-anchor 打分。
+
+    每锚 0/1 = 是否经 verify_anchor 核验通过。按 (cik,metric,period) 匹配 baseline↔candidate
+    (保铁律5 frozen visible 集合: 只取 baseline visible 键对应的 candidate 锚)。
+
+    Returns dict:
+      anchors_visible: candidate 锚(已 verify, 带 verified 标记) — 喂 _evaluate_btier;
+      base_scores:     {candidate_anchor_id: baseline 核验 0/1};
+      with_scores:     {candidate_anchor_id: candidate 核验 0/1}.
+    候选修正了某错锚 → base=0/with=1 → marginal_gain 计正增益(candidate verified=True)。
+    """
+    cand_by_key = {_btier_match_key(c): c for c in candidate_anchors}
+    anchors_visible: list[dict] = []
+    base_scores: dict[str, float] = {}
+    with_scores: dict[str, float] = {}
+    for a in prof_visible_anchors:
+        key = _btier_match_key(a)
+        cand = cand_by_key.get(key)
+        if cand is None:
+            continue  # 候选删了此锚 → 不计(保守, 不奖励删锚)
+        bv = _anchors.verify_anchor(a, fetcher=fetcher)
+        cv = _anchors.verify_anchor(cand, fetcher=fetcher)
+        cv_with_flag = dict(cand, verified=bool(cv.get("verified")))
+        aid = cv_with_flag.get("anchor_id") or key  # extract_anchors 已带 anchor_id
+        anchors_visible.append(cv_with_flag)
+        base_scores[aid] = 1.0 if bv.get("verified") else 0.0
+        with_scores[aid] = 1.0 if cv.get("verified") else 0.0
+    return {"anchors_visible": anchors_visible,
+            "base_scores": base_scores, "with_scores": with_scores}
+
+
 def _evaluate_btier(ctx: dict) -> dict:
     """B 档评测编排: visible 锚计分 + coverage 门(含 accept 意图可选门控) + holdout 每 K 轮抽检背离.
 
