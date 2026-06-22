@@ -1,40 +1,89 @@
-# self-improving-research-agent
+# self-evolve
 
-自改进 / 自进化调研 Agent —— 让一个「商业/投资调研 skill」（market-intel、small-cap-deepdive 类）在长时间全自动循环里持续自我迭代升级的研究与工程项目。
+让 agent **自我迭代开发任意 skill / 仓库 / 项目**的方法论 skill + 轻量确定性 harness。
+核心目标是**反自欺**：在长时间全自动循环里改进目标时，用不可 game 的提交门保证
+「被采纳 = 真改进」，而非分数涨、能力不涨的虚假上升曲线。
 
-闭环形态：**读历史运行数据 → 多 subagent 独立反思 → brainstorm 汇总修改方案 → 改 skill + 复查 → 重跑旧主题对比 + brainstorm 多样新主题做评估 → 多路迭代直到达标**。
+闭环形态：**读历史 trace → 多 subagent 独立反思 → 汇总修改方案 → 改目标 + 复查 →
+沙箱内可验证评测 + 不可 game 的接受门 → 多路迭代直到达标**，采纳的版本进 archive
+lineage，出沙箱的落地动作走人审。
 
 ## 当前状态
 
-仅完成**前期调研**（全景 + 硬信号交叉验证）。尚未开始实现。
+**实现完成 — 安全/裁决骨架全部建成并测试，ship-ready 框架。**
 
-- 📄 [`docs/自改进Agent调研.md`](docs/自改进Agent调研.md) — 全景调研：研究方向定位（Self-Evolving / Self-Improving Agents）、论文全清单、可复用开源仓库、对本项目 prompt 的逐条对标缺口分析、护栏设计、可发表研究方向。
-- 📄 [`docs/02-crossval-deepdive.md`](docs/02-crossval-deepdive.md) — 用 market-intel 学术工具链（arXiv / Semantic Scholar / OpenReview / HF）做的**交叉验证 + 2026 新论文深读**：引用量硬信号、ICLR 2026 RSI workshop 录用、14 篇晚于知识截止的新论文逐篇归类到护栏/缺口，并**更新研究空白判断**。原始数据在 [`docs/data/`](docs/data/)。
+- 52 任务 / 5 里程碑 / **521 测试通过**（2 个 confseq 用例按环境跳过）。
+- 全分支终审通过：跨任务整合自洽、反自欺六路径全闭合、自举安全四铁律端到端守。
 
-## 一句话定位
+> ⚠️ **成熟度说明**：裁决 / 门控 / 反自欺 / 自举隔离 / crash-replay 全部是**真实可用
+> 代码**。但**生成式 LLM 接缝目前为确定性占位 / 桩**，需填 3 处才能真正"自我迭代"：
+> ① `tools/sie/backends/builtin.py` 的 propose 后端接真模型；
+> ② `workflows/{reflect,review}-fanout.js` 接真 Claude / Codex 子代理；
+> ③ B 档真实 judge 评分接线。架构已为这 3 处留好钩子（"最后一公里"）。
 
-属于 **Self-Evolving / Self-Improving Agents** 中「agent 自动改进自己的 skill/scaffolding」一支，架构上是 **DGM + SICA + MARS + OMNI** 的并集。
+## 这是什么
 
-## 核心风险（来自调研）
+属于 **Self-Evolving / Self-Improving Agents** 中「agent 自动改进自己的 skill /
+scaffolding」一支，思路上缝合 **DGM + SICA + MARS + OMNI + PACE**，并针对**无
+ground-truth 的开放生成域**补齐护栏（文献里自改进成功几乎都在代码 / 数学等可验证
+域）——这正是本项目要填的真空白：在开放域上把 verification-anchor + anytime-valid
+acceptor + 异构 judge + 对抗式协同进化缝合起来。
 
-被优化对象是**无 ground-truth 的开放生成任务**（调研报告），而文献里自改进成功的几乎都在可验证域（代码/数学）。叠加「自出题 + 自评分」的 self-judge 结构，按文献**几乎注定产出虚假的上升曲线**（分数涨、能力不涨）。
+## 反自欺主线（六路径全闭合）
 
-**实现前必须先上的护栏三件套**：① 外部可验证锚点（edgartools/EDGAR 程序化核查事实断言）② 异构 judge（judge 强制换不同模型家族）③ Archive + Pareto 版本管理。
+| candidate 自欺路径 | 防御 |
+|---|---|
+| 改 grader / judge 自评 | IMMUTABLE 决策码清单 + frozen 物化 + 启动哈希 fail-closed + patch 硬拒门 + supervisor 双进程裁决（candidate 永不进 sys.path、不裁决 / 不评分自己） |
+| 塞无法核验的"锚" | verify_anchor（EDGAR 程序化核查）+ marginal_gain 未核验恒 0 |
+| holdout 过拟合 | holdout 真值物理隔离（铁律5）+ 确定性拆分 + 背离闸 + 累计漂移预算 |
+| judge 合谋 | 异构 judge（Claude + Codex，强制不同模型家族）+ pairwise_agreement + judge↔锚校准（只用 holdout 锚） |
+| 相关锚虚高 e-value | effective_independent_count 同源去相关（8→4）+ 独立性下限门 |
+| 出站隐蔽信道 exfil | proxy harness 代发（candidate 无 URL 构造权）+ 熵 / 编码 / 序列异常审查 |
 
-详见调研报告 §5–§7。
+## 里程碑
 
-## 直接复用候选
+| 里程碑 | 内容 |
+|---|---|
+| **M1a** | 确定性状态机 harness：10 态 run_loop、events.jsonl append-only 真相源 + crash-replay、git worktree 沙箱、三正交计数器 |
+| **M1b** | PACE e-process acceptor（反自欺命门，type-I ≤ α 验证、ONS 回退）、AST 危险门、变异有效性门、非阻塞人审队列、熔断 + 活性 |
+| **M2** | B 档外部锚（extract / coverage / 去相关 / 确定性 holdout / EDGAR verify / EVE 边际增益）、acceptor 三门、selfdeception holdout 背离、出站 proxy 反 exfil |
+| **M3** | C 档异质 judge（Claude + Codex）、pairwise_agreement、judge↔锚校准、自欺多闸、双向 α 门、纯 C 强制人审、Pareto 硬维门、N=3 MARS、BenchTrace |
+| **M4** | 自举隔离：IMMUTABLE 清单 + frozen、启动哈希门、patch 硬拒、supervisor 双进程裁决、自举 frozen grader、`--self` 端到端 |
 
-- **GEPA**（`gepa-ai/gepa`）— 反思 + 遗传 + Pareto，优化任意文本参数
-- **OpenEvolve**（`algorithmicsuperintelligence/openevolve`）— AlphaEvolve 开源复现，island + MAP-Elites
-- **OpenSkill**（`OpenLAIR/OpenSkill`）— 无监督下从外部抽 verification anchor 自建练习任务（最贴本项目场景，= 护栏①蓝图）
-- **MOSS**（`hkgai-official/Moss`）— trial-worker 重放 + health-probe 回滚（= 护栏⑤）
-- **meta-agent-challenge**（`ant-research/meta-agent-challenge`）— 防 reward-hacking 评测 harness 模板
-- **PACE**（论文 arXiv 2606.08106）— anytime-valid acceptor 门，替代「重跑对比涨了就保留」
-- **edgartools** — 外部真值源（small-cap-deepdive 已依赖）
+## 用法
 
-> ⚠️ 研究空白更新（见 doc 02）：原「空白2 自指改进可信认证」已被 **PACE（2026-06）** 基本占据；残留真空白 = **无 ground-truth 的开放调研域** 上把 verification-anchor + anytime-valid acceptor + 对抗式任务-skill 协同进化三者缝合。
+```bash
+# 对任意有 git 历史的目标仓库启动一次自迭代 run（沙箱内全自动）
+python -m tools.sie.cli init  --target <目标仓库绝对路径>                       # 取 run_id
+python -m tools.sie.cli run   --target <目标> --run-id <id> --base-ref HEAD --max-rounds 3
+python -m tools.sie.cli status   --target <目标> --run-id <id>                 # 查看状态
+python -m tools.sie.cli replay   --target <目标> --run-id <id>                 # 崩溃后从 events 重建
+python -m tools.sie.cli rollback --target <目标> --run-id <id> --vid <vid>
+# 自举（改 self-evolve 自身，开 IMMUTABLE enforce）
+python -m tools.sie.cli run --target <self-evolve 自身> --run-id <id> --self --enforce-immutable
+```
 
-## 相关基建
+斜杠命令（需先把本仓库 junction / 部署到 `~/.claude/skills/self-evolve`）：
+`/self-evolve <target>`、`/self-evolve-status <run_id>`、`/self-evolve-resume <run_id>`。
 
-- `../market-intel`、`../small-cap-deepdive` — 被优化的调研 skill 本体与信息源 catalog
+铁律、门控序列、各档与锚的契约见 [`SKILL.md`](SKILL.md) 与 [`reference/`](reference/)。
+
+## 研究溯源（调研原始数据已入库）
+
+- 📄 [`docs/自改进Agent调研.md`](docs/自改进Agent调研.md) — 全景调研：方向定位、论文全清单、可复用开源仓库、缺口分析、护栏设计。
+- 📄 [`docs/02-crossval-deepdive.md`](docs/02-crossval-deepdive.md) — market-intel 学术工具链交叉验证 + 2026 新论文深读（引用硬信号、ICLR 2026 RSI、14 篇新论文）；原始数据在 [`docs/data/`](docs/data/)（arXiv 扫描 XML + S2 引用 JSON）。
+- 📄 [`docs/superpowers/specs/`](docs/superpowers/specs/) — 设计规格（铁律、反自欺机制）。
+- 📄 [`docs/superpowers/plans/`](docs/superpowers/plans/) — 52 任务实施计划。
+- 📄 [`docs/superpowers/SDD-progress-ledger.md`](docs/superpowers/SDD-progress-ledger.md) — 全程进度账本（每任务摘要 + 复查 + 终审）。
+
+## 核心设计风险（来自调研，已由架构闭合）
+
+被优化对象是**无 ground-truth 的开放生成任务**时，叠加「自出题 + 自评分」的 self-judge
+结构按文献几乎注定产出虚假上升曲线。本项目的全部反自欺机制（见上表）正是为闭合此风险
+而设计；详见调研报告 §5–§7 与设计规格。
+
+## 直接复用 / 思路来源
+
+GEPA（反思 + 遗传 + Pareto）、OpenEvolve（AlphaEvolve 开源复现）、OpenSkill（从外部抽
+verification anchor）、MOSS（重放 + health-probe 回滚）、meta-agent-challenge（防
+reward-hacking harness）、PACE（anytime-valid acceptor）、edgartools（EDGAR 外部真值源）。
