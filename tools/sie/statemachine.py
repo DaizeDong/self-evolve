@@ -409,30 +409,6 @@ def select_parent(run_dir: str, st: RunState) -> str:
     return lin[-1]["vid"]           # lineage 末版 (最新已采纳)
 
 
-def state_patch(
-    proposals: list[dict],
-    worktree: str,
-    enforce_immutable: bool = False,
-) -> list[dict]:
-    """态5 PATCH：对每个 proposal 调用 apply_patch，返回结果列表。
-
-    Args:
-        proposals:         提案列表，每项含 "target"（relpath 列表）和 "diff"（新内容）字段。
-        worktree:          sandbox worktree 路径。
-        enforce_immutable: 是否开启 IMMUTABLE 硬拒门（透传给 apply_patch）。
-                           True → 命中 IMMUTABLE 路径的 patch 被拒（自举/enforce 路径）。
-                           False（默认）→ 不拦截（非自举行为不变）。
-
-    Returns:
-        每个 proposal 对应的 apply_patch 结果 dict 列表。
-    """
-    results = []
-    for p in proposals:
-        # 通过模块引用调用，允许测试用 monkeypatch.setattr(patch, "apply_patch", ...) 替换
-        res = _patch_module.apply_patch(p, worktree, enforce_immutable=enforce_immutable)
-        results.append(res)
-    return results
-
 
 def run_loop(
     target: str,
@@ -446,6 +422,8 @@ def run_loop(
     judge_claude_available: bool = True,
     _extra_params: dict | None = None,  # test-only: 覆盖默认 params，生产勿传
     enforce_immutable: bool = False,    # M4.6: --self/--enforce-immutable 透传
+    supervisor=None,                    # M4.6: 自举 Supervisor（None=非自举，行为完全不变）
+    candidate_worktree: str | None = None,  # M4.6: 自举 candidate worktree 路径
 ) -> dict:
     """Drive the M1a 10-state closed loop and return a summary dict.
 
@@ -702,7 +680,11 @@ def run_loop(
                 "regression_unverified": _c_has_prior_passed,
             }
         else:
-            ev_result = evaluate(sandbox_root, prof["tier"], base_result=None)
+            # M4.6: 自举时跳过 evaluate（grade 由 supervisor.grade 在态7 内替代）
+            if supervisor is None:
+                ev_result = evaluate(sandbox_root, prof["tier"], base_result=None)
+            else:
+                ev_result = {}  # 自举：ev_result 未使用（supervisor.grade 直接在决策块中调）
 
         # 态7 DECIDE — B 档走 resolve_accept; C 档走 route_accept_with_gates; A 档走旧路径
         if "B" in _tier_str:
@@ -969,8 +951,23 @@ def run_loop(
                     _rf = release_valve(st, params)  # 升人审频率
 
         else:
-            # ---- A 档旧路径 (保持 M1 行为不变) ----
-            dec = decide(ev_result["paired"], prof["tier"], st, params)
+            # ---- A 档路径 ----
+            # M4.6: 自举（supervisor is not None）时用 frozen Supervisor 裁决；非自举完全不变。
+            if supervisor is not None:
+                # 自举: 用 frozen Supervisor.grade 取代 evaluate（candidate 不能给自己打分）
+                _sb_root = candidate_worktree if candidate_worktree else sandbox_root
+                _grade = supervisor.grade({}, _sb_root, self_mode=True)
+                # 构造 paired（与 evaluate A 档冷启动一致：before=0.0 基线）
+                _dims = _grade.get("dimensions", [])
+                if _dims:
+                    _sv_paired = [(0.0, float(d["score"])) for d in _dims]
+                else:
+                    _sv_paired = [(0.0, 1.0 if _grade.get("task_passed") else 0.0)]
+                # 用 frozen Supervisor.decide 裁决（不从 candidate import acceptor）
+                dec = supervisor.decide(_sv_paired, prof["tier"], st, params)
+            else:
+                # 非自举: 原路径（A/B/C M1/M2/M3 既有行为零改）
+                dec = decide(ev_result["paired"], prof["tier"], st, params)
             nxt = apply_acceptor_outcome(st, dec, params)
 
             if nxt == "ARCHIVE":
@@ -978,7 +975,10 @@ def run_loop(
                 vid = f"v{len(accepted) + 1}"
                 # NOTE: add_version receives run_dir (internally joins "archive"),
                 #       snapshot_version receives arch_dir (pre-joined).
-                archive.add_version(run_dir, vid, ev_result["result"]["dimensions"], parent)
+                # M4.6: 自举时 ev_result={}, 用 _grade（supervisor.grade 返回值）的 dimensions
+                _a_dims = (_grade.get("dimensions", []) if supervisor is not None
+                           else ev_result["result"]["dimensions"])
+                archive.add_version(run_dir, vid, _a_dims, parent)
                 arch_dir = os.path.join(run_dir, "archive")
                 archive.snapshot_version(arch_dir, vid, sandbox_root)
                 accepted.append(vid)
