@@ -29,3 +29,9 @@ r/
 
 # SDD process scratch (per-task reports/diffs; canonical ledger in docs/superpowers/)
 .superpowers/
+
+# B 档夜跑目标的独立 repo（由 scripts/setup_btarget_repo.py 生成，含其 .sie 运行态）
+.btarget_run/
+examples/btarget/.git/
+examples/btarget/.sie/
+examples/*/_run/
