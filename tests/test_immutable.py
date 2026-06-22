@@ -34,6 +34,7 @@ def _init_repo_with_sie(tmp_path):
     env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
            "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
     subprocess.run(["git", "init", "-q"], cwd=root, check=True, env=env)
+    subprocess.run(["git", "config", "core.safecrlf", "false"], cwd=root, check=True, env=env)
     subprocess.run(["git", "add", "-A"], cwd=root, check=True, env=env)
     subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=root, check=True, env=env)
     return root
@@ -52,3 +53,30 @@ def test_materialize_frozen_writes_only_immutable_with_base_ref_content(tmp_path
     # 哈希与 frozen 内容一致
     assert digests["acceptor.py"] == im.hash_file(str(frozen_acc))
     assert set(digests) >= {"acceptor.py", "gate_human.py"}
+
+def test_verify_immutable_raises_on_tamper(tmp_path):
+    root = _init_repo_with_sie(tmp_path)
+    sie_root = str(root / "tools" / "sie")
+    frozen = str(tmp_path / "frozen")
+    digests = im.materialize_frozen("HEAD", sie_root, frozen)
+    # candidate 工作区把 acceptor 改了
+    (pathlib.Path(sie_root) / "acceptor.py").write_text("EVIL = 1\n", encoding="utf-8")
+    with pytest.raises(im.ImmutableViolation) as ei:
+        im.verify_immutable(sie_root, digests)
+    assert "acceptor.py" in str(ei.value)
+
+def test_verify_immutable_passes_when_intact(tmp_path):
+    root = _init_repo_with_sie(tmp_path)
+    sie_root = str(root / "tools" / "sie")
+    frozen = str(tmp_path / "frozen")
+    digests = im.materialize_frozen("HEAD", sie_root, frozen)
+    im.verify_immutable(sie_root, digests)  # 未篡改 → 不抛
+
+def test_verify_immutable_raises_on_missing_file(tmp_path):
+    root = _init_repo_with_sie(tmp_path)
+    sie_root = str(root / "tools" / "sie")
+    frozen = str(tmp_path / "frozen")
+    digests = im.materialize_frozen("HEAD", sie_root, frozen)
+    (pathlib.Path(sie_root) / "gate_human.py").unlink()  # candidate 删了裁决文件
+    with pytest.raises(im.ImmutableViolation):
+        im.verify_immutable(sie_root, digests)
