@@ -121,3 +121,29 @@ def test_candidate_path_is_isolated_false_when_in_sys_path(tmp_path):
         assert result is False, "candidate 在 sys.path 时应返回 False"
     finally:
         sys.path.remove(str(cand))
+
+
+def test_candidate_path_is_isolated_false_when_cwd_is_candidate(tmp_path, monkeypatch):
+    """隔离漏洞修复：空串 sys.path 项展开为 cwd，若 cwd==candidate 应返回 False"""
+    frozen = _make_frozen(tmp_path, "MARK='F'\n")
+    cand = tmp_path / "candidate"
+    cand.mkdir(parents=True)
+    # 将 candidate 作为 cwd 并在 sys.path 中放入空串（代表 cwd）
+    monkeypatch.chdir(str(cand))
+    sys.path.insert(0, "")
+    try:
+        result = sup.candidate_path_is_isolated(str(frozen), str(cand))
+        assert result is False, "cwd==candidate 且 sys.path 含空串时应返回 False（隔离破裂）"
+    finally:
+        sys.path.remove("")
+
+
+def test_load_frozen_decider_sys_modules_cleanup(tmp_path):
+    """load-and-pop：exec 后唯一名应从 sys.modules 移除，防止跨版本污染"""
+    frozen = _make_frozen(tmp_path, "MARK='F'\n")
+    uniq = "sie_frozen_acceptor"
+    # 确保初始不存在
+    sys.modules.pop(uniq, None)
+    sup.load_frozen_decider(frozen, "acceptor")
+    # exec 后唯一名应被移除
+    assert uniq not in sys.modules, f"唯一名 {uniq} 应在 exec 后清除"
