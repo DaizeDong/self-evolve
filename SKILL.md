@@ -53,13 +53,15 @@ patch / proxy / events …）从 frozen base ref 物化、记 sha256：启动哈
 patch 写 IMMUTABLE 路径硬拒、**supervisor 双进程**用 frozen 代码裁决（candidate worktree
 永不进 sys.path）、自举评测用 frozen grader（candidate 不能自评 / 自打分）。
 
-## 成熟度（重要）
+## 成熟度
 
-裁决 / 门控 / 反自欺 / 自举隔离 / crash-replay 全部为**真实可用代码**（521 测试）。
-**生成式 LLM 接缝目前为确定性占位 / 桩**，真正"自我迭代"前需填：
-① `tools/sie/backends/builtin.py` propose 接真模型；
-② `workflows/{reflect,review}-fanout.js` 接真 Claude / Codex 子代理；
-③ B 档真实 judge 评分接线。架构已留钩子。
+裁决 / 门控 / 反自欺 / 自举隔离 / crash-replay 全部真实可用（521 测试）。
+**生成式 LLM 接缝已接通真 agent 并 live 验证**：proposer / reflector / 两个 judge
+走本机 `cc`（split-billing 网关, fallback `claude`）+ `codex exec` CLI（统一经
+`workflows/_claude_launch.js`，cc 优先、prompt 走 stdin 防注入、UTF-8 解码）。
+- 默认 `--proposer builtin --reflect-mode serial`（确定性, 测试用, 不调外部 CLI）;
+- `--live`（= `--proposer llm --reflect-mode parallel`）开真 agent 闭环。
+- 纯 A 档自动 ACCEPT 需改进空间（绿基线无, 按设计）; 开放域改进信号在 B / C 质量档。
 
 ## 用法
 
