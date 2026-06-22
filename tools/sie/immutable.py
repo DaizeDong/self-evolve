@@ -3,6 +3,7 @@ from __future__ import annotations
 import os, hashlib, subprocess
 
 # 相对 tools/sie/ 的裁决代码集。新增裁决模块必须登记于此，否则自举哈希门不护它。
+# basename 归一：清单须为顶层文件名，含子路径需升级 _normalize。
 IMMUTABLE_RELPATHS: tuple[str, ...] = (
     "statemachine.py",   # 状态机转移
     "acceptor.py",       # PACE 配对裁决
@@ -15,6 +16,9 @@ IMMUTABLE_RELPATHS: tuple[str, ...] = (
     "sandbox.py",        # realpath 边界 / action 分级
     "supervisor.py",     # 双进程裁决 loader
     "immutable.py",      # 清单与哈希门自身
+    "patch.py",          # AST 危险调用拒绝门（决策码自身、漏列则 candidate 可白名单任意危险 import）
+    "proxy.py",          # 出站 harness 代发+熵/序列异常审查（漏列则 candidate 可开隐蔽 exfiltration）
+    "events.py",         # 状态机 _apply 实现熔断/活性计数清零/delta 归约（漏列则 candidate 可破坏熔断）
 )
 
 _IMMUTABLE_SET = frozenset(IMMUTABLE_RELPATHS)
@@ -83,5 +87,6 @@ def materialize_frozen(base_ref: str, sie_root: str, frozen_dir: str) -> dict[st
         out = os.path.join(frozen_dir, rp)
         with open(out, "wb") as f:
             f.write(content)
+        os.chmod(out, 0o444)  # 设置为只读（POSIX 去写权、Windows 只读属性）
         digests[rp] = hash_file(out)
     return digests

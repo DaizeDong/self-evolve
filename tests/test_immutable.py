@@ -5,6 +5,7 @@ EXPECTED = {
     "statemachine.py", "acceptor.py", "judges.py", "verifiable.py",
     "anchors.py", "selfdeception.py", "gate_human.py", "profile.py",
     "sandbox.py", "supervisor.py", "immutable.py",
+    "patch.py", "proxy.py", "events.py",
 }
 
 def test_immutable_relpaths_cover_spec_decision_set():
@@ -18,6 +19,7 @@ def test_is_immutable_relpath_normalizes_and_rejects_bypass():
     assert im.is_immutable_relpath("tools/sie/acceptor.py") is True
     assert im.is_immutable_relpath("tools\\sie\\acceptor.py") is True
     assert im.is_immutable_relpath("sub/../acceptor.py") is True
+    assert im.is_immutable_relpath(r"C:\absolute\path\acceptor.py") is True  # 绝对路径绕过防卫
     assert im.is_immutable_relpath("propose.py") is False
     assert im.is_immutable_relpath("reflect.py") is False
 
