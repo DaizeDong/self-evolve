@@ -35,3 +35,6 @@ r/
 examples/btarget/.git/
 examples/btarget/.sie/
 examples/*/_run/
+.sie/
+.nightrun/
+_run/
