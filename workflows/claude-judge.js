@@ -11,14 +11,13 @@
  *   --tools web_search : 仅允许 web_search（映射到 claude --allowed-tools WebSearch）
  *   --model <id>       : 可选, 默认 sonnet（judge 可信且经济; 可按 §12 校准上调）
  *
- * 安全: --bare 跳过 CLAUDE.md/memory/hooks（judge 调用干净无污染）;
- *       --allowed-tools 限定只读联网工具（judge 不写盘）;
- *       --dangerously-skip-permissions 用于无交互（叠加 harness 既有 proxy/沙箱）。
+ * Claude 调用经 _claude_launch（cc 优先, claude fallback；prompt 走 stdin）。
+ * judge 只读联网工具 WebSearch（不写盘）, 叠加 harness 既有 proxy/沙箱。
  */
 
 'use strict';
 
-const { execFileSync } = require('child_process');
+const { launchClaude } = require('./_claude_launch');
 
 // ── CLI flag 解析 ──────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -35,7 +34,6 @@ for (let i = 0; i < args.length; i++) {
   }
 }
 
-// 约束: 只在限定 web_search 工具时运行（与 codex-judge.js 对称）
 if (!tools || tools !== 'web_search') {
   process.stderr.write('claude-judge.js: --tools web_search is required\n');
   process.exit(2);
@@ -50,53 +48,11 @@ process.stdin.on('end', () => {
     process.stderr.write('claude-judge.js: empty prompt from stdin\n');
     process.exit(1);
   }
-  runClaude(prompt.trim());
-});
-
-// ── claude CLI 调用 ────────────────────────────────────────────────────────
-function runClaude(promptText) {
-  // 注: 不用 --bare —— bare 模式禁用 OAuth/keychain(只认 ANTHROPIC_API_KEY),
-  // 订阅/OAuth 登录会失败。改用默认认证 + 受限工具保证 judge 干净只读。
-  const claudeArgs = [
-    '-p',
-    '--output-format', 'json',
-    '--dangerously-skip-permissions',
-    '--allowed-tools', 'WebSearch',
-    '--model', model,
-    '--', promptText,
-  ];
-
-  let stdout = '';
-  let exitCode = 0;
-  try {
-    stdout = execFileSync('claude', claudeArgs, {
-      encoding: 'utf8',
-      maxBuffer: 8 * 1024 * 1024,
-      timeout: 590000,  // 略低于 invoke_claude_judge 的 600s，让 Python 侧先 TimeoutExpired
-    });
-  } catch (err) {
-    process.stderr.write(`claude error: ${err.message}\n`);
-    exitCode = err.status || 1;
-    if (!exitCode) exitCode = 1;
-  }
-
-  if (exitCode !== 0 || !stdout.trim()) {
-    process.exit(exitCode || 1);
-  }
-
-  // claude --output-format json: {"type":"result","result":"<响应>",...} → 取 .result
-  let result = '';
-  try {
-    const obj = JSON.parse(stdout);
-    if (obj && obj.is_error) { process.exit(1); }
-    result = (obj && typeof obj.result === 'string') ? obj.result : '';
-  } catch (_) {
-    // 非预期 JSON → 退而用原始 stdout（下游 _parse_span_scores 仍可提取 JSON 块）
-    result = stdout;
-  }
-
-  if (!result.trim()) { process.exit(1); }
-
-  process.stdout.write(result);  // 含 judge 的 span_scores JSON
+  const out = launchClaude(
+    ['--allowed-tools', 'WebSearch', '--model', model],
+    prompt.trim(),
+  );
+  if (!out.ok || !out.result.trim()) { process.exit(1); }
+  process.stdout.write(out.result);  // 含 judge 的 span_scores JSON
   process.exit(0);
-}
+});
