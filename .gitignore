@@ -38,3 +38,4 @@ examples/*/_run/
 .sie/
 .nightrun/
 _run/
+.btarget_strong/
