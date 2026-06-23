@@ -16,6 +16,37 @@ import subprocess
 VALID_FAMILIES = ("claude", "cc", "codex")
 
 
+def codex_available(timeout_s: int = 20) -> bool:
+    """跑前预检: codex CLI 是否可调（`codex --version` exit 0）。
+
+    dual 默认开启需要 codex；缺失则上层提醒 + 自动降级单跑。轻量探针（不发真请求）。
+    """
+    try:
+        proc = subprocess.run(
+            ["codex", "--version"], capture_output=True, text=True,
+            encoding="utf-8", errors="replace", shell=True, timeout=timeout_s,
+        )
+        return proc.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return False
+
+
+def preflight_dual(dual_requested: bool) -> tuple[bool, str | None]:
+    """据 codex 可用性决定有效 dual 模式 + 提醒文案。
+
+    Returns (effective_dual, warning):
+      - dual 请求 + codex 可用 → (True, None)
+      - dual 请求 + codex 不可用 → (False, 提醒)  # 自动降级单跑, 不硬失败
+      - 未请求 dual → (False, None)
+    """
+    if not dual_requested:
+        return False, None
+    if codex_available():
+        return True, None
+    return False, ("⚠ codex 不可用（`codex --version` 失败）→ 已自动降级为单家族（claude）。"
+                   "每阶段 codex&claude 双重校验已关闭。修复 codex 或显式用 --single 静默单跑。")
+
+
 def invoke(prompt: str, family: str = "claude", *, model: str | None = None,
            tools: str | None = None, effort: str | None = None,
            role: str | None = None, timeout_s: int = 600) -> dict:
