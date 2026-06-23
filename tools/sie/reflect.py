@@ -23,12 +23,15 @@ def reflect(sandbox_root: str, history: list[dict], n: int = 1) -> list[dict]:
 
 # ── M3.9: MARS parallel reflection fanout ────────────────────────────────────
 
-def _reflect_one(run_dir: str, history: list[dict], idx: int) -> dict:
+def _reflect_one(run_dir: str, history: list[dict], idx: int,
+                 family: str = "claude") -> dict:
     """Single independent MARS reflector: calls reflect-fanout.js subprocess.
     Reads history trace only (append-only, read-only — Iron Law 2).
-    Never writes to trace, never reads other reflectors' drafts."""
+    Never writes to trace, never reads other reflectors' drafts.
+    `family` selects the agent family (claude|codex) → 异质 MARS（codex 可在反思阶段参与）。"""
     proc = subprocess.run(
-        ["node", "workflows/reflect-fanout.js", "--run", run_dir, "--idx", str(idx)],
+        ["node", "workflows/reflect-fanout.js", "--run", run_dir,
+         "--idx", str(idx), "--family", family],
         input=json.dumps({"history": history}),
         capture_output=True,
         text=True,
@@ -36,18 +39,31 @@ def _reflect_one(run_dir: str, history: list[dict], idx: int) -> dict:
         errors="replace",
     )
     if proc.returncode != 0 or not proc.stdout.strip():
-        return {"reflector": idx, "findings": []}
-    return json.loads(proc.stdout)
+        return {"reflector": idx, "findings": [], "family": family}
+    try:
+        out = json.loads(proc.stdout)
+    except (ValueError, json.JSONDecodeError):
+        return {"reflector": idx, "findings": [], "family": family}
+    out.setdefault("family", family)
+    return out
 
 
 def run_reflections_parallel(run_dir: str, history: list[dict],
-                             n_reflectors: int = 3) -> list[dict]:
-    """N independent MARS reflections in parallel.
+                             n_reflectors: int = 3,
+                             families: list[str] | None = None) -> list[dict]:
+    """N independent MARS reflections in parallel — **跨家族异质反思**。
     Independence guarantee: each reflector gets its own snapshot of history;
     they are spawned concurrently and cannot read each other's intermediate output.
-    Trace is passed read-only (never mutated here — Iron Law 2)."""
+    Trace is passed read-only (never mutated here — Iron Law 2).
+
+    families: 每个 reflector 用的 agent 家族, 循环复用。默认 ["claude","codex","claude"]
+      → N=3 时得到 claude/codex/claude 的异质反思组合（codex 不再只限 C 档判官）。
+    """
+    if not families:
+        families = ["claude", "codex", "claude"]
+    fam_of = [families[i % len(families)] for i in range(n_reflectors)]
     with ThreadPoolExecutor(max_workers=n_reflectors) as ex:
-        futs = [ex.submit(_reflect_one, run_dir, list(history), i)
+        futs = [ex.submit(_reflect_one, run_dir, list(history), i, fam_of[i])
                 for i in range(n_reflectors)]
         return [f.result() for f in futs]
 
