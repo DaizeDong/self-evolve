@@ -16,13 +16,15 @@
 'use strict';
 
 const fs = require('fs');
-const { launchClaude } = require('./_claude_launch');
+const { launch } = require('./_agent_launch');
 
 const args = process.argv.slice(2);
 let idx = 0;
+let family = 'claude';
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--run' && args[i + 1]) { i++; }
   else if (args[i] === '--idx' && args[i + 1]) { idx = Number(args[++i]); }
+  else if (args[i] === '--family' && args[i + 1]) { family = args[++i]; }
 }
 
 let raw = '';
@@ -40,9 +42,9 @@ const prompt =
   'Return ONLY JSON: {"verdict":"accept"|"reject"|"abstain","notes":["<note>", ...]}.\n\n' +
   'PROPOSAL:\n' + JSON.stringify(proposal, null, 2) + '\n';
 
-const out = launchClaude(['--allowed-tools', 'WebSearch', '--model', 'sonnet'], prompt);
+const out = launch(family, { tools: 'web_search', model: family === 'codex' ? undefined : 'sonnet' }, prompt);
 if (!out.ok) {
-  process.stdout.write(JSON.stringify({ reviewer: idx, verdict: 'abstain', notes: [] }));
+  process.stdout.write(JSON.stringify({ reviewer: idx, verdict: 'abstain', notes: [], family }));
   process.exit(0);  // 降级: 弃权, 不拖垮 fanout
 }
 
@@ -54,5 +56,5 @@ try {
   if (Array.isArray(obj.notes)) { notes = obj.notes.filter(n => typeof n === 'string').slice(0, 5); }
 } catch (_) { /* 降级保持 abstain */ }
 
-process.stdout.write(JSON.stringify({ reviewer: idx, verdict, notes }));
+process.stdout.write(JSON.stringify({ reviewer: idx, verdict, notes, family }));
 process.exit(0);
