@@ -84,3 +84,24 @@ def test_cross_check_verdicts_single_valid_is_none(monkeypatch):
     }))
     r = agents.cross_check_verdicts("p", families=("claude", "codex"))
     assert r["agree"] is None and r["n_ok"] == 1
+
+
+def test_preflight_dual_codex_available(monkeypatch):
+    monkeypatch.setattr(agents, "codex_available", lambda timeout_s=20: True)
+    eff, warn = agents.preflight_dual(dual_requested=True)
+    assert eff is True and warn is None
+
+
+def test_preflight_dual_codex_missing_degrades(monkeypatch):
+    monkeypatch.setattr(agents, "codex_available", lambda timeout_s=20: False)
+    eff, warn = agents.preflight_dual(dual_requested=True)
+    assert eff is False and warn and "降级" in warn   # 自动降级 + 提醒
+
+
+def test_preflight_dual_not_requested(monkeypatch):
+    # --single: 不请求 dual → 不探 codex、无提醒
+    called = {"n": 0}
+    monkeypatch.setattr(agents, "codex_available",
+                        lambda timeout_s=20: called.__setitem__("n", called["n"] + 1) or True)
+    eff, warn = agents.preflight_dual(dual_requested=False)
+    assert eff is False and warn is None and called["n"] == 0
