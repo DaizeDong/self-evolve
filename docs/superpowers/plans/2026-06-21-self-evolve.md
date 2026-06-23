@@ -54,7 +54,7 @@ self-evolve/
     notify.py         # 仅主进程: 调 the notifier
     proxy.py          # (M2) 出站 harness 代发 + 内容/序列审查
   workflows/{reflect-fanout.js, review-fanout.js}
-  reference/{target_contract.md, acceptor_math.md, tiers-and-anchors.md, runbook.md}
+  reference/{target_contract.md, acceptor_math.md, signal-providers.md, runbook.md}
   tests/...           # 与各模块对应
   metrics/  learnings.md
 ```
@@ -6131,7 +6131,7 @@ Claude-Session: https://claude.ai/code/session_015s63syXfzXPq4Tz5UCM7yW"
 
 **Files:**
 - Create: `tests/test_m3_acceptance.py`（对抗端到端，覆盖 spec §13 M3 全部验收）
-- Modify: `reference/tiers-and-anchors.md`（补 C 档兜底门 + 自欺多闸说明）
+- Modify: `reference/signal-providers.md`（补 C 档兜底门 + 自欺多闸说明）
 
 **Interfaces:**
 - Consumes: 本里程碑全部 Produces（acceptor/judges/selfdeception/statemachine/evaluate/archive）。
@@ -6226,7 +6226,7 @@ def test_cumulative_drift_circuit_breaks():
 
 - [ ] **Step 7: commit**
 ```bash
-git add tests/test_m3_acceptance.py reference/tiers-and-anchors.md
+git add tests/test_m3_acceptance.py reference/signal-providers.md
 git commit -m "M3.11 acceptance: C no-regression gate + selfdeception collusion alert (holdout-primary) + pure-C forced human + Codex-unavailable no single-Claude auto-accept + drift circuit
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>

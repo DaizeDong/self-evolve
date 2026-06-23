@@ -425,6 +425,7 @@ def run_loop(
     candidate_worktree: str | None = None,  # M4.6: 自举 candidate worktree 路径
     proposer: str = "builtin",          # propose 后端: "builtin"(默认,确定性) | "llm"(真 Claude)
     reflect_mode: str = "serial",       # 反思: "serial"(默认,M1a) | "parallel"(N=3 MARS, 真 Claude)
+    dual: bool = True,                   # 每个 agent 阶段 codex&claude 双重校验(默认开; --single 关)
 ) -> dict:
     """Drive the M1a 10-state closed loop and return a summary dict.
 
@@ -511,10 +512,13 @@ def run_loop(
             "parent_vid": parent,
         })
 
-        # 态3 REFLECT — serial(M1a 默认) 或 parallel(N=3 MARS 真 Claude fanout)
+        # 态3 REFLECT — serial(M1a 默认) 或 parallel(MARS fanout)
+        # dual 开 → 反思阶段 codex&claude 双家族异质并跑; 关 → 仅 claude。
         if reflect_mode == "parallel":
             from tools.sie.reflect import run_reflections_parallel, meta_aggregate
-            agg = meta_aggregate(run_reflections_parallel(run_dir, history, n_reflectors=3))
+            _fams = ["claude", "codex"] if dual else ["claude"]
+            agg = meta_aggregate(run_reflections_parallel(
+                run_dir, history, n_reflectors=len(_fams), families=_fams))
             # merged_findings(list[str]) 经统一 reflection dict 传给 propose(llm 提取 findings)
             refs = [{"merged_findings": agg.get("merged_findings", [])}]
             if not agg.get("merged_findings"):
@@ -560,6 +564,32 @@ def run_loop(
                       "forced_review_circuit", "drift_circuit"):
                 break
             continue
+
+        # 态4b REVIEW(dual) — 双家族(codex&claude)异质评审提议; 仅 live 路径(proposer=="llm")触发,
+        # builtin/测试路径不调外部 agent。仅当两家族**一致 reject** 才拦(skip patch/evaluate, 省成本);
+        # 否则放行交由确定性 acceptor 终裁(铁律1: 评审仅参考信号)。
+        if dual and proposer == "llm" and props:
+            import json as _json
+            from tools.sie import agents as _agents
+            _rprompt = ("Review this proposed change in a self-improvement loop. Is it a genuine "
+                        "improvement (not a regression/reward-hack)? Return ONLY JSON "
+                        '{"verdict":"accept"|"reject"|"abstain","notes":[]}.\n\nPROPOSAL:\n'
+                        + _json.dumps(props[0], ensure_ascii=False)[:4000])
+            _rv = _agents.cross_check_verdicts(_rprompt, families=("claude", "codex"))
+            st = _step(run_dir, {
+                "type": "DUAL_REVIEW", "phase": "REVIEW",
+                "verdicts": _rv.get("verdicts"), "agree": _rv.get("agree"),
+            })
+            _got = [v for v in (_rv.get("verdicts") or {}).values() if v]
+            if _got and all(v == "reject" for v in _got) and len(_got) >= 2:
+                note_static_reject(st)
+                st = _step(run_dir, {"type": "STATIC_REJECT", "phase": "REVIEW",
+                                     "static_reject_delta": 1})
+                cc = circuit_check(st, params)
+                if cc in ("no_progress_circuit", "static_reject_circuit",
+                          "forced_review_circuit", "drift_circuit"):
+                    break
+                continue
 
         # 态5 PATCH — apply each proposal; AST + boundary gates enforced by apply_patch
         # M4.6: enforce_immutable 由 --self/--enforce-immutable 透传，默认 False（非自举不变）

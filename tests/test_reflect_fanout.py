@@ -6,7 +6,7 @@ from tools.sie import reflect
 def test_parallel_yields_n_independent(monkeypatch, tmp_path):
     calls = []
 
-    def fake_one(run_dir, history, idx):
+    def fake_one(run_dir, history, idx, family="claude"):
         calls.append(idx)
         return {"reflector": idx, "findings": [f"f{idx}"]}
 
@@ -35,7 +35,7 @@ def test_parallel_independent_no_shared_state(monkeypatch, tmp_path):
     """Reflectors must not share mutable objects; each sees a snapshot, not a live ref."""
     received_histories = []
 
-    def fake_one(run_dir, history, idx):
+    def fake_one(run_dir, history, idx, family="claude"):
         received_histories.append(id(history))
         return {"reflector": idx, "findings": []}
 
@@ -49,7 +49,7 @@ def test_parallel_independent_no_shared_state(monkeypatch, tmp_path):
 # ── Trace read-only: run_reflections_parallel must not modify history list ──
 
 def test_parallel_does_not_mutate_history(monkeypatch, tmp_path):
-    def fake_one(run_dir, history, idx):
+    def fake_one(run_dir, history, idx, family="claude"):
         return {"reflector": idx, "findings": []}
 
     monkeypatch.setattr(reflect, "_reflect_one", fake_one)
