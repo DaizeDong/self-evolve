@@ -1,5 +1,20 @@
 # self-evolve
 
+> A methodology skill + lightweight deterministic harness that lets an agent **self-iterate any
+> skill / repo / project**, with an **un-gameable acceptance gate** so "accepted = real improvement"
+> — not a self-deceiving score-up-but-capability-flat curve. Built for the hard case the
+> self-improving-agent literature mostly skips: **open-ended generation domains with no ground truth.**
+
+[![Claude Code Skill](https://img.shields.io/badge/Claude%20Code-Skill-orange?style=flat)](https://docs.anthropic.com/en/docs/claude-code)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-521%20passing-green?style=flat)](tests/)
+[![Anti-self-deception](https://img.shields.io/badge/anti--self--deception-6%20paths%20closed-red?style=flat)](SKILL.md)
+[![Sister skill](https://img.shields.io/badge/sister-market--intel-yellow?style=flat)](https://github.com/DaizeDong/market-intel)
+
+*English summary above · 完整中文文档如下。*
+
+---
+
 让 agent **自我迭代开发任意 skill / 仓库 / 项目**的方法论 skill + 轻量确定性 harness。
 核心目标是**反自欺**：在长时间全自动循环里改进目标时，用不可 game 的提交门保证
 「被采纳 = 真改进」，而非分数涨、能力不涨的虚假上升曲线。

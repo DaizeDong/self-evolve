@@ -10,6 +10,7 @@ venv/
 env/
 *.egg-info/
 .ipynb_checkpoints/
+.pytest_cache/
 
 # Secrets / local
 .env
