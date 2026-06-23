@@ -9,19 +9,21 @@
  *   exit 0 : 成功; exit 非0 : 失败（run_reflections_parallel 返回空 findings）
  *
  * 铁律2: 只读历史 trace，绝不写 trace；独立性: reflector 间互不通信。
- * Claude 调用经 _claude_launch（cc 优先, claude fallback）。
+ * agent 调用经统一 _agent_launch（--family claude|codex → 异质 MARS）。
  */
 
 'use strict';
 
 const fs = require('fs');
-const { launchClaude } = require('./_claude_launch');
+const { launch } = require('./_agent_launch');
 
 const args = process.argv.slice(2);
 let idx = 0;
+let family = 'claude';
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--run' && args[i + 1]) { i++; }          // run_dir: 仅契约占位, 不写
   else if (args[i] === '--idx' && args[i + 1]) { idx = Number(args[++i]); }
+  else if (args[i] === '--family' && args[i + 1]) { family = args[++i]; }
 }
 
 let raw = '';
@@ -31,7 +33,7 @@ try { history = (JSON.parse(raw || '{}').history) || []; } catch (_) { history =
 
 // 空历史(首轮) → 无可反思的失败信号；输出空 findings（保持管线可跑通）。
 if (!history.length) {
-  process.stdout.write(JSON.stringify({ reflector: idx, findings: [] }));
+  process.stdout.write(JSON.stringify({ reflector: idx, findings: [], family }));
   process.exit(0);
 }
 
@@ -44,9 +46,9 @@ const prompt =
   'Return ONLY JSON: {"findings":["<finding 1>","<finding 2>", ...]} (0-5 findings).\n\n' +
   'RUN HISTORY (read-only):\n' + JSON.stringify(history, null, 2) + '\n';
 
-const out = launchClaude(['--allowed-tools', 'WebSearch', '--model', 'sonnet'], prompt);
+const out = launch(family, { tools: 'web_search', model: family === 'codex' ? undefined : 'sonnet' }, prompt);
 if (!out.ok) {
-  process.stdout.write(JSON.stringify({ reflector: idx, findings: [] }));
+  process.stdout.write(JSON.stringify({ reflector: idx, findings: [], family }));
   process.exit(0);  // 降级: 空 findings, 不让单个 reflector 失败拖垮 fanout
 }
 
@@ -58,5 +60,5 @@ try {
   }
 } catch (_) { findings = []; }
 
-process.stdout.write(JSON.stringify({ reflector: idx, findings }));
+process.stdout.write(JSON.stringify({ reflector: idx, findings, family }));
 process.exit(0);
