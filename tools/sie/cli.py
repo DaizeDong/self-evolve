@@ -57,6 +57,8 @@ def main(argv: list[str] | None = None) -> int:
                        help="反思: serial(M1a,默认) | parallel(N=3 MARS 真 Claude)")
     p_run.add_argument("--live", action="store_true",
                        help="便捷开关: 等价 --proposer llm --reflect-mode parallel(真 agent 闭环)")
+    p_run.add_argument("--single", action="store_true",
+                       help="降级: 关闭每阶段 codex&claude 双重校验(默认开), 仅 claude 单跑")
 
     # status
     p_st = sub.add_parser("status", help="Print run status")
@@ -104,6 +106,15 @@ def main(argv: list[str] | None = None) -> int:
             _candidate_worktree = _boot["candidate_worktree"]
         _proposer = "llm" if args.live else args.proposer
         _reflect_mode = "parallel" if args.live else args.reflect_mode
+        # 每阶段 codex&claude 双重校验默认开; --single 显式关。
+        # 跑前预检 codex: 不可用则提醒 + 自动降级单跑(不硬失败)。
+        from tools.sie import agents as _agents
+        _dual, _warn = _agents.preflight_dual(dual_requested=not args.single)
+        if _warn:
+            print(_warn, file=sys.stderr)
+        elif _dual:
+            print("✓ 每阶段 codex&claude 双重校验已启用(2× 调用)。--single 可降级单跑。",
+                  file=sys.stderr)
         summary = run_loop(
             args.target,
             args.base_ref,
@@ -115,6 +126,7 @@ def main(argv: list[str] | None = None) -> int:
             candidate_worktree=_candidate_worktree,
             proposer=_proposer,
             reflect_mode=_reflect_mode,
+            dual=_dual,
         )
         print(json.dumps(summary, ensure_ascii=False))
         return 0
