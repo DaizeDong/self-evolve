@@ -1,0 +1,20 @@
+{
+  "name": "self-evolve",
+  "version": "0.1.0",
+  "description": "Point an agent at any skill / repo / project and have it self-iterate inside a git worktree sandbox over multiple rounds, behind an un-gameable acceptance gate so accepted means real improvement rather than a self-deceiving score-up-but-capability-flat curve. Methodology stays constant (reflect, propose, evaluate, judge, accept) while the evaluation signal adapts across three providers: A program adjudication (run tests), B anchor verification (independently checkable facts via URL/SEC/EDGAR/reproducible commands), and C generative evaluation (harness-generated scenarios scored blind by heterogeneous judges, Claude and Codex). Closes six concrete self-deception paths (grader tampering, un-verifiable anchors, holdout overfit, judge collusion, correlated-anchor e-value inflation, covert outbound exfil) with an anytime-valid PACE acceptor, IMMUTABLE decision-code isolation for self-bootstrapping, and crash-replay determinism.",
+  "author": { "name": "DaizeDong" },
+  "homepage": "https://github.com/DaizeDong/self-evolve",
+  "license": "MIT",
+  "keywords": [
+    "self-improving-agents",
+    "self-evolving-agents",
+    "agent-evolution",
+    "reward-hacking",
+    "ai-safety",
+    "evals",
+    "reflection",
+    "autonomous-agents",
+    "mcp",
+    "skill"
+  ]
+}

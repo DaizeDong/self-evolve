@@ -1,108 +1,121 @@
 # self-evolve
 
-> A methodology skill + lightweight deterministic harness that lets an agent **self-iterate any
-> skill / repo / project**, with an **un-gameable acceptance gate** so "accepted = real improvement"
-> — not a self-deceiving score-up-but-capability-flat curve. Built for the hard case the
-> self-improving-agent literature mostly skips: **open-ended generation domains with no ground truth.**
+Point an agent at any skill / repo / project and have it self-iterate — behind an un-gameable acceptance gate so "accepted = real improvement," not a self-deceiving score-up-but-capability-flat curve.
 
 [![Claude Code Skill](https://img.shields.io/badge/Claude%20Code-Skill-orange?style=flat)](https://docs.anthropic.com/en/docs/claude-code)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-521%20passing-green?style=flat)](tests/)
-[![Anti-self-deception](https://img.shields.io/badge/anti--self--deception-6%20paths%20closed-red?style=flat)](SKILL.md)
-[![Sister skill](https://img.shields.io/badge/sister-market--intel-yellow?style=flat)](https://github.com/DaizeDong/market-intel)
+[![Anti-self-deception](https://img.shields.io/badge/anti--self--deception-6%20paths%20closed-green?style=flat)](SKILL.md)
+[![Languages](https://img.shields.io/badge/Languages-EN%20%2F%20CN-blue?style=flat)](#languages)
+[![Roadmap](https://img.shields.io/badge/Roadmap-v0.1.0-purple?style=flat)](ROADMAP.md)
 
-*English summary above · 完整中文文档如下。*
+[English](README.md) | [中文版](README_CN.md)
 
 ---
 
-让 agent **自我迭代开发任意 skill / 仓库 / 项目**的方法论 skill + 轻量确定性 harness。
-核心目标是**反自欺**：在长时间全自动循环里改进目标时，用不可 game 的提交门保证
-「被采纳 = 真改进」，而非分数涨、能力不涨的虚假上升曲线。
+## ⭐ Read this first — the design philosophy
 
-闭环形态：**读历史 trace → 多 subagent 独立反思 → 汇总修改方案 → 改目标 + 复查 →
-沙箱内可验证评测 + 不可 game 的接受门 → 多路迭代直到达标**，采纳的版本进 archive
-lineage，出沙箱的落地动作走人审。
+Most self-improving-agent work succeeds only in **verifiable domains** — code, math, anything with ground truth. The hard, mostly-skipped case is **open-ended generation with no ground truth**, where "I improved" can be asserted but not checked. Stack "set your own task + grade your own work" on top of that, and the literature says you almost always get a **fake upward curve**: the score rises while capability stays flat.
 
-## 当前状态
+self-evolve is built for exactly that gap. Its guiding stance:
 
-**实现完成 — 安全/裁决骨架全部建成并测试，ship-ready 框架。**
+- **The methodology is constant; the signal source adapts.** The loop is always `reflect → propose → evaluate → judge → accept`. The only thing that changes per target is *where the evaluation signal comes from*.
+- **Run it if you can, verify it if you can, otherwise generate scenarios and let heterogeneous judges score — so no target is un-evolvable.** Three signal providers (A program adjudication, B anchor verification, C generative evaluation) implement the same `evaluate` contract; you take the strongest available and fall back downward — the floor always exists.
+- **LLM proposes, code adjudicates.** Accept / reject / rollback / signal-source selection are all decided by deterministic harness code. The model never grades its own output.
+- **Anti-self-deception is the whole point.** Six concrete cheating paths are closed (see the table below), because in a long fully-automatic loop "accepted" must mean real, not self-flattering.
 
-- 52 任务 / 5 里程碑 / **521 测试通过**（2 个 confseq 用例按环境跳过）。
-- 全分支终审通过：跨任务整合自洽、反自欺六路径全闭合、自举安全四铁律端到端守。
+Full philosophy: [`docs/philosophy.md`](docs/philosophy.md) · design specs and rationale in [`docs/superpowers/`](docs/superpowers/).
 
-> ✅ **成熟度**：裁决 / 门控 / 反自欺 / 自举隔离 / crash-replay 全部真实可用，**生成式
-> LLM 接缝也已接通真 agent 并 live 验证**——proposer / reflector / 两个 judge 走本机
-> `cc`（split-billing 网关，fallback `claude`）+ `codex` CLI：
-> ① propose（`backends/llm.py` + `claude-propose.js`）— live 生成正确代码修复；
-> ② reflect / review fanout（`workflows/*-fanout.js`）— live N=3 并行 MARS；
-> ③ C 档异质 judge（`claude-judge.js` + `codex-judge.js`）— live 双家族评分 + pairwise。
-> 默认 `builtin` / `serial`（确定性，521 测试用，不调外部）；`--live`（= `--proposer llm
-> --reflect-mode parallel`）开真 agent 闭环。注：纯 A 档自动 ACCEPT 需"改后更多测试通过"
-> 的改进空间（绿基线无此空间，按设计），真正的开放域改进信号在 B / C 质量档。
+## What it is (and isn't)
 
-## 这是什么
+A **methodology skill + lightweight deterministic harness** that lets an agent self-iterate any skill / repo / project inside a `git worktree` sandbox over multiple rounds, with an un-gameable commit gate. It belongs to the **Self-Evolving / Self-Improving Agents** family (the "agent improves its own skill / scaffolding" branch), stitching together ideas from **DGM + SICA + MARS + OMNI + PACE** and adding the guardrails the literature lacks for open, no-ground-truth generation domains: verification-anchor + anytime-valid acceptor + heterogeneous judges + adversarial co-evolution.
 
-属于 **Self-Evolving / Self-Improving Agents** 中「agent 自动改进自己的 skill /
-scaffolding」一支，思路上缝合 **DGM + SICA + MARS + OMNI + PACE**，并针对**无
-ground-truth 的开放生成域**补齐护栏（文献里自改进成功几乎都在代码 / 数学等可验证
-域）——这正是本项目要填的真空白：在开放域上把 verification-anchor + anytime-valid
-acceptor + 异构 judge + 对抗式协同进化缝合起来。
+It is **not** a magic "make my repo better" button, and **not** a tool that ships changes for you. Everything fully automatic happens inside the sandbox; anything that leaves the sandbox (push / merge to main / outbound send) goes through a separate human-review subflow.
 
-## 反自欺主线（六路径全闭合）
+**Anti-self-deception (six paths closed):**
 
-| candidate 自欺路径 | 防御 |
+| candidate self-deception path | defense |
 |---|---|
-| 改 grader / judge 自评 | IMMUTABLE 决策码清单 + frozen 物化 + 启动哈希 fail-closed + patch 硬拒门 + supervisor 双进程裁决（candidate 永不进 sys.path、不裁决 / 不评分自己） |
-| 塞无法核验的"锚" | verify_anchor（EDGAR 程序化核查）+ marginal_gain 未核验恒 0 |
-| holdout 过拟合 | holdout 真值物理隔离（铁律5）+ 确定性拆分 + 背离闸 + 累计漂移预算 |
-| judge 合谋 | 异构 judge（Claude + Codex，强制不同模型家族）+ pairwise_agreement + judge↔锚校准（只用 holdout 锚） |
-| 相关锚虚高 e-value | effective_independent_count 同源去相关（8→4）+ 独立性下限门 |
-| 出站隐蔽信道 exfil | proxy harness 代发（candidate 无 URL 构造权）+ 熵 / 编码 / 序列异常审查 |
+| edit the grader / judge to grade itself | IMMUTABLE decision-code manifest + frozen materialization + startup-hash fail-closed + patch hard-reject gate + supervisor dual-process adjudication (candidate never enters `sys.path`, never adjudicates / grades itself) |
+| inject an un-verifiable "anchor" | `verify_anchor` (programmatic EDGAR check) + `marginal_gain` is 0 until verified |
+| overfit the holdout | holdout ground truth physically isolated (iron law 5) + deterministic split + divergence gate + cumulative drift budget |
+| judge collusion | heterogeneous judges (Claude + Codex, forced different model families) + `pairwise_agreement` + judge↔anchor calibration (holdout anchors only) |
+| inflated e-value from correlated anchors | `effective_independent_count` same-source de-correlation (8→4) + independence floor gate |
+| covert outbound exfil channel | proxy harness relays sends (candidate has no URL-construction power) + entropy / encoding / sequence anomaly review |
 
-## 里程碑
+## Install
 
-| 里程碑 | 内容 |
-|---|---|
-| **M1a** | 确定性状态机 harness：10 态 run_loop、events.jsonl append-only 真相源 + crash-replay、git worktree 沙箱、三正交计数器 |
-| **M1b** | PACE e-process acceptor（反自欺命门，type-I ≤ α 验证、ONS 回退）、AST 危险门、变异有效性门、非阻塞人审队列、熔断 + 活性 |
-| **M2** | B 档外部锚（extract / coverage / 去相关 / 确定性 holdout / EDGAR verify / EVE 边际增益）、acceptor 三门、selfdeception holdout 背离、出站 proxy 反 exfil |
-| **M3** | C 档异质 judge（Claude + Codex）、pairwise_agreement、judge↔锚校准、自欺多闸、双向 α 门、纯 C 强制人审、Pareto 硬维门、N=3 MARS、BenchTrace |
-| **M4** | 自举隔离：IMMUTABLE 清单 + frozen、启动哈希门、patch 硬拒、supervisor 双进程裁决、自举 frozen grader、`--self` 端到端 |
-
-## 用法
-
-```bash
-# 对任意有 git 历史的目标仓库启动一次自迭代 run（沙箱内全自动）
-python -m tools.sie.cli init  --target <目标仓库绝对路径>                       # 取 run_id
-python -m tools.sie.cli run   --target <目标> --run-id <id> --base-ref HEAD --max-rounds 3
-python -m tools.sie.cli status   --target <目标> --run-id <id>                 # 查看状态
-python -m tools.sie.cli replay   --target <目标> --run-id <id>                 # 崩溃后从 events 重建
-python -m tools.sie.cli rollback --target <目标> --run-id <id> --vid <vid>
-# 自举（改 self-evolve 自身，开 IMMUTABLE enforce）
-python -m tools.sie.cli run --target <self-evolve 自身> --run-id <id> --self --enforce-immutable
+```
+/plugin install github:DaizeDong/self-evolve
 ```
 
-斜杠命令（需先把本仓库 junction / 部署到 `~/.claude/skills/self-evolve`）：
-`/self-evolve <target>`、`/self-evolve-status <run_id>`、`/self-evolve-resume <run_id>`。
+Or clone manually:
 
-铁律、门控序列、各档与锚的契约见 [`SKILL.md`](SKILL.md) 与 [`reference/`](reference/)。
+```bash
+git clone https://github.com/DaizeDong/self-evolve.git ~/.claude/plugins/self-evolve
+```
 
-## 研究溯源（调研原始数据已入库）
+## Quick start
 
-- 📄 [`docs/自改进Agent调研.md`](docs/自改进Agent调研.md) — 全景调研：方向定位、论文全清单、可复用开源仓库、缺口分析、护栏设计。
-- 📄 [`docs/02-crossval-deepdive.md`](docs/02-crossval-deepdive.md) — market-intel 学术工具链交叉验证 + 2026 新论文深读（引用硬信号、ICLR 2026 RSI、14 篇新论文）；原始数据在 [`docs/data/`](docs/data/)（arXiv 扫描 XML + S2 引用 JSON）。
-- 📄 [`docs/superpowers/specs/`](docs/superpowers/specs/) — 设计规格（铁律、反自欺机制）。
-- 📄 [`docs/superpowers/plans/`](docs/superpowers/plans/) — 52 任务实施计划。
-- 📄 [`docs/superpowers/SDD-progress-ledger.md`](docs/superpowers/SDD-progress-ledger.md) — 全程进度账本（每任务摘要 + 复查 + 终审）。
+Run one self-iteration round against any git-history target repo (fully automatic inside the sandbox):
 
-## 核心设计风险（来自调研，已由架构闭合）
+```bash
+# initialize a run (returns a run_id)
+python -m tools.sie.cli init   --target <absolute path to target repo>
 
-被优化对象是**无 ground-truth 的开放生成任务**时，叠加「自出题 + 自评分」的 self-judge
-结构按文献几乎注定产出虚假上升曲线。本项目的全部反自欺机制（见上表）正是为闭合此风险
-而设计；详见调研报告 §5–§7 与设计规格。
+# run the loop
+python -m tools.sie.cli run    --target <target> --run-id <id> --base-ref HEAD --max-rounds 3
 
-## 直接复用 / 思路来源
+# inspect / recover
+python -m tools.sie.cli status   --target <target> --run-id <id>     # current state
+python -m tools.sie.cli replay   --target <target> --run-id <id>     # rebuild from events after a crash
+python -m tools.sie.cli rollback --target <target> --run-id <id> --vid <vid>
 
-GEPA（反思 + 遗传 + Pareto）、OpenEvolve（AlphaEvolve 开源复现）、OpenSkill（从外部抽
-verification anchor）、MOSS（重放 + health-probe 回滚）、meta-agent-challenge（防
-reward-hacking harness）、PACE（anytime-valid acceptor）、edgartools（EDGAR 外部真值源）。
+# self-bootstrap (evolve self-evolve itself, with IMMUTABLE enforcement on)
+python -m tools.sie.cli run --target <self-evolve itself> --run-id <id> --self --enforce-immutable
+```
+
+Default mode is `builtin` / `serial` (deterministic, used by the 521 tests, no external calls). `--live` (= `--proposer llm --reflect-mode parallel`) opens the real-agent closed loop: proposer / reflector / two judges go through the local `cc` gateway (split-billing, fallback `claude`) + the `codex` CLI.
+
+## How to invoke
+
+Slash commands (deploy the repo to `~/.claude/skills/self-evolve` first, e.g. via a junction):
+
+```
+/self-evolve <target>            # start a self-iteration run against a target
+/self-evolve-status <run_id>     # check run state
+/self-evolve-resume <run_id>     # resume an existing run
+```
+
+Iron laws, the gate sequence, and the per-tier / per-anchor contracts are in [`SKILL.md`](SKILL.md) and [`reference/`](reference/).
+
+## Example output
+
+The loop is a 10-state gated state machine collapsed into six intuitive verbs:
+
+```
+              ┌──────────────────── one iteration ───────────────────┐
+  PROFILE ──► REFLECT ──► PROPOSE ──► PATCH ──► EVALUATE ──► JUDGE ──┐
+  (fix signal) (read hist) (propose)  (sandbox)  (get signal)(adjudge)│
+     │                                              accept/reject/rollback
+     └──────────────────◄── LOOP ◄───────────────────────────────────┘
+                              │  self-deception/breaker hit → PAUSE(human) → STOP
+```
+
+Accepted versions enter an archive lineage; anything that leaves the sandbox goes to human review. See [`examples/`](examples/) for sample runs.
+
+## Limitations
+
+- Pure A-tier auto-ACCEPT needs headroom of "more tests pass after the change" — a green baseline has none (by design), so the real open-domain improvement signal lives in the B / C quality tiers.
+- The current code treats purely subjective C conservatively (`coverage=0`, low weight, defaults to human review); full A/B↔C accept-parity is the scenario-eval module's design / landing direction, not yet fully landed.
+- Everything automatic is sandbox-only; landing actions (push / merge / outbound) always require the human-review subflow.
+
+## Languages
+
+English (`README.md`, authoritative) · 中文 ([`README_CN.md`](README_CN.md))
+
+## Roadmap · Changelog · License
+
+See [ROADMAP.md](ROADMAP.md) · [CHANGELOG.md](CHANGELOG.md) · [LICENSE](LICENSE) (MIT).
+
+Sister skill: [market-intel](https://github.com/DaizeDong/market-intel) — the academic toolchain cross-validation in [`docs/02-crossval-deepdive.md`](docs/02-crossval-deepdive.md) feeds this project's guardrail design.
