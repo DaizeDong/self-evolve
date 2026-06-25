@@ -1,3 +1,8 @@
+---
+name: self-evolve
+description: "Use to autonomously self-improve a skill/repo via reflect/propose/evaluate/judge/accept behind an un-gameable eval gate. Triggers: self-evolve, 自迭代/进化 skill, 优化仓库."
+---
+
 # self-evolve (SKILL)
 
 指向任意 skill / 仓库 / 项目，在 git worktree 沙箱内多轮自动改进它，用不可 game 的
