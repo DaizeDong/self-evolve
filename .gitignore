@@ -17,6 +17,10 @@ env/
 *.local
 settings.local.json
 .credentials.json
+secrets/
+*.key
+*.pem
+*.cred
 
 # Runtime / logs / artifacts
 logs/
