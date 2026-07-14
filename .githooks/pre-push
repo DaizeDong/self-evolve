@@ -1,19 +1,27 @@
 #!/bin/sh
-# pii_guard pre-push -- the gate that actually matters: tree + EVERY commit reachable from any ref
-# (blobs, messages, author/committer identity).
+# pii_guard pre-push -- the local backstop: tree + EVERY commit reachable from any ref (blobs,
+# messages, author/committer identity).
 #
-# This is the boundary the 2026-07 leaks crossed. They were each "fixed" by editing the file, so the
-# tree was clean at push time and the commit that introduced the PII went to GitHub anyway. A guard
-# that only looks at the tree would have passed every single one of them.
+# This is the boundary the 2026-07 leaks crossed. Each was "fixed" by editing the file, so the tree
+# was clean at push time and the commit that introduced the PII went to GitHub anyway. A guard that
+# only looked at the tree would have waved every single one of them through.
 #
-# It is also the boundary where an agent can fool itself: `pytest -q && git push` reports the push's
-# exit code, so a FAILING test still ships. A hook cannot be masked that way -- git refuses the push.
+# It is also where an agent fools itself: `pytest -q && git push` reports the PUSH's exit code, so a
+# failing test still ships. A hook cannot be masked that way.
+#
+# Output is captured, not piped -- see the note in pre-commit. A verdict that a caller's `| head`
+# can destroy is not a verdict. Belt and braces: the same guard runs in CI (.github/workflows/
+# pii-guard.yml), which no local shell quirk and no --no-verify can reach.
 GUARD="$(git rev-parse --show-toplevel)/tools/pii_guard.py"
 [ -f "$GUARD" ] || exit 0
 PY=$(command -v python || command -v python3 || command -v py) || exit 0
-"$PY" "$GUARD" --tree --history || {
-    echo ""
-    echo "push BLOCKED by pii_guard: real private data would become public and permanent."
-    echo "A file edit is NOT a fix once it is in a commit -- rewrite the history (git filter-repo)."
-    exit 1
-}
+
+out=$("$PY" "$GUARD" --tree --history 2>&1)
+rc=$?
+[ "$rc" -eq 0 ] && exit 0
+
+printf '%s\n' "$out"
+echo ""
+echo "push BLOCKED by pii_guard: real private data would become public and permanent."
+echo "A file edit is NOT a fix once it is in a commit -- rewrite the history (git filter-repo)."
+exit 1

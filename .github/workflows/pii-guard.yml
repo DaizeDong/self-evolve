@@ -1,0 +1,40 @@
+# pii_guard in CI -- the authority.
+#
+# The local hooks are a fast fail, not a guarantee. On 2026-07-13 a pre-commit hook printed its
+# findings and let the commit through anyway, because the caller had piped `git commit` into `head`
+# and the severed pipe destroyed the guard's exit status. A local hook can also be skipped with
+# --no-verify, is not installed on a fresh clone until someone runs the installer, and does not exist
+# at all for a contributor.
+#
+# This runs on GitHub, on every push and every PR, and it cannot be reached by any of that. If a leak
+# gets past the desk, this is what turns it from a silent permanent exposure into a red X.
+#
+# Note it runs WITHOUT the operator's private denylist (that file never leaves their machine). That
+# is the whole point of the allowlist design: the structural checks -- a mailbox at a consumer
+# provider, a real phone, a home ZIP, a non-noreply commit author, anything outside the declared
+# synthetic namespace -- need no private data to work, so they work here too.
+name: pii-guard
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # the history scan is the point; a shallow clone would see nothing
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Guard's own tests (does it still catch the leaks it was built for?)
+        run: |
+          python -m pip install --quiet pytest
+          python -m pytest tools/test_pii_guard.py -q
+
+      - name: Scan working tree + full history
+        run: python tools/pii_guard.py --tree --history
