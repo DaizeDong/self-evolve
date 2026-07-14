@@ -1,0 +1,19 @@
+#!/bin/sh
+# pii_guard pre-push -- the gate that actually matters: tree + EVERY commit reachable from any ref
+# (blobs, messages, author/committer identity).
+#
+# This is the boundary the 2026-07 leaks crossed. They were each "fixed" by editing the file, so the
+# tree was clean at push time and the commit that introduced the PII went to GitHub anyway. A guard
+# that only looks at the tree would have passed every single one of them.
+#
+# It is also the boundary where an agent can fool itself: `pytest -q && git push` reports the push's
+# exit code, so a FAILING test still ships. A hook cannot be masked that way -- git refuses the push.
+GUARD="$(git rev-parse --show-toplevel)/tools/pii_guard.py"
+[ -f "$GUARD" ] || exit 0
+PY=$(command -v python || command -v python3 || command -v py) || exit 0
+"$PY" "$GUARD" --tree --history || {
+    echo ""
+    echo "push BLOCKED by pii_guard: real private data would become public and permanent."
+    echo "A file edit is NOT a fix once it is in a commit -- rewrite the history (git filter-repo)."
+    exit 1
+}

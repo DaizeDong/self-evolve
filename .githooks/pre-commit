@@ -1,0 +1,13 @@
+#!/bin/sh
+# pii_guard pre-commit -- fast gate: the git-tracked working tree only.
+# The expensive full-history scan runs in pre-push; this one just has to be fast enough that nobody
+# is tempted to pass --no-verify.
+GUARD="$(git rev-parse --show-toplevel)/tools/pii_guard.py"
+[ -f "$GUARD" ] || exit 0          # guard not vendored into this repo yet: do not block
+PY=$(command -v python || command -v python3 || command -v py) || exit 0
+"$PY" "$GUARD" --tree || {
+    echo ""
+    echo "pre-commit BLOCKED by pii_guard. Do not use --no-verify to get around it:"
+    echo "once this reaches a commit, the fix stops being an edit and becomes a history rewrite."
+    exit 1
+}
