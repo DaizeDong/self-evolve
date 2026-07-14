@@ -128,6 +128,32 @@ def test_private_denylist_catches_a_vendor_no_structural_rule_could_predict():
     assert {v for k, v in found if k == "PRIVATE-DENYLIST"} == {"jane roe", "vendorco"}
 
 
+def test_a_denylisted_first_name_does_not_match_inside_an_ordinary_word():
+    """A short given name is a substring of ordinary English. A denylisted name matched inside a CSS
+    colour keyword in a minified JS bundle and turned a personal homepage red. False positives are
+    not a nuisance here -- they are how a gate dies: it cries wolf on something harmless, someone
+    reaches for --no-verify, and from then on it guards nothing. Alphabetic tokens are word-bounded;
+    the real name is still caught."""
+    assert not kinds("border:1px solid primrose; color:rosewood", deny=["rose"])
+    assert "PRIVATE-DENYLIST" in kinds("meeting with Rose on Friday", deny=["rose"])
+
+
+def test_a_digit_bearing_token_stays_a_raw_substring():
+    """Phones/ZIPs/account slugs sit flush against punctuation (`"ship to 07030","x"`); a word
+    boundary there would only cause misses."""
+    assert "PRIVATE-DENYLIST" in kinds('detail":"ship to 07030","x"', deny=["07030"])
+
+
+def test_pii_allow_cannot_silence_the_private_denylist():
+    """The escape hatch exists for third-party CORPORATE identifiers. If it could also suppress the
+    operator's OWN tokens, then appending their phone number to .pii-allow would be a one-line way to
+    reopen the exact hole this whole thing exists to close. The denylist runs first and ignores
+    .pii-allow entirely."""
+    found = scan("call 201-555-0100 about jane roe", allow=["jane roe", "201-555-0100"],
+                 deny=["jane roe"])
+    assert ("PRIVATE-DENYLIST", "jane roe") in found
+
+
 def test_author_email_rule_rejects_any_real_mailbox_and_accepts_noreply():
     """The deepest leak: the real Gmail was stamped on the AUTHOR line of ~every commit of 13 public
     repos. No file scan of any kind would ever have seen it."""
