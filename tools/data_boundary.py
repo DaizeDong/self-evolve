@@ -7,10 +7,11 @@ pii_guard is a sieve at the exit: it reads what you are about to publish and loo
 smell private. It works, and it has caught real leaks. But it is the wrong primary control, because
 it accepts the premise that real data is flowing toward the exit at all.
 
-The 2026-07 audit found the operator's real research verdicts, real
-purchases, a real shipping ZIP and a real social handle sitting in PUBLIC repos -- not because anyone
-pasted them into a doc, but because the skills WROTE them there during real runs. `metrics/*.jsonl`
-was append-only telemetry of the operator's actual life, git-tracked, on GitHub.
+The 2026-07 audit found real-run output sitting in PUBLIC repos -- a research skill's verdict ledger,
+a shopping skill's purchase records, a social skill's posting account -- not because anyone pasted it
+into a doc, but because the skills WROTE it there during real runs. `metrics/*.jsonl` was append-only
+telemetry of the operator's actual life, git-tracked, on GitHub. (What it recorded was his; the point
+here is the mechanism, so the specifics stay out of this file.)
 
 These repos already had a private-companion-config boundary. It only ever covered INPUTS -- the
 credentials, the mailboxes, the account slugs. Nothing covered OUTPUTS: what the skill LEARNED from a

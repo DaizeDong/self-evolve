@@ -3,11 +3,12 @@
 
 WHY THIS EXISTS (read before changing it)
 -----------------------------------------
-These repos are authored by an agent that is simultaneously looking at the operator's real inbox,
-real purchases, real employer. When it needs an example, the nearest example is the operator's real
-life. In 2026-07 that produced real PII in five public repos: a phone number, a home ZIP, an
-employer, a health-provider name, a social handle -- plus the operator's real Gmail
-stamped on the author line of nearly every commit.
+These repos are authored by an agent that is simultaneously looking at the operator's real private
+data. When it needs an example, the nearest example is that real data. In 2026-07 that produced real
+PII in several public repos across a range of categories -- contact details, a home location, an
+employer name, a health-provider name, a social handle -- plus the operator's real email stamped on
+the author line of nearly every commit. (The categories are named here only to show the guard's
+coverage; the specifics belong to the operator and are deliberately kept out of this file.)
 
 Each of those was "fixed" at the time by editing the offending FILE. The working tree went clean and
 the commit that introduced it stayed on GitHub forever. That is the failure this guard exists to make
@@ -100,7 +101,7 @@ EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9][A-Za-z0-9.\-]*\.[A-Za-z
 # or parens) to keep the false-positive rate survivable.
 PHONE_RE = re.compile(r"(?<![\w.])(?:\+?1[\s.\-])?\(?([2-9]\d{2})\)?[\s.\-]([2-9]\d{2})[\s.\-](\d{4})(?![\w.])")
 # A bare 5-digit number is unusable as a signal (dates, ids, hashes). Only flag a ZIP where the text
-# says it is one -- which is exactly the shape the operator's home ZIP arrived in ("ship to NJ <zip>").
+# says it is one -- which is the shape a real home ZIP arrives in ("ship to <state> <zip>").
 ZIP_RE = re.compile(r"(?:\bZIP\b|\bzip\b|邮编|\bship(?:ping)?\s+to\b|\bdeliver\s+to\b)[^\n]{0,24}?\b([0-9]{5})\b")
 
 # Python decorators read as emails to the regex: a diff line `+@pytest.mark.xfail` scans as

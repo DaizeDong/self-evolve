@@ -3,10 +3,10 @@
 
 These skills already had a private-companion-config boundary, and it worked. But it only ever
 covered INPUTS: the credentials, the mailboxes, the account slugs. Nothing covered OUTPUTS -- what
-the skill LEARNED from a real run. So `track_forward.py` appended the operator's actual stock
-verdicts (ticker, entry date, entry price; hundreds of them) to `metrics/verdicts.jsonl`, and
-`metrics/live-runs.jsonl` recorded what was bought and where it shipped -- straight into public
-repos, on every run, by design.
+the skill LEARNED from a real run. So a forward-tracking tool appended the operator's actual research
+verdicts (one row per decision, hundreds of them) to a git-tracked `metrics/*.jsonl`, and another
+skill's ledger recorded what was bought and where it shipped -- straight into public repos, on every
+run, by design.
 
 No content scanner catches that. There is no email in it, no phone, no ZIP. It is just the
 operator's life, correctly formatted. The fix is not a better sieve, it is a pipe that does not
