@@ -1,13 +1,25 @@
 #!/bin/sh
 # pii_guard pre-commit -- fast gate: the git-tracked working tree only.
-# The expensive full-history scan runs in pre-push; this one just has to be fast enough that nobody
-# is tempted to pass --no-verify.
+# The full-history scan runs in pre-push; this one only has to be fast enough that nobody is tempted
+# to reach for --no-verify.
+#
+# WHY THE OUTPUT IS CAPTURED INSTEAD OF PRINTED DIRECTLY (this bit is load-bearing):
+# The obvious form is `"$PY" "$GUARD" --tree || exit 1`. It has a real hole, observed on 2026-07-13:
+# run `git commit | head -8`, let the guard print more than 8 lines, and `head` closes the pipe
+# mid-write. The guard dies on the broken pipe, its exit status stops meaning what we think it means,
+# and the commit sails through -- while the findings are still on screen, so it LOOKS like it blocked.
+# A gate whose verdict can be destroyed by the caller's pager is not a gate.
+# So: capture the output, record the exit code with nothing between, and decide from the code alone.
 GUARD="$(git rev-parse --show-toplevel)/tools/pii_guard.py"
 [ -f "$GUARD" ] || exit 0          # guard not vendored into this repo yet: do not block
 PY=$(command -v python || command -v python3 || command -v py) || exit 0
-"$PY" "$GUARD" --tree || {
-    echo ""
-    echo "pre-commit BLOCKED by pii_guard. Do not use --no-verify to get around it:"
-    echo "once this reaches a commit, the fix stops being an edit and becomes a history rewrite."
-    exit 1
-}
+
+out=$("$PY" "$GUARD" --tree 2>&1)
+rc=$?
+[ "$rc" -eq 0 ] && exit 0
+
+printf '%s\n' "$out"
+echo ""
+echo "pre-commit BLOCKED by pii_guard. Do not reach for --no-verify:"
+echo "once this lands in a commit, the fix stops being an edit and becomes a history rewrite."
+exit 1
