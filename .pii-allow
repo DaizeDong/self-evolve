@@ -1,0 +1,11 @@
+# .pii-allow -- real-world identifiers this repo is ALLOWED to contain.
+#
+# One literal per line, each with a reason. This is an allowlist with a written justification: it
+# shows up in the diff and has to be argued for. That is the opposite of quietly widening a regex.
+#
+# Legitimate entries look like: a vendor's public sender address that a parser must recognize, or a
+# public support line. NEVER put the operator's own data here -- if it is theirs, it does not belong
+# in a public repo at all.
+#
+# Example:
+#   noreply@vendor.example    # the sender address the classifier fixture must match
