@@ -1,0 +1,23 @@
+{
+  "_comment": [
+    "Skill Repo Spec v1 s9 -- every path in this repo belongs to exactly one class.",
+    "TOOL    = code, SKILL.md, docs, reference data, and metrics ABOUT THE SKILL. Public.",
+    "FIXTURE = LIFELIKE test data: rows that look like real records, whose real version is",
+    "          sitting right there in the operator's life and is structurally indistinguishable.",
+    "          Must be produced by tools/make_fixtures.py -- a real record cannot be regenerated,",
+    "          so pasting one in fails at commit. (A self-evidently fake canary or an Acme mock is",
+    "          NOT lifelike and does not need a generator; the risk it guards against is a person",
+    "          reaching for a convenient REAL example, and there is no temptation to reach for a",
+    "          real value that would look obviously wrong next to FAKE_CANARY_XYZ.)",
+    "DATA    = anything a REAL RUN produced. Never git-tracked. Lives in the private companion",
+    "          config, resolved at runtime by tools/datadir.py. This repo ships only the schema.",
+    "data_sealed = a path that HELD real data, was purged, and must stay dead.",
+    "",
+    "Enforced by tools/data_boundary.py in .githooks and in CI."
+  ],
+  "_audited": "2026-07-13 -- swept for real-run output written back into this repo (every open(...,'a'), json.dump, write_text; every tracked *.jsonl / state / cache / report). This skill's writers all resolve OUTSIDE the repo, or it has no writers. No DATA-class path found. An empty list here is a CONCLUSION, not a default: it distinguishes 'audited, nothing to declare' from 'nobody has looked'.",
+  "data": [],
+  "data_sealed": [],
+  "fixture": [],
+  "_data_home": "~/.self-evolve-config/data/   (override with $SELF_EVOLVE_DATA_DIR). If this skill ever needs to record real-run output, it goes THERE -- never back into this repo."
+}

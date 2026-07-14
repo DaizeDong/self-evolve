@@ -145,18 +145,45 @@ def load_repo_allow(root):
     return allow
 
 
-def load_private_denylist():
-    """Optional extra layer: the operator's own real tokens. Never lives in a repo."""
+def load_private_denylist(root=None):
+    """Optional extra layer: the operator's own real tokens. Never lives in a repo.
+
+    A few repos publish one of these tokens ON PURPOSE -- an academic homepage exists to show your
+    contact address. Blocking edits to that line would be a false alarm on a repo the operator edits
+    by hand, and a gate that cries wolf gets --no-verify'd, at which point it guards nothing
+    anywhere. So a token can be exempted PER REPO in ~/.pii-guard/denylist-exempt.json:
+
+        { "daizedong/some.github.io": ["<token>"] }   # the homepage's own contact line
+
+    That file lives OUTSIDE every repo, on purpose. An exemption granted from inside a repo would let
+    an agent that is leaking into that repo write itself a permission slip in the same commit.
+    Structural checks are never exempted -- only these named tokens, only in that one repo.
+    """
+    toks = []
     for p in (os.environ.get("PII_DENYLIST"), os.path.expanduser("~/.pii-denylist.json")):
         if p and os.path.isfile(p):
             try:
                 with open(p, encoding="utf-8") as f:
                     data = json.load(f)
-                toks = data.get("tokens") if isinstance(data, dict) else data
-                return [str(t).lower() for t in (toks or []) if str(t).strip()]
+                raw = data.get("tokens") if isinstance(data, dict) else data
+                toks = [str(t).lower() for t in (raw or []) if str(t).strip()]
             except (OSError, ValueError):
-                return []
-    return []
+                toks = []
+            break
+    if not toks or not root:
+        return toks
+    try:
+        with open(os.path.expanduser("~/.pii-guard/denylist-exempt.json"), encoding="utf-8") as f:
+            exempt = json.load(f)
+    except (OSError, ValueError):
+        return toks
+    url = _run(["git", "remote", "get-url", "origin"], root).strip().lower().rstrip("/")
+    if url.endswith(".git"):
+        url = url[:-4]
+    parts = [p for p in url.replace(":", "/").split("/") if p]
+    key = "/".join(parts[-2:]) if len(parts) >= 2 else ""
+    drop = {str(t).lower() for t in (exempt.get(key) or [])}
+    return [t for t in toks if t not in drop]
 
 
 _DENY_RE_CACHE = {}
@@ -331,7 +358,7 @@ def main():
         a.tree = True
 
     root = _repo_root(os.path.abspath(a.repo))
-    allow, deny = load_repo_allow(root), load_private_denylist()
+    allow, deny = load_repo_allow(root), load_private_denylist(root)
 
     findings = []
     if a.tree:
