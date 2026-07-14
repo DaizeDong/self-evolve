@@ -36,5 +36,22 @@ jobs:
           python -m pip install --quiet pytest
           python -m pytest tools/test_pii_guard.py -q
 
+      # The DATA BOUNDARY -- the primary control. Runs FIRST, because it is the question that
+      # actually matters: is this repo an uninitialized tool, or does it contain somebody's life?
+      #
+      # pii_guard (below) is the backstop. It reads content and looks for things that SMELL private,
+      # which is why it was clean while a public repo held real-run output from the operator's own account
+      # and a full record of their private activity. A ticker with an entry price has no email in
+      # it, no phone, no ZIP -- nothing to smell. The scanner cannot see a leak that looks like data,
+      # so the boundary has to make the leak structurally impossible instead: no DATA-class path is
+      # tracked, every declared DATA path ships only a schema, and every FIXTURE must be byte-
+      # identical to what its generator emits -- because a real record cannot be regenerated.
+      #
+      # A repo that has not declared .dataclass.json exits 0 here (no-op), so this is safe to ship
+      # everywhere and tightens as each repo declares its classes.
+      - name: Data boundary (is this an uninitialized tool?)
+        run: |
+          if [ -f tools/data_boundary.py ]; then python tools/data_boundary.py; fi
+
       - name: Scan working tree + full history
         run: python tools/pii_guard.py --tree --history

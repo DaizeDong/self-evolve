@@ -1,25 +1,55 @@
 #!/bin/sh
-# pii_guard pre-commit -- fast gate: the git-tracked working tree only.
-# The full-history scan runs in pre-push; this one only has to be fast enough that nobody is tempted
-# to reach for --no-verify.
+# PER-REPO pre-commit -- the STRICT gate, for a repo we own and have cleaned.
+# (Enable with: git config core.hooksPath .githooks -- local config, so every clone must run the
+#  installer once. CI does not depend on it.)
+#
+# Scope: the whole git-tracked tree, under the full synthetic-namespace rule -- nothing that merely
+# LOOKS like a real-world identifier gets in, including a vendor nobody anticipated. That is stricter
+# than the machine-wide hook (the global hook), which only checks the staged
+# diff for breach classes because it also has to run in forks and research code without nagging.
 #
 # WHY THE OUTPUT IS CAPTURED INSTEAD OF PRINTED DIRECTLY (this bit is load-bearing):
-# The obvious form is `"$PY" "$GUARD" --tree || exit 1`. It has a real hole, observed on 2026-07-13:
+# The obvious form is `"$PY" "$GUARD" --tree || exit 1`. It has a real hole, observed 2026-07-13:
 # run `git commit | head -8`, let the guard print more than 8 lines, and `head` closes the pipe
 # mid-write. The guard dies on the broken pipe, its exit status stops meaning what we think it means,
 # and the commit sails through -- while the findings are still on screen, so it LOOKS like it blocked.
-# A gate whose verdict can be destroyed by the caller's pager is not a gate.
-# So: capture the output, record the exit code with nothing between, and decide from the code alone.
-GUARD="$(git rev-parse --show-toplevel)/tools/pii_guard.py"
+# A gate whose verdict the caller's pager can destroy is not a gate. So: capture the output, record
+# the exit code with nothing in between, and decide from the code alone.
+ROOT="$(git rev-parse --show-toplevel)"
+GUARD="$ROOT/tools/pii_guard.py"
+BOUNDARY="$ROOT/tools/data_boundary.py"
 [ -f "$GUARD" ] || exit 0          # guard not vendored into this repo yet: do not block
 PY=$(command -v python || command -v python3 || command -v py) || exit 0
 
 out=$("$PY" "$GUARD" --tree 2>&1)
 rc=$?
+if [ "$rc" -ne 0 ]; then
+  printf '%s\n' "$out"
+  echo ""
+  echo "pre-commit BLOCKED by pii_guard. Do not reach for --no-verify:"
+  echo "right now the fix is an edit; after this commit it is a history rewrite."
+  exit 1
+fi
+
+# The DATA BOUNDARY -- the primary control, of which pii_guard is only the backstop.
+#
+# pii_guard reads what you are about to publish and looks for things that SMELL private. That
+# accepts the premise that real data is flowing toward the exit at all, and it is why the 2026-07
+# audit found real-run output from a private account in public repos: a ticker with
+# an entry price contains no email, no phone, no ZIP. Nothing to smell. The scanner was clean and
+# the repo was full of somebody's life.
+#
+# So this check asks the structural question instead: is any DATA-class path in the index? A public
+# skill repo is an UNINITIALIZED TOOL -- real-run output lives in the private companion config, and
+# an agent writing this repo has nothing real within reach to copy. No manifest -> exits 0, so this
+# is a no-op in repos that have not declared their classes yet.
+[ -f "$BOUNDARY" ] || exit 0
+out=$("$PY" "$BOUNDARY" 2>&1)
+rc=$?
 [ "$rc" -eq 0 ] && exit 0
 
 printf '%s\n' "$out"
 echo ""
-echo "pre-commit BLOCKED by pii_guard. Do not reach for --no-verify:"
-echo "once this lands in a commit, the fix stops being an edit and becomes a history rewrite."
+echo "pre-commit BLOCKED by data_boundary. The fix is never to git-add it anyway:"
+echo "move the file to the private store and let tools/datadir.py resolve it."
 exit 1
