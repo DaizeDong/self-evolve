@@ -11,9 +11,9 @@ of the same shape exercises exactly the same code path, and this test file -- un
 replaces -- carries no PII and is safe to vendor into every public repo. A test suite that had to
 embed the real leaks to test for them would just be the leak again, one directory over.
 
-The one thing that CANNOT be structural is a vendor nobody anticipated (a private proper noun, a
-private organization). That is what the optional private layer is for, and it is tested through the
-mechanism, never through its contents.
+The one thing that CANNOT be structural is a proper noun nobody anticipated -- an ordinary word
+that happens to be a private name in this operator's life. That is what the optional private layer
+is for, and it is tested through the mechanism, never through its contents.
 
 Run: python -m pytest test_pii_guard.py -q
 """
@@ -70,7 +70,7 @@ def test_catches_a_real_mailbox_in_a_commit_message_trailer():
 
 
 def test_catches_a_real_account_handle():
-    """market-intel: a live-run metric recorded the real social account the skill posts from."""
+    """A live-run metric recorded a real social-account handle the skill posts from."""
     assert ("EMAIL", "realhandle@mastodon.social") in scan(
         "account_verify_credentials confirms realhandle@mastodon.social")
 
@@ -120,9 +120,9 @@ def test_phone_and_zip_are_breaches_in_history_too(txt, kind):
 
 
 def test_private_denylist_catches_a_vendor_no_structural_rule_could_predict():
-    """A private proper noun can be an ordinary English word. NO allowlist can know
-    they are sensitive -- that is the one job of the optional private layer, which lives outside
-    every repo so the denylist itself never becomes the leak."""
+    """A private proper noun -- a person and an organization -- can be ordinary English words. NO
+    allowlist can know they are sensitive; that is the one job of the optional private layer, which
+    lives outside every repo so the denylist itself never becomes the leak."""
     found = scan("[ACTION] Jane Roe (VendorCo): getting ready for your session",
                  deny=["jane roe", "vendorco"])
     assert {v for k, v in found if k == "PRIVATE-DENYLIST"} == {"jane roe", "vendorco"}
