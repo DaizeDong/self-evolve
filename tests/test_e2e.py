@@ -100,7 +100,7 @@ def _broken_repo(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Step 1 tests — these should FAIL before statemachine.py exists
+# Step 1 tests, these should FAIL before statemachine.py exists
 # ---------------------------------------------------------------------------
 
 def test_select_parent_cold_start(tmp_path):
@@ -161,7 +161,7 @@ def test_e2e_crash_replay_consistent(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Step 4 tests — CLI flow
+# Step 4 tests, CLI flow
 # ---------------------------------------------------------------------------
 
 def test_cli_full_flow(tmp_path, capsys):

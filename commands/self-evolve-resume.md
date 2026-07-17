@@ -18,7 +18,7 @@ python -m tools.sie.cli run --target <target> --run-id <run_id> --base-ref HEAD
 
 ## 适用场景
 
-- 进程意外中断（崩溃/超时）后恢复——harness 从 events.jsonl 重建 RunState，
+- 进程意外中断（崩溃/超时）后恢复,harness 从 events.jsonl 重建 RunState，
   不重跑 PROFILE（tier 已冻结）。
 - 主动暂停后手动续跑。
 

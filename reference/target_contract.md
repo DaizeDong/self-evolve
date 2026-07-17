@@ -1,7 +1,7 @@
 # target_contract: grade(task)
 
 目标侧实现 `grade(task)`，返回 A-grade contract dict。harness 用此 contract 判
-ACCEPT/REJECT——LLM 只提议，代码裁决（铁律1）。
+ACCEPT/REJECT to LLM 只提议，代码裁决（铁律1）。
 
 ## Contract 结构
 

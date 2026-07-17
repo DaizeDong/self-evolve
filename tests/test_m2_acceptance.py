@@ -244,7 +244,7 @@ def test_effective_independent_count_8_same_source():
         for i in range(8)
     ]
     eff = anchors.effective_independent_count(same)
-    # floor(1 + log2(8)) = floor(1+3) = 4 — 远 < 12
+    # floor(1 + log2(8)) = floor(1+3) = 4, 远 < 12
     assert eff < 12, f"8 same-source anchors should give eff<12, got {eff}"
     assert eff == 4, f"8 same-source anchors: expected 4, got {eff}"
 

@@ -43,7 +43,7 @@ def test_evaluate_c_tier_regression(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Test 3: inject_judge_scores — both judges available, alpha computed by harness
+# Test 3: inject_judge_scores, both judges available, alpha computed by harness
 # ---------------------------------------------------------------------------
 
 def test_inject_judge_scores_independent(monkeypatch, tmp_path):

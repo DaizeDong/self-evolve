@@ -59,7 +59,7 @@ def test_action_class_auto_vs_gated(tmp_path):
     assert action_class(inside, root) == "auto"
     outside = {"op": "write", "path": os.path.join(str(tmp_path), "real_target.py")}
     assert action_class(outside, root) == "gated"
-    # outward ops are always gated — even if path is inside sandbox
+    # outward ops are always gated, even if path is inside sandbox
     for op in OUTWARD_OPS:
         assert action_class({"op": op, "path": os.path.join(root, "f")}, root) == "gated"
 

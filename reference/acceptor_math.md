@@ -10,7 +10,7 @@ u = 0.5 * (d + 1)  ∈ {0, 0.5, 1}
 ```
 
 The null hypothesis is H₀: E[u] = 0.5 (no improvement; the change is at best neutral).
-Under H₀, `u - 0.5` has zero mean — the betting payoff is a fair game.
+Under H₀, `u - 0.5` has zero mean, the betting payoff is a fair game.
 
 | d | interpretation | u | payoff (u - 0.5) |
 |---|---|---|---|
@@ -35,7 +35,7 @@ where `λ_t ∈ (-2, 2)` is the betting fraction chosen adaptively before seeing
 P(∃ t: W_t ≥ 1/α) ≤ α
 ```
 
-This means the probability of *ever* exceeding the threshold under H₀ is at most α, regardless of when we stop. This is the anytime-valid property — no multiple-testing penalty.
+This means the probability of *ever* exceeding the threshold under H₀ is at most α, regardless of when we stop. This is the anytime-valid property, no multiple-testing penalty.
 
 ## 3. Threshold and Decision
 
@@ -52,7 +52,7 @@ Decision:
 brief 曾描述"取末值 W_n"，但正确选择是路径最大值 sup_t W_t。理由如下：
 
 1. **Ville 不等式直接控制 sup_t W_t：** P(∃ t: W_t ≥ 1/α) ≤ α，即路径最大值超阈的概率
-   在 H₀ 下 ≤ α。取 e-value = sup_t W_t 等价于"最优停时决策"——只要财富任一时刻
+   在 H₀ 下 ≤ α。取 e-value = sup_t W_t 等价于"最优停时决策",只要财富任一时刻
    超阈即可采纳，获得最大统计功效，同时保持相同 type-I 约束。
 2. **末值 W_n 更保守：** 若财富中途超阈后回落（ONS 自适应可能发生），末值 < 1/α 而
    路径最大值 ≥ 1/α，用末值会漏判真实增益，损失功效。
@@ -77,7 +77,7 @@ If ANY task shows a regression, the decision is immediately **REJECT** regardles
 
 ## 5. A-Tier Binary Decision (No CONTINUE)
 
-A-tier uses discrete 0/1 scores, making the test result unambiguous. There is no intermediate evidence state, so **CONTINUE is prohibited** — every A-tier call returns exactly ACCEPT or REJECT.
+A-tier uses discrete 0/1 scores, making the test result unambiguous. There is no intermediate evidence state, so **CONTINUE is prohibited**, every A-tier call returns exactly ACCEPT or REJECT.
 
 ## 6. Per-Tier Pairing Table
 

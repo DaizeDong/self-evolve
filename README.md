@@ -1,6 +1,6 @@
 # self-evolve
 
-Point an agent at any skill / repo / project and have it self-iterate — behind an un-gameable acceptance gate so "accepted = real improvement," not a self-deceiving score-up-but-capability-flat curve.
+Point an agent at any skill / repo / project and have it self-iterate, behind an un-gameable acceptance gate so "accepted = real improvement," not a self-deceiving score-up-but-capability-flat curve.
 
 [![Claude Code Skill](https://img.shields.io/badge/Claude%20Code-Skill-orange?style=flat)](https://docs.anthropic.com/en/docs/claude-code)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -13,14 +13,14 @@ Point an agent at any skill / repo / project and have it self-iterate — behind
 
 ---
 
-## ⭐ Read this first — the design philosophy
+## ⭐ Read this first, the design philosophy
 
-Most self-improving-agent work succeeds only in **verifiable domains** — code, math, anything with ground truth. The hard, mostly-skipped case is **open-ended generation with no ground truth**, where "I improved" can be asserted but not checked. Stack "set your own task + grade your own work" on top of that, and the literature says you almost always get a **fake upward curve**: the score rises while capability stays flat.
+Most self-improving-agent work succeeds only in **verifiable domains**, code, math, anything with ground truth. The hard, mostly-skipped case is **open-ended generation with no ground truth**, where "I improved" can be asserted but not checked. Stack "set your own task + grade your own work" on top of that, and the literature says you almost always get a **fake upward curve**: the score rises while capability stays flat.
 
 self-evolve is built for exactly that gap. Its guiding stance:
 
 - **The methodology is constant; the signal source adapts.** The loop is always `reflect → propose → evaluate → judge → accept`. The only thing that changes per target is *where the evaluation signal comes from*.
-- **Run it if you can, verify it if you can, otherwise generate scenarios and let heterogeneous judges score — so no target is un-evolvable.** Three signal providers (A program adjudication, B anchor verification, C generative evaluation) implement the same `evaluate` contract; you take the strongest available and fall back downward — the floor always exists.
+- **Run it if you can, verify it if you can, otherwise generate scenarios and let heterogeneous judges score, so no target is un-evolvable.** Three signal providers (A program adjudication, B anchor verification, C generative evaluation) implement the same `evaluate` contract; you take the strongest available and fall back downward, the floor always exists.
 - **LLM proposes, code adjudicates.** Accept / reject / rollback / signal-source selection are all decided by deterministic harness code. The model never grades its own output.
 - **Anti-self-deception is the whole point.** Six concrete cheating paths are closed (see the table below), because in a long fully-automatic loop "accepted" must mean real, not self-flattering.
 
@@ -106,7 +106,7 @@ Accepted versions enter an archive lineage; anything that leaves the sandbox goe
 
 ## Limitations
 
-- Pure A-tier auto-ACCEPT needs headroom of "more tests pass after the change" — a green baseline has none (by design), so the real open-domain improvement signal lives in the B / C quality tiers.
+- Pure A-tier auto-ACCEPT needs headroom of "more tests pass after the change", a green baseline has none (by design), so the real open-domain improvement signal lives in the B / C quality tiers.
 - The current code treats purely subjective C conservatively (`coverage=0`, low weight, defaults to human review); full A/B↔C accept-parity is the scenario-eval module's design / landing direction, not yet fully landed.
 - Everything automatic is sandbox-only; landing actions (push / merge / outbound) always require the human-review subflow.
 
@@ -118,4 +118,4 @@ English (`README.md`, authoritative) · 中文 ([`README_CN.md`](README_CN.md))
 
 See [ROADMAP.md](ROADMAP.md) · [CHANGELOG.md](CHANGELOG.md) · [LICENSE](LICENSE) (MIT).
 
-Sister skill: [market-intel](https://github.com/DaizeDong/market-intel) — the academic toolchain cross-validation in [`docs/02-crossval-deepdive.md`](docs/02-crossval-deepdive.md) feeds this project's guardrail design.
+Sister skill: [market-intel](https://github.com/DaizeDong/market-intel), the academic toolchain cross-validation in [`docs/02-crossval-deepdive.md`](docs/02-crossval-deepdive.md) feeds this project's guardrail design.

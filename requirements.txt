@@ -1,6 +1,6 @@
 # confseq is OPTIONAL: requires Python 3.10 + Boost C++ headers to build from source.
 # On Windows with Python 3.13: install fails (CMake/Boost NOTFOUND).
-# Reference dependency only — default harness does NOT require it.
+# Reference dependency only, default harness does NOT require it.
 # Use the confseq_test conda environment for spike tests:
 #   conda create -n confseq_test python=3.10 boost -y
 #   conda run -n confseq_test pip install -r requirements.txt

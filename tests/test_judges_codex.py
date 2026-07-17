@@ -21,7 +21,7 @@ def test_codex_unavailable_returns_flag(monkeypatch, tmp_path):
 
 
 def test_prompt_carries_no_truth():
-    # 铁律5：全字段断言——claim/source_url/expected/verified/marginal_gain/0.31 均不可出现
+    # 铁律5：全字段断言,claim/source_url/expected/verified/marginal_gain/0.31 均不可出现
     anchors = [{"span": "Revenue grew 12%", "claim": "rev +12%",
                 "verified": True, "marginal_gain": 0.31, "source_url": "http://x",
                 "expected": 0.12}]

@@ -102,7 +102,7 @@ def generate(sandbox_root: str, reflections: list[dict], timeout_s: int = 600) -
 
 
 # ---------------------------------------------------------------------------
-# artifact proposer — 改研究产物 JSON（非 .py），用于 B 档 ACCEPT 闭环
+# artifact proposer, 改研究产物 JSON（非 .py），用于 B 档 ACCEPT 闭环
 # ---------------------------------------------------------------------------
 
 

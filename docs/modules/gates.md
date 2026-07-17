@@ -48,21 +48,21 @@ drift_count:    int = 0   # 累计漂移
 
 为什么叫「正交」：四个计数器各盯一种**互不重叠**的失败形态，谁也不蹭谁的计数。同一轮里可能只动其中一个，绝不会一件事被两个计数器同时记账。逐个说清各自的语义和「在什么时刻 +1」：
 
-**1) `no_progress` —— 这一轮真的尝试了改动，但没换来进展。**
-acceptor 这一轮判 REJECT 或 CONTINUE，都算「跑了一轮却没把候选落地」，各 +1（`apply_acceptor_outcome` / `resolve_accept` 里 REJECT、CONTINUE 分支都 `st.no_progress += 1`）。一旦判 ACCEPT，立即清零（连带把 `forced_review`、`continue_count` 一起清零）—— 因为「真的进展了」就把所有「卡住」的账一笔勾销。
+**1) `no_progress`, 这一轮真的尝试了改动，但没换来进展。**
+acceptor 这一轮判 REJECT 或 CONTINUE，都算「跑了一轮却没把候选落地」，各 +1（`apply_acceptor_outcome` / `resolve_accept` 里 REJECT、CONTINUE 分支都 `st.no_progress += 1`）。一旦判 ACCEPT，立即清零（连带把 `forced_review`、`continue_count` 一起清零）, 因为「真的进展了」就把所有「卡住」的账一笔勾销。
 
-**2) `static_reject` —— 连方案都没产出，空转。**
+**2) `static_reject`, 连方案都没产出，空转。**
 当 propose 阶段交白卷（态4 候选集为空）或评测阶段全军覆没（态5 全部被拒）时，由 `note_static_reject` 让它 +1。它**故意不碰** `no_progress`：「没产出任何东西」和「产出了但没用」是两种不同的病，得分开计，否则没法区分「proposer 哑火」与「proposer 在原地打转」。
 
-**3) `forced_review` —— 这一轮被推进了人审子流程。**
+**3) `forced_review`, 这一轮被推进了人审子流程。**
 每次进入 PAUSE_FOR_HUMAN（态9.5）时由 `note_forced_review`（或 resolve_accept / 各档路径里直接 `st.forced_review += 1`）+1。它衡量的是「这条 run 多频繁地需要人来兜底」。频繁触发人审本身就是一种「自动化已经撑不住」的信号，所以它独立成阈。
 
-**4) `drift_count` —— 连续采纳了，可大盘却不涨，疑似在偷偷过拟合。**
+**4) `drift_count`, 连续采纳了，可大盘却不涨，疑似在偷偷过拟合。**
 这是漂移熔断的累计器。它不由前三个那种「单轮事件」直接驱动，而是由两条来源喂：
 - `selfdeception.index` 报出 `judge_anchor_divergence`（judge 自评增益显著超出锚真实增益，疑似 judge 与提案合谋虚报）时，调用方 `st.drift_count += 1`；
 - `drift_circuit(st, holdout_up, params)`：若本轮 holdout / 全量回归**有**提升则 `drift_count` 清零，**没有**提升则 +1。
 
-无论哪条来源，drift_count 的累加都必须随事件持久化（写 `drift_count_delta=1` 的事件），靠 replay 还原，绝不只停留在内存里 —— 这是保证「重放后熔断行为一致」的硬约束。
+无论哪条来源，drift_count 的累加都必须随事件持久化（写 `drift_count_delta=1` 的事件），靠 replay 还原，绝不只停留在内存里, 这是保证「重放后熔断行为一致」的硬约束。
 
 ### 二、阈值与判定优先级（circuit_check）
 
@@ -78,7 +78,7 @@ acceptor 这一轮判 REJECT 或 CONTINUE，都算「跑了一轮却没把候选
 
 前四条都是「熔断（停机）」，第五条 `no_progress_release` 是**释放阀**，性质完全不同：它在 `no_progress` 还没到熔断阈、但已经有点卡的中间地带触发，作用仅仅是**提高人审触发频率**（`release_valve` 把 review_frequency 从 base 抬到 boost）。
 
-释放阀有一条铁律：**它绝不降低 acceptor 的接受阈值、绝不自动把当前提案标成 ACCEPT**。它只让人更频繁地介入，不让机器更轻易地放行 —— 这是反自欺的关键设计，详见下文。
+释放阀有一条铁律：**它绝不降低 acceptor 的接受阈值、绝不自动把当前提案标成 ACCEPT**。它只让人更频繁地介入，不让机器更轻易地放行, 这是反自欺的关键设计，详见下文。
 
 注意优先级里的一个刻意安排：熔断阈（N）必须排在释放阀（M）**前面**判。因为 M < N，当 `no_progress` 同时 ≥ M 又 ≥ N 时，必须优先报熔断而不是报释放阀，否则一条早该停机的 run 会被误判成「只是升一下人审频率」继续跑。
 
@@ -94,13 +94,13 @@ value = judge_gain − visible_anchor_gain
 
 即「judge 嘴上说涨了多少」减去「frozen 留存锚真实核验出来涨了多少」。这个差越大，越像 judge 在自夸。四道闸（编号沿用代码注释，闸①由上游保证不在本函数内）：
 
-- **闸①（上游保证）**：传入的 `visible_anchor_gain` 必须**只含 frozen 留存锚**（前后两轮 span 都在的锚）的增益，当轮新增的锚不算进当轮增益。这一过滤由 anchors/evaluate 在调用前完成；`retained_visible_gain(prev, cur)` 是它的参考实现 —— 只对前后两轮都出现的 span 取平均增益变化，新锚不计入分子分母。意义：不许「这轮新塞个对自己有利的锚，就声称涨了」。
+- **闸①（上游保证）**：传入的 `visible_anchor_gain` 必须**只含 frozen 留存锚**（前后两轮 span 都在的锚）的增益，当轮新增的锚不算进当轮增益。这一过滤由 anchors/evaluate 在调用前完成；`retained_visible_gain(prev, cur)` 是它的参考实现, 只对前后两轮都出现的 span 取平均增益变化，新锚不计入分子分母。意义：不许「这轮新塞个对自己有利的锚，就声称涨了」。
 
 - **闸②`block_accept`**：`visible_anchor_gain < ε`（默认 0.02）时置位。留存锚真实增益过低 → 统计基础不可靠 → **禁止 ACCEPT**（在路由里直接降级为硬 REJECT）。
 
-- **闸③`force_review` / `force_human`（主信号）**：`visible_anchor_gain > 0` 且 `holdout_gain <= 0` 时置位 —— 可见锚涨了、留出来不给优化的 holdout 却没涨，典型的**过拟合背离**，强制人审。若 `holdout_gain` 为 `None`（本轮非抽检、没有 holdout 数据），此闸跳过。
+- **闸③`force_review` / `force_human`（主信号）**：`visible_anchor_gain > 0` 且 `holdout_gain <= 0` 时置位, 可见锚涨了、留出来不给优化的 holdout 却没涨，典型的**过拟合背离**，强制人审。若 `holdout_gain` 为 `None`（本轮非抽检、没有 holdout 数据），此闸跳过。
 
-- **闸④`judge_anchor_divergence`**：`|value| > band`（默认 0.15）时报警 —— judge 自评与锚核验显著背离，疑似合谋虚报。它**不直接**改 `drift_count`，而是把 alert 回传，由 statemachine 读到后执行 `drift_count += 1`（单向数据流，避免在本函数里产生副作用）。这是把「单轮的可疑信号」累积成「跨轮的漂移熔断」的桥。
+- **闸④`judge_anchor_divergence`**：`|value| > band`（默认 0.15）时报警, judge 自评与锚核验显著背离，疑似合谋虚报。它**不直接**改 `drift_count`，而是把 alert 回传，由 statemachine 读到后执行 `drift_count += 1`（单向数据流，避免在本函数里产生副作用）。这是把「单轮的可疑信号」累积成「跨轮的漂移熔断」的桥。
 
 `index` 返回 `{value, alerts, block_accept, force_review, force_human}`。这里有个**向后兼容的坑**：每道闸触发时会往 `alerts` 追加「旧名 + 新名」两条字符串，所以下游**绝不能用 `len(alerts)` 当触发闸数**，drift 的累计也**只能**靠专门检测 `judge_anchor_divergence` 子串来 +1。
 
@@ -115,17 +115,17 @@ value = judge_gain − visible_anchor_gain
 5. 纯 C 档 + auto 模式 + coverage==0（无程序化锚覆盖）→ `PAUSE_FOR_HUMAN`（纯 C auto 强制 gated，不许无锚自动落地）
 6. 否则 → `ARCHIVE`（放行落地）
 
-B 档的实际接线在 `resolve_accept` 里：它把强制人审条件归一为 `coverage_floor_violation OR sd.force_human OR ("low_anchor_gain" in alerts)`，且只要 acceptor 不是 REJECT（ACCEPT 或 CONTINUE 都算），命中即提前转 9.5 —— 防止在「次优但还没被拒」的数据上持续迭代积累自欺。B 档**无 judge**，所以缺 `judge_gain` 时令 `judge_gain = visible_gain` 使 `value=0`，避免误触闸④把正在改进的 run 误熔断。纯 C 档**无锚**，会把 `block_accept` 显式覆盖为 `False`（无锚是设计如此、不是锚增益不足，不能当假阳性硬拒）。
+B 档的实际接线在 `resolve_accept` 里：它把强制人审条件归一为 `coverage_floor_violation OR sd.force_human OR ("low_anchor_gain" in alerts)`，且只要 acceptor 不是 REJECT（ACCEPT 或 CONTINUE 都算），命中即提前转 9.5, 防止在「次优但还没被拒」的数据上持续迭代积累自欺。B 档**无 judge**，所以缺 `judge_gain` 时令 `judge_gain = visible_gain` 使 `value=0`，避免误触闸④把正在改进的 run 误熔断。纯 C 档**无锚**，会把 `block_accept` 显式覆盖为 `False`（无锚是设计如此、不是锚增益不足，不能当假阳性硬拒）。
 
 ### 五、落地走人审子流程（非阻塞）
 
 被判 `PAUSE_FOR_HUMAN`（态9.5）时，**不阻塞**等人。`gate_human.py` 把人审做成一个 append-only 的待办队列（`pending_actions.jsonl`），分三步：
 
-1. **入队 `enqueue(run_dir, action)`**：写一条 `kind="request"`、`status="pending"` 的记录，带上 aid（12 位 hex）、run_id、round、action_type、payload（含触发原因、selfdeception、acceptor 决策等）、created_at、ttl（默认 86400 秒）。**立即返回 aid，不等人** —— 这是非阻塞的核心。同时 `note_forced_review`/`forced_review += 1`，并写 `forced_review_delta=1` 事件持久化。
+1. **入队 `enqueue(run_dir, action)`**：写一条 `kind="request"`、`status="pending"` 的记录，带上 aid（12 位 hex）、run_id、round、action_type、payload（含触发原因、selfdeception、acceptor 决策等）、created_at、ttl（默认 86400 秒）。**立即返回 aid，不等人**, 这是非阻塞的核心。同时 `note_forced_review`/`forced_review += 1`，并写 `forced_review_delta=1` 事件持久化。
 
 2. **查询 `pending(run_dir)`**：扫整个 jsonl，对每个 aid 取「最新状态」（request 与 resolution 行都带 status），只返回那些最新状态仍是 `pending`、且未超 ttl 的请求。超 ttl 的视为过期、不再返回。cli `status` 命令直接把这个列表暴露给用户（连同三计数器一起）。
 
-3. **裁决 `resolve(run_dir, aid, status)`**：人处理后追加一条 `kind="resolution"` 行，status 只能是 `approved` / `skipped` / `expired`（终态白名单，越界抛 ValueError）。**append-only，永不改写历史** —— 旧的 request 行原样保留，靠「最新状态覆盖」语义生效。
+3. **裁决 `resolve(run_dir, aid, status)`**：人处理后追加一条 `kind="resolution"` 行，status 只能是 `approved` / `skipped` / `expired`（终态白名单，越界抛 ValueError）。**append-only，永不改写历史**, 旧的 request 行原样保留，靠「最新状态覆盖」语义生效。
 
 这套设计的几个要点：
 - **崩溃安全**：`_read_all` 对半写坏的行静默跳过，不让一条坏行打断整个 pending 查询。
@@ -203,20 +203,20 @@ B 档的实际接线在 `resolve_accept` 里：它把强制人审条件归一为
 
 ## 代码锚
 
-- `tools/sie/gate_human.py:enqueue` —— 非阻塞写入待办（返回 aid，不等人）
-- `tools/sie/gate_human.py:pending` —— 取最新状态仍 pending 且未过 ttl 的请求
-- `tools/sie/gate_human.py:resolve` —— append-only 写终态裁决（approved/skipped/expired）
-- `tools/sie/gate_human.py:_read_all` —— 容错读 jsonl（坏行静默跳过）
-- `tools/sie/selfdeception.py:index` —— 单轮自欺多闸主函数（IMMUTABLE）
-- `tools/sie/selfdeception.py:retained_visible_gain` —— 闸①辅助，只算留存锚增益
-- `tools/sie/selfdeception.py:cumulative_drift` —— 闸④辅助，累计漂移预算检测
-- `tools/sie/statemachine.py:circuit_check` —— 三计数器 + drift 的熔断/释放阀判定（含优先级）
-- `tools/sie/statemachine.py:release_valve` —— 释放阀（只升人审频率）
-- `tools/sie/statemachine.py:drift_circuit` —— 漂移熔断累加器
-- `tools/sie/statemachine.py:route_accept_with_gates` —— 单轮综合闸路由
-- `tools/sie/statemachine.py:apply_acceptor_outcome` —— 计数器更新 + ACCEPT 清零语义
-- `tools/sie/statemachine.py:note_static_reject` —— static_reject++（正交于 no_progress）
-- `tools/sie/statemachine.py:note_forced_review` —— forced_review++（进 9.5 时）
-- `tools/sie/statemachine.py:resolve_accept` —— B 档 ACCEPT 态接线（闸 + enqueue 路由）
-- `tools/sie/state.py:RunState` —— 四计数器字段（no_progress/static_reject/forced_review/drift_count）
-- `tools/sie/cli.py` (status 命令) —— 暴露三计数器 + `gate_human.pending` 给用户
+- `tools/sie/gate_human.py:enqueue`, 非阻塞写入待办（返回 aid，不等人）
+- `tools/sie/gate_human.py:pending`, 取最新状态仍 pending 且未过 ttl 的请求
+- `tools/sie/gate_human.py:resolve`, append-only 写终态裁决（approved/skipped/expired）
+- `tools/sie/gate_human.py:_read_all`, 容错读 jsonl（坏行静默跳过）
+- `tools/sie/selfdeception.py:index`, 单轮自欺多闸主函数（IMMUTABLE）
+- `tools/sie/selfdeception.py:retained_visible_gain`, 闸①辅助，只算留存锚增益
+- `tools/sie/selfdeception.py:cumulative_drift`, 闸④辅助，累计漂移预算检测
+- `tools/sie/statemachine.py:circuit_check`, 三计数器 + drift 的熔断/释放阀判定（含优先级）
+- `tools/sie/statemachine.py:release_valve`, 释放阀（只升人审频率）
+- `tools/sie/statemachine.py:drift_circuit`, 漂移熔断累加器
+- `tools/sie/statemachine.py:route_accept_with_gates`, 单轮综合闸路由
+- `tools/sie/statemachine.py:apply_acceptor_outcome`, 计数器更新 + ACCEPT 清零语义
+- `tools/sie/statemachine.py:note_static_reject`, static_reject++（正交于 no_progress）
+- `tools/sie/statemachine.py:note_forced_review`, forced_review++（进 9.5 时）
+- `tools/sie/statemachine.py:resolve_accept`, B 档 ACCEPT 态接线（闸 + enqueue 路由）
+- `tools/sie/state.py:RunState`, 四计数器字段（no_progress/static_reject/forced_review/drift_count）
+- `tools/sie/cli.py` (status 命令), 暴露三计数器 + `gate_human.pending` 给用户

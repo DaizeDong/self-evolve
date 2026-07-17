@@ -220,7 +220,7 @@ def test_supervisor_grade_self_mode_uses_frozen_grader(tmp_path):
         "verifiable.py": im.hash_file(str(frozen / "verifiable.py")),
     }
 
-    # candidate 目录——不含 grade()，但即使含有也会被忽略。
+    # candidate 目录,不含 grade()，但即使含有也会被忽略。
     cand = tmp_path / "cand"
     cand.mkdir()
     # 若 candidate 内部有一个"撒谎"grade()，它永远不会被 Supervisor.grade 调用。

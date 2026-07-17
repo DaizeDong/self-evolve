@@ -3,10 +3,10 @@
 ## 职责
 
 把「调一个 agent」与「用另一家族交叉校验」抽象成**任意阶段可复用**的原语，使 codex 成为
-**全流程可选的异质 agent**——而非 C 档判官专属组件。reflect / propose / patch-review /
+**全流程可选的异质 agent**,而非 C 档判官专属组件。reflect / propose / patch-review /
 evaluate / judge 任一阶段都能：
-- `invoke(prompt, family="codex")` —— 在该阶段调指定家族的一个 agent；
-- `cross_check(prompt, families=("claude","codex"))` —— 同一任务跑多家族 → 收齐 + 比对分歧。
+- `invoke(prompt, family="codex")`, 在该阶段调指定家族的一个 agent；
+- `cross_check(prompt, families=("claude","codex"))`, 同一任务跑多家族 → 收齐 + 比对分歧。
 
 这是「强化不同类别 agent 互校验、把 codex 当任意阶段的调用选项」这一设计诉求的承载模块。
 

@@ -116,7 +116,7 @@ def test_neg_b_candidate_grade_not_trusted(tmp_path):
         "            'dimensions': [], 'anchors': [], 'verifiable_coverage': 1.0}\n",
         encoding="utf-8")
 
-    # frozen verifiable.py 是占位（MARK）——替换成带 grade_pytest 的 frozen grader
+    # frozen verifiable.py 是占位（MARK）,替换成带 grade_pytest 的 frozen grader
     vpath = pathlib.Path(boot["frozen_dir"]) / "verifiable.py"
     # 先解除只读保护（materialize_frozen 写为 0o444）
     os.chmod(str(vpath), 0o644)
@@ -234,7 +234,7 @@ def test_neg_d_selfboot_candidate_isolated_verified(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Part B: B/C tier guard — 自举时 tier 含 B/C → raise
+# Part B: B/C tier guard, 自举时 tier 含 B/C → raise
 # ---------------------------------------------------------------------------
 
 def _stub_sm_infra(monkeypatch, tmp_path, tier: str):

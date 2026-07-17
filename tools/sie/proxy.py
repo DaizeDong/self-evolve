@@ -146,7 +146,7 @@ def dispatch(request_spec: dict, run_dir: str, allowlist: dict, fetcher=None) ->
             "result": None,
         }
 
-    # Harness builds URL — candidate had no say in construction
+    # Harness builds URL, candidate had no say in construction
     url = spec["url_template"].format(**{k: str(params[k]) for k in spec["params"]})
 
     # Double-check the constructed URL passes screen_request

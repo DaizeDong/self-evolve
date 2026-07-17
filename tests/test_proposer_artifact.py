@@ -70,7 +70,7 @@ def test_find_target_artifact_none_when_no_anchors(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# generate_artifact (mock subprocess — 不真调 node/Claude)
+# generate_artifact (mock subprocess, 不真调 node/Claude)
 # ---------------------------------------------------------------------------
 
 def _fake_run_factory(stdout, returncode=0):
@@ -209,7 +209,7 @@ def test_js_strips_truth_values_from_prompt(tmp_path, monkeypatch):
     assert proc.returncode == 0
     prompt = spy.read_text(encoding="utf-8")
     # 真值绝不外泄: expected 数值 / verified 真值在脱敏后的产物块里不得出现。
-    # (注: prompt 指令文本里会出现 "expected"/"verified" 这两个词——那是要求 Claude
+    # (注: prompt 指令文本里会出现 "expected"/"verified" 这两个词,那是要求 Claude
     #  自己填值的说明，不是真值；故只断言真值本身不外泄。)
     assert "1000000000" not in prompt          # expected 真值数字
     # 脱敏产物块（从 "CURRENT ARTIFACT" 之后）里不得含真值字段

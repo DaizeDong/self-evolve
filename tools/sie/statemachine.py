@@ -39,7 +39,7 @@ from tools.sie import archive
 
 
 # ---------------------------------------------------------------------------
-# M1b.6 契约函数 — 三计数器 + 熔断 + CONTINUE 落点 + A 档守卫
+# M1b.6 契约函数, 三计数器 + 熔断 + CONTINUE 落点 + A 档守卫
 # ---------------------------------------------------------------------------
 
 def apply_acceptor_outcome(st: RunState, decision: dict, params: dict) -> str:
@@ -296,7 +296,7 @@ def resolve_accept(st: RunState, eval_out: dict, params: dict,
         st.drift_count += 1
 
     # 强制人审条件检查:
-    # coverage_floor_violation 或 selfdeception.force_human 是全局拦截条件——
+    # coverage_floor_violation 或 selfdeception.force_human 是全局拦截条件,
     # 无论 acceptor 返回 ACCEPT 还是 CONTINUE (有可能在下一轮变 ACCEPT),
     # 只要这些信号存在就必须提前走人审, 防止在次优数据上持续迭代积累。
     # REJECT 路径不需要额外拦截 (REJECT 已阻断进展)。
@@ -468,7 +468,7 @@ def run_loop(
     accepted: list[str] = []
 
     # ------------------------------------------------------------------
-    # 态0 INIT — worktree + initial event
+    # 态0 INIT, worktree + initial event
     # ------------------------------------------------------------------
     sandbox_root = make_worktree(target, base_ref, run_id)
     st = _step(run_dir, {
@@ -481,7 +481,7 @@ def run_loop(
     })
 
     # ------------------------------------------------------------------
-    # 态1 PROFILE — freeze tier; idempotent on resume
+    # 态1 PROFILE, freeze tier; idempotent on resume
     # ------------------------------------------------------------------
     target_json = os.path.join(run_dir, "target.json")
     if os.path.exists(target_json):
@@ -512,7 +512,7 @@ def run_loop(
             "parent_vid": parent,
         })
 
-        # 态3 REFLECT — serial(M1a 默认) 或 parallel(MARS fanout)
+        # 态3 REFLECT, serial(M1a 默认) 或 parallel(MARS fanout)
         # dual 开 → 反思阶段 codex&claude 双家族异质并跑; 关 → 仅 claude。
         if reflect_mode == "parallel":
             from tools.sie.reflect import run_reflections_parallel, meta_aggregate
@@ -532,7 +532,7 @@ def run_loop(
             # Defensive: if refs is empty, use empty dict to avoid IndexError on refs[0]
             refs = [dict(refs[0] if refs else {}, **_injected_fix)]
 
-        # 态3b CHECK_REFLECTION — weak validation gate
+        # 态3b CHECK_REFLECTION, weak validation gate
         refs = [r for r in refs if check(r, 0.5)]
         if not refs:
             note_static_reject(st)   # in-memory counter update
@@ -550,7 +550,7 @@ def run_loop(
             # currently only logged but takes no action.
             continue
 
-        # 态4 PROPOSE — backend: builtin(确定性,默认) 或 llm(真 Claude proposer)
+        # 态4 PROPOSE, backend: builtin(确定性,默认) 或 llm(真 Claude proposer)
         props = propose(sandbox_root, refs, backend=proposer)
         if not props:
             note_static_reject(st)   # in-memory counter update
@@ -565,7 +565,7 @@ def run_loop(
                 break
             continue
 
-        # 态4b REVIEW(dual) — 双家族(codex&claude)异质评审提议; 仅 live 路径(proposer=="llm")触发,
+        # 态4b REVIEW(dual), 双家族(codex&claude)异质评审提议; 仅 live 路径(proposer=="llm")触发,
         # builtin/测试路径不调外部 agent。仅当两家族**一致 reject** 才拦(skip patch/evaluate, 省成本);
         # 否则放行交由确定性 acceptor 终裁(铁律1: 评审仅参考信号)。
         if dual and proposer == "llm" and props:
@@ -591,7 +591,7 @@ def run_loop(
                     break
                 continue
 
-        # 态5 PATCH — apply each proposal; AST + boundary gates enforced by apply_patch
+        # 态5 PATCH, apply each proposal; AST + boundary gates enforced by apply_patch
         # M4.6: enforce_immutable 由 --self/--enforce-immutable 透传，默认 False（非自举不变）
         applied = False
         for p in props:
@@ -613,12 +613,12 @@ def run_loop(
                 break
             continue
 
-        # 态6 EVALUATE — verifiable grader (A-tier: pytest; B-tier: anchor ctx; C-tier: judge)
+        # 态6 EVALUATE, verifiable grader (A-tier: pytest; B-tier: anchor ctx; C-tier: judge)
         _tier_str = str(prof["tier"])
 
         # M4.7 纵深防御：自举限 A 档。自举时若 tier 含 B 或 C → 明确拒绝。
         # B/C 路径的 evaluate 调 LLM judge / anchor 验证，无 supervisor 隔离保护，
-        # candidate 可通过伪造锚得分自评——自举场景下不安全。
+        # candidate 可通过伪造锚得分自评,自举场景下不安全。
         # 自举（supervisor is not None）仅走 A 档（frozen pytest grader），
         # 若目标 tier 为 B/C，操作员应使用非自举流程（supervisor=None）。
         if supervisor is not None and ("B" in _tier_str or "C" in _tier_str):
@@ -697,7 +697,7 @@ def run_loop(
 
             # M3.11 fix #1: 不退化门 fail-safe 构造
             # 正确比较需要"当前候选对历史任务的重评结果"(after)，
-            # 但当前 infra 不对历史任务重新运行当前候选——history 中只有历史轮的 passed 字段，
+            # 但当前 infra 不对历史任务重新运行当前候选,history 中只有历史轮的 passed 字段，
             # 无法得到当前候选 per-task 结果，故 before==after 哑构造永远不触发退化。
             # Fail-safe 策略: 若存在历史 passed=True 的轮次（有退化风险），
             # 不能盲目判 no_regression=True；改为 no_regression=False（保守），
@@ -712,7 +712,7 @@ def run_loop(
                 _c_regression_replay.append({
                     "task": h.get("summary", ""),
                     "before": _h_passed,
-                    # after: 当前候选对历史任务的重评结果——infra 未实现，无法得知。
+                    # after: 当前候选对历史任务的重评结果,infra 未实现，无法得知。
                     # 保守 fail-safe: 一律置 False。
                     # c_tier_no_regression 仅在 before=True AND after=False 时触发，
                     # 所以历史 passed=True 的任务会保守触发退化检测 → no_regression=False
@@ -757,7 +757,7 @@ def run_loop(
             else:
                 ev_result = {}  # 自举：ev_result 未使用（supervisor.grade 直接在决策块中调）
 
-        # 态7 DECIDE — B 档走 resolve_accept; C 档走 route_accept_with_gates; A 档走旧路径
+        # 态7 DECIDE, B 档走 resolve_accept; C 档走 route_accept_with_gates; A 档走旧路径
         if "B" in _tier_str:
             # ---- B 档生产路径: resolve_accept 含 selfdeception 多闸 ----
             ra = resolve_accept(st, ev_result, params, run_dir=run_dir)
@@ -790,7 +790,7 @@ def run_loop(
                 history.append({"round": rnd, "summary": "B ACCEPT", "passed": True})
 
             elif ra_next == "9.5":
-                # 态9.5 PAUSE_FOR_HUMAN — resolve_accept 已 forced_review++ + enqueue
+                # 态9.5 PAUSE_FOR_HUMAN, resolve_accept 已 forced_review++ + enqueue
                 # 写事件持久化 forced_review_delta
                 st = _step(run_dir, {
                     "type": "PAUSE_FOR_HUMAN",
@@ -808,7 +808,7 @@ def run_loop(
                     break
 
             elif ra_next == "6":
-                # CONTINUE — resolve_accept 已 no_progress++
+                # CONTINUE, resolve_accept 已 no_progress++
                 st = _step(run_dir, {
                     "type": "CONTINUE",
                     "phase": "REFLECT",
@@ -826,7 +826,7 @@ def run_loop(
                     break
 
             else:
-                # 态9 REJECT — resolve_accept 已 no_progress++
+                # 态9 REJECT, resolve_accept 已 no_progress++
                 st = _step(run_dir, {
                     "type": "REJECT",
                     "phase": "REFLECT",
@@ -969,7 +969,7 @@ def run_loop(
                 history.append({"round": rnd, "summary": "C ACCEPT", "passed": True})
 
             elif _c_route == "PAUSE_FOR_HUMAN":
-                # 态9.5 PAUSE_FOR_HUMAN — C 档强制人审 (纯 C + auto, 或 Codex 不可用)
+                # 态9.5 PAUSE_FOR_HUMAN, C 档强制人审 (纯 C + auto, 或 Codex 不可用)
                 note_forced_review(st)   # in-memory forced_review++
                 _gate_human.enqueue(run_dir, {
                     "run_id": run_id,
@@ -1002,7 +1002,7 @@ def run_loop(
                     _rf = release_valve(st, params)  # 升人审频率
 
             else:
-                # 态9 REJECT — C 档拒绝
+                # 态9 REJECT, C 档拒绝
                 st.no_progress += 1
                 st = _step(run_dir, {
                     "type": "REJECT",
@@ -1081,7 +1081,7 @@ def run_loop(
                     break
 
             elif nxt == "PAUSE_FOR_HUMAN":
-                # 态9.5 PAUSE_FOR_HUMAN — non-blocking; record & increment forced_review
+                # 态9.5 PAUSE_FOR_HUMAN, non-blocking; record & increment forced_review
                 from tools.sie import gate_human
                 note_forced_review(st)   # in-memory counter update
                 gate_human.enqueue(run_dir, {

@@ -124,7 +124,7 @@ def split_visible_holdout(anchors: list[dict], frac: float, seed: str = "") -> t
 
 
 # ---------------------------------------------------------------------------
-# M2.4: verify_anchor — EDGAR-backed factual verification
+# M2.4: verify_anchor, EDGAR-backed factual verification
 # ---------------------------------------------------------------------------
 
 _REL_TOL = 0.01   # 1% relative tolerance
@@ -239,7 +239,7 @@ def verify_anchor(anchor: dict, fetcher=None) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# M2.5: marginal_gain — EVE 边际增益 (防塞假锚刷分)
+# M2.5: marginal_gain, EVE 边际增益 (防塞假锚刷分)
 # ---------------------------------------------------------------------------
 
 

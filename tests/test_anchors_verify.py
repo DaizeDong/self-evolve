@@ -39,7 +39,7 @@ def test_prepare_cache_returns_path_string(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# verify_anchor tests — all use injected fetcher, zero network
+# verify_anchor tests, all use injected fetcher, zero network
 # ---------------------------------------------------------------------------
 
 def test_verify_anchor_pass_within_rel_tol():
@@ -53,7 +53,7 @@ def test_verify_anchor_pass_within_rel_tol():
         "cik": "320193",
         "period": "FY2024",
     }
-    def fetch(anchor):  # 1.205e9: 0.4% deviation — within 1% rel_tol
+    def fetch(anchor):  # 1.205e9: 0.4% deviation, within 1% rel_tol
         return 1.205e9
     out = anchors.verify_anchor(a, fetcher=fetch)
     assert out["verified"] is True
@@ -153,7 +153,7 @@ def test_verify_anchor_returns_copy_not_mutate():
         "period": "FY2024",
     }
     out = anchors.verify_anchor(a, fetcher=lambda _a: 1.0)
-    # output is a copy — original should not have verify_reason key
+    # output is a copy, original should not have verify_reason key
     assert "verify_reason" not in a
     assert "verify_reason" in out
 
@@ -161,7 +161,7 @@ def test_verify_anchor_returns_copy_not_mutate():
 def test_verify_anchor_exact_boundary_rel_tol():
     """Exactly at 1% relative tolerance — should be verified (<=)."""
     expected = 100.0
-    observed = 101.0  # exactly 1% — within boundary
+    observed = 101.0  # exactly 1%, within boundary
     a = {
         "anchor_id": "x",
         "claim": "c",

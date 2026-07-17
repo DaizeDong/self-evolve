@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 构建 `self-evolve` —— 一个用确定性 Python harness 编排、LLM 只提议/代码裁决的自迭代工具进化 Claude Code skill，指向任意 skill/仓库/项目即可在 worktree 沙箱内多轮改进它，并用不可 game 的 PACE 提交门 + 程序化锚保证"被采纳=真改进"。
+**Goal:** 构建 `self-evolve`, 一个用确定性 Python harness 编排、LLM 只提议/代码裁决的自迭代工具进化 Claude Code skill，指向任意 skill/仓库/项目即可在 worktree 沙箱内多轮改进它，并用不可 game 的 PACE 提交门 + 程序化锚保证"被采纳=真改进"。
 
 **Architecture:** 方法论 skill（SKILL.md 门控）+ 确定性 harness `tools/sie/`（10 态状态机，所有采纳/拒绝/回滚/分档由代码裁决，搜索/反思/评审才用 LLM）+ subagent 编排（`workflows/*.js`）。分层评测 A(可验证)/B(锚半验证)/C(主观)，统一经 PACE anytime-valid e-process acceptor。全程沙箱，不可逆/外向动作走人审独立子流程。
 
@@ -16,7 +16,7 @@
 - **裁决铁律**：LLM 只提议；采纳/拒绝/回滚/分档由 harness 确定性代码；搜索引擎(GEPA/OpenEvolve)只进 PROPOSE 步，绝不评判自己产出。
 - **原始证据**：trace/反思 append-only 只读，永不被 LLM 改写。
 - **数据隔离（铁律5）**：frozen 锚 claim/verified 值/marginal_gain、测试真值，对 REFLECT/PROPOSE/PATCH 进程不可读（只暴露 task 输入）。
-- **IMMUTABLE 裁决代码集**：`statemachine/acceptor/judges/verifiable/anchors/selfdeception/gate_human/profile 判定/sandbox 边界/supervisor loader`——M4 起从 frozen base ref 按内容哈希加载；M1-M3 用"可写 glob 排除 + AST 危险门"先挡。
+- **IMMUTABLE 裁决代码集**：`statemachine/acceptor/judges/verifiable/anchors/selfdeception/gate_human/profile 判定/sandbox 边界/supervisor loader`,M4 起从 frozen base ref 按内容哈希加载；M1-M3 用"可写 glob 排除 + AST 危险门"先挡。
 - **judge 池**：仅 **Claude + Codex**（不装 gemini/minimax）。Codex(codex skill，最强模型，禁 browser/playwright、只用 web_search)=主独立非 proposer judge；Claude=去偏次 judge；Codex 不可用→禁单 Claude 自动 ACCEPT，降级锚+人审。
 - **安全边界**：评测子进程禁网（M1）/ M2 起经 harness 代发白名单审查代理；最小化环境（清非白名单 env，token/key 与 `~`/.credentials.json 不可读）；candidate 禁 import discord_relay；gate 路径 realpath canonical 比对沙箱根，拒 symlink/`..`；outward(出沙箱写删/push/合主分支/对外发送)=GATED。
 - **校准参数初值**（跑一轮后校准）：`α=0.05`，`n_min=8`，`anchor_set_min=24`，`effective_independent_anchor_min=12`，`holdout_fraction=0.3`，`continue_count_cap=5`，`no_progress_circuit N=8`，`no_progress_release M=3`，`static_reject_circuit=6`，`forced_review_circuit=5`，`drift_circuit=4`，`cumulative_drift_tolerance=1.5×`，`frozen_anchor_effective_gain_ε=0.02`，`selfdeception_alert_band=0.15`，`N_reflectors=1(M1)→3(M3)`，`reflection_correctness_threshold=0.5`，`judge_agreement α_low=0.4/α_high=0.85`，`active_cap=64`，`K=5`。
@@ -244,7 +244,7 @@ EOF
 
 ---
 
-### Task M1a.1: state.py — RunState + 原子 save/load
+### Task M1a.1: state.py, RunState + 原子 save/load
 
 **Files:**
 - Create: `~/CodesSelf/self-evolve/tools/sie/state.py`
@@ -347,7 +347,7 @@ EOF
 
 ---
 
-### Task M1a.2: events.py — append-only 事件流 + replay 重建
+### Task M1a.2: events.py, append-only 事件流 + replay 重建
 
 **Files:**
 - Create: `~/CodesSelf/self-evolve/tools/sie/events.py`
@@ -478,7 +478,7 @@ EOF
 
 ---
 
-### Task M1a.3: sandbox.py — worktree + realpath canonical 边界 + action 分级
+### Task M1a.3: sandbox.py, worktree + realpath canonical 边界 + action 分级
 
 **Files:**
 - Create: `~/CodesSelf/self-evolve/tools/sie/sandbox.py`
@@ -814,7 +814,7 @@ EOF
 
 ---
 
-### Task M1a.5: verifiable.py — A 档 grader + 最小化环境 + 快照哈希 + 禁网/凭证隔离
+### Task M1a.5: verifiable.py, A 档 grader + 最小化环境 + 快照哈希 + 禁网/凭证隔离
 
 **Files:**
 - Create: `~/CodesSelf/self-evolve/tools/sie/verifiable.py`
@@ -1009,7 +1009,7 @@ EOF
 
 ---
 
-### Task M1a.6: patch.py — 基础 apply + import 白名单 + 危险调用基础门
+### Task M1a.6: patch.py, 基础 apply + import 白名单 + 危险调用基础门
 
 **Files:**
 - Create: `~/CodesSelf/self-evolve/tools/sie/patch.py`
@@ -1149,7 +1149,7 @@ EOF
 
 ---
 
-### Task M1a.7: acceptor.py — no-regression 硬门兜底（签名锁定，PACE 留 M1b）
+### Task M1a.7: acceptor.py, no-regression 硬门兜底（签名锁定，PACE 留 M1b）
 
 **Files:**
 - Create: `~/CodesSelf/self-evolve/tools/sie/acceptor.py`
@@ -1160,7 +1160,7 @@ EOF
 - Produces（契约锁定，签名 M1b 不变、内部换 e-process）：
   - `acceptor.decide(paired: list[tuple[float,float]], tier: str, st: RunState, params: dict) -> dict`（→`{"decision":"ACCEPT"|"REJECT"|"CONTINUE","evalue":float,"reason":str}`）
 
-> 关键易错点（acceptor 数学兜底 + A 档二态，spec §5.5/态7）：M1a 实现 **no-regression 硬门**——`paired` 是 `[(before_score, after_score), ...]` per-task 配对；**任一 task 从 pass(before>=1) 退化到 fail(after<1) → 硬 REJECT**（no-regression 任一回退即拒，spec 态7）。否则 ACCEPT。**A 档禁 CONTINUE**（二态）。M1a 不产 CONTINUE（PACE 随机档 CONTINUE 留 M1b）。`evalue` M1a 占位为通过/退化任务比，签名字段保持以便 M1b 替换。
+> 关键易错点（acceptor 数学兜底 + A 档二态，spec §5.5/态7）：M1a 实现 **no-regression 硬门**,`paired` 是 `[(before_score, after_score), ...]` per-task 配对；**任一 task 从 pass(before>=1) 退化到 fail(after<1) → 硬 REJECT**（no-regression 任一回退即拒，spec 态7）。否则 ACCEPT。**A 档禁 CONTINUE**（二态）。M1a 不产 CONTINUE（PACE 随机档 CONTINUE 留 M1b）。`evalue` M1a 占位为通过/退化任务比，签名字段保持以便 M1b 替换。
 
 - [ ] **Step 1: 写失败测试（no-regression 硬门 + A 档二态）**
   ```python
@@ -1242,7 +1242,7 @@ EOF
 
 ---
 
-### Task M1a.8: archive.py — lineage + rollback（Pareto 留 M3）
+### Task M1a.8: archive.py, lineage + rollback（Pareto 留 M3）
 
 **Files:**
 - Create: `~/CodesSelf/self-evolve/tools/sie/archive.py`
@@ -1383,7 +1383,7 @@ EOF
 
 ---
 
-### Task M1a.9: gate_human.py — pending 队列基础（非阻塞）
+### Task M1a.9: gate_human.py, pending 队列基础（非阻塞）
 
 **Files:**
 - Create: `~/CodesSelf/self-evolve/tools/sie/gate_human.py`
@@ -1622,7 +1622,7 @@ EOF
 
 ---
 
-### Task M1a.11: evaluate.py — 只走 verifiable（A 档分向量）
+### Task M1a.11: evaluate.py, 只走 verifiable（A 档分向量）
 
 **Files:**
 - Create: `~/CodesSelf/self-evolve/tools/sie/evaluate.py`
@@ -1700,7 +1700,7 @@ EOF
 
 ---
 
-### Task M1a.12: statemachine.py + cli.py — 端到端编排（init|run|status|replay|rollback）
+### Task M1a.12: statemachine.py + cli.py, 端到端编排（init|run|status|replay|rollback）
 
 **Files:**
 - Create: `~/CodesSelf/self-evolve/tools/sie/statemachine.py`
@@ -1715,7 +1715,7 @@ EOF
   - `cli.main(argv: list[str]) -> int`（子命令 init|run|status|replay|rollback）
 
 > 关键易错点（状态机转移 + 崩溃重放，spec §4 验收）：
-> - 每态推进**先 append_event 再 save_state**（events 为真相源，崩溃后 replay 必须重建一致——验收硬指标）。
+> - 每态推进**先 append_event 再 save_state**（events 为真相源，崩溃后 replay 必须重建一致,验收硬指标）。
 > - SELECT_PARENT 冷启动 archive 空 → parent=base ref（spec 态2）。
 > - ACCEPT 路径：evaluate→acceptor.decide→若 ACCEPT 则 add_version+snapshot_version+清零 no_progress（态8）；REJECT 则 no_progress++（态9）。
 > - `replay` 子命令必须能在删掉 state.json 后从 events.jsonl 重建并打印一致 RunState。
@@ -2160,7 +2160,7 @@ EOF
 > **M1a 完成判据（对照 spec §13 验收）**：`python -m pytest -q` 全绿；真 broken pytest repo 经 `cli run` 能采纳修复版进 archive lineage、`cli rollback` 能回滚；`cli replay` 在删 state.json 后从 events.jsonl 重建出与崩溃前一致的 RunState；评测子进程禁网/凭证隔离/沙箱 realpath 边界负向用例全过；confseq spike 第 0 步硬前置通过。M1b 在此骨架上把 acceptor 内部换成 PACE e-process 并补噪声/对抗单测、AST 全清单、三计数器熔断、人审非阻塞回执。
 ## 里程碑 M1b: 防自欺/安全门加硬 (~10-14h)
 
-**目标**：在 M1a 端到端骨架（no-regression 兜底 acceptor）之上，把"被采纳=真改进"的硬地基补齐——`patch.py` 装上 AST 危险调用拒绝门全清单，`verifiable.py` 装上变异测试有效性门，`acceptor.py` 用 `confseq` 实现 PACE A 档 anytime-valid e-process（per-task `task_passed` 配对、二态、禁 CONTINUE）并通过噪声/对抗单测，`gate_human.py` 补齐非阻塞待审队列，`statemachine.py` 装齐三计数器（`no_progress`/`static_reject`/`forced_review`）+各自熔断阈 + 态 9.5 PAUSE_FOR_HUMAN + CONTINUE 限随机档/上限/落点（A 档禁 CONTINUE）。
+**目标**：在 M1a 端到端骨架（no-regression 兜底 acceptor）之上，把"被采纳=真改进"的硬地基补齐,`patch.py` 装上 AST 危险调用拒绝门全清单，`verifiable.py` 装上变异测试有效性门，`acceptor.py` 用 `confseq` 实现 PACE A 档 anytime-valid e-process（per-task `task_passed` 配对、二态、禁 CONTINUE）并通过噪声/对抗单测，`gate_human.py` 补齐非阻塞待审队列，`statemachine.py` 装齐三计数器（`no_progress`/`static_reject`/`forced_review`）+各自熔断阈 + 态 9.5 PAUSE_FOR_HUMAN + CONTINUE 限随机档/上限/落点（A 档禁 CONTINUE）。
 
 **验收标准（spec §13 M1b）**：
 - acceptor 正确采纳/拒绝：纯噪声序列拒绝率≈1，真增益序列采纳率高，误提交率 ≤ α=0.05；对抗序列（主观正漂移+锚每轮微涨）被拒。
@@ -2183,7 +2183,7 @@ EOF
 
 > 关键：这是 IMMUTABLE 裁决码之一（铁律3）。门必须对**调用名 + 属性链 + import + 动态导入 + 沙箱外 open** 同时设防，import 走"默认拒 + 白名单 allow"。下面给可跑实现，不可只描述。
 
-- [ ] **Step 1: 写失败测试——危险调用全清单逐项拒**
+- [ ] **Step 1: 写失败测试,危险调用全清单逐项拒**
   新建 `tests/test_patch_ast_gate.py`：
   ```python
   import pytest
@@ -2238,7 +2238,7 @@ EOF
   - Run: `cd ~/CodesSelf/self-evolve && python -m pytest tests/test_patch_ast_gate.py -q`
   - Expected: FAIL（`ImportError: cannot import name 'scan_ast_dangerous'`）
 
-- [ ] **Step 3: 写最小实现——`scan_ast_dangerous` + 常量表**
+- [ ] **Step 3: 写最小实现,`scan_ast_dangerous` + 常量表**
   在 `tools/sie/patch.py` 顶部 import 区后加入（确保 `import ast`、`import os` 已在 M1a 引入；若无则补 `import ast`）：
   ```python
   DANGEROUS_CALLS = frozenset({
@@ -2389,9 +2389,9 @@ EOF
   - `inject_mutants(source: str) -> list[tuple[str, str]]`（返回 `[(mutant_id, mutated_source), ...]`，对 `+`/`-`/比较/布尔常量做标准变异）
   - `mutation_validity_gate(worktree: str, source_files: list[str], run_one, *, min_kill_ratio: float = 1.0) -> dict`（`run_one(worktree)->bool` 跑一次测试套返回是否全绿；返回 `{"valid":bool,"killed":int,"total":int,"kill_ratio":float,"survivors":[mutant_id,...]}`）
 
-> 关键：spec §1/§5.2——"exec 探针变异测试二次校验（注入 bug 须变红，杀不死则信号作废）"。门的语义=对**被测源码**注入 bug，若测试仍全绿（mutant 存活）则该 grader 是放水测试 → 信号作废。M1b 默认 `min_kill_ratio=1.0`（任一存活即作废），保守。
+> 关键：spec §1/§5.2,"exec 探针变异测试二次校验（注入 bug 须变红，杀不死则信号作废）"。门的语义=对**被测源码**注入 bug，若测试仍全绿（mutant 存活）则该 grader 是放水测试 → 信号作废。M1b 默认 `min_kill_ratio=1.0`（任一存活即作废），保守。
 
-- [ ] **Step 1: 写失败测试——真测试杀死变异、假测试放过变异**
+- [ ] **Step 1: 写失败测试,真测试杀死变异、假测试放过变异**
   新建 `tests/test_mutation_gate.py`：
   ```python
   import os, textwrap
@@ -2446,7 +2446,7 @@ EOF
   - Run: `cd ~/CodesSelf/self-evolve && python -m pytest tests/test_mutation_gate.py -q`
   - Expected: FAIL（`ImportError: cannot import name 'inject_mutants'`）
 
-- [ ] **Step 3: 写最小实现——`inject_mutants` + `mutation_validity_gate`**
+- [ ] **Step 3: 写最小实现,`inject_mutants` + `mutation_validity_gate`**
   在 `tools/sie/verifiable.py` 加入（确保 `import ast`、`import os`、`import shutil`）：
   ```python
   class _Mutator(ast.NodeTransformer):
@@ -2569,7 +2569,7 @@ EOF
 - [ ] **Step 1: 写 acceptor_math.md（参考实现说明，非测试）**
   新建 `reference/acceptor_math.md`，内容含：null 设定（A 档 m=0.5）、betting martingale wealth=∏(1+λ_t(u_t−m)) 的 anytime-valid 保证、阈值 1/α、per-tier 配对单元表、主观分方差缩放与 `evalue_max_step` 截断规则、confseq→ONS 回退说明。提交即可，无 Run。
 
-- [ ] **Step 2: 写失败测试——噪声/真增益/误提交/对抗/二态**
+- [ ] **Step 2: 写失败测试,噪声/真增益/误提交/对抗/二态**
   新建 `tests/test_acceptor_noise.py`：
   ```python
   import random
@@ -2642,7 +2642,7 @@ EOF
   - Run: `cd ~/CodesSelf/self-evolve && python -m pytest tests/test_acceptor_noise.py -q`
   - Expected: FAIL（A 档 e-process 分支未实现，纯噪声/真增益断言不成立或函数报错）
 
-- [ ] **Step 4: 写最小实现——confseq 适配器 + ONS 回退 + `decide` A 档分支**
+- [ ] **Step 4: 写最小实现,confseq 适配器 + ONS 回退 + `decide` A 档分支**
   在 `tools/sie/acceptor.py` 加入：
   ```python
   def _pace_threshold(alpha: float) -> float:
@@ -2750,9 +2750,9 @@ EOF
 **Interfaces:**
 - Produces：`_decorrelate_downweight(diffs: list[float], cluster_ids: list[str]) -> list[float]`（同源锚配对前按簇大小 `1/size` 降权，防相关锚虚高 e-value；返回降权后差序列）
 
-> 关键：spec §9 对抗闸门——小相关锚集（8 同源锚每轮 +微涨）必须被拒。机制=同源去相关降权 + B 档 `n_min`/有效独立锚下限。本任务把"同源锚虚高"做成可跑负向用例。
+> 关键：spec §9 对抗闸门,小相关锚集（8 同源锚每轮 +微涨）必须被拒。机制=同源去相关降权 + B 档 `n_min`/有效独立锚下限。本任务把"同源锚虚高"做成可跑负向用例。
 
-- [ ] **Step 1: 写失败测试——小相关锚集被拒 + 主观正漂移被拒**
+- [ ] **Step 1: 写失败测试,小相关锚集被拒 + 主观正漂移被拒**
   新建 `tests/test_acceptor_adversarial.py`：
   ```python
   from sie.state import RunState
@@ -2787,7 +2787,7 @@ EOF
   - Run: `cd ~/CodesSelf/self-evolve && python -m pytest tests/test_acceptor_adversarial.py -q`
   - Expected: FAIL（`ImportError: cannot import name '_decorrelate_downweight'`）
 
-- [ ] **Step 3: 写最小实现——`_decorrelate_downweight`**
+- [ ] **Step 3: 写最小实现,`_decorrelate_downweight`**
   在 `tools/sie/acceptor.py` 加入：
   ```python
   def _decorrelate_downweight(diffs, cluster_ids):
@@ -2827,9 +2827,9 @@ EOF
   - `pending(run_dir: str) -> list[dict]`（只返回 status=="pending" 且未过期）
   - `resolve(run_dir: str, aid: str, status: str) -> None`（status∈{"approved","skipped","expired"}；append-only 不改历史行，追加终态行）
 
-> 关键：spec R2/§4 态9.5——人审"标 pending、跳过、继续"非阻塞；`pending_actions.jsonl` append-only。resolve 不重写旧行，追加 resolution 行，`pending()` 取每个 aid 的最新状态。
+> 关键：spec R2/§4 态9.5,人审"标 pending、跳过、继续"非阻塞；`pending_actions.jsonl` append-only。resolve 不重写旧行，追加 resolution 行，`pending()` 取每个 aid 的最新状态。
 
-- [ ] **Step 1: 写失败测试——enqueue 非阻塞 + pending 过滤 + resolve 终态 + ttl**
+- [ ] **Step 1: 写失败测试,enqueue 非阻塞 + pending 过滤 + resolve 终态 + ttl**
   新建 `tests/test_gate_human.py`：
   ```python
   import os, time, json
@@ -2870,7 +2870,7 @@ EOF
   - Run: `cd ~/CodesSelf/self-evolve && python -m pytest tests/test_gate_human.py -q`
   - Expected: FAIL（`pending`/`resolve` 未实现或 ttl/append-only 语义缺失）
 
-- [ ] **Step 3: 写最小实现——enqueue/pending/resolve**
+- [ ] **Step 3: 写最小实现,enqueue/pending/resolve**
   在 `tools/sie/gate_human.py` 加入（确保 `import os, json, time, uuid`）：
   ```python
   _QUEUE = "pending_actions.jsonl"
@@ -2968,7 +2968,7 @@ EOF
 > - 熔断阈：`no_progress N=8`、`static_reject N_sr=6`、`forced_review N_fr=5`、`drift N_drift=4`；释放阀 `no_progress M=3`(仅升人审频率，不降阈采纳)。
 > - ACCEPT→ARCHIVE 时清零 `no_progress`/`forced_review`/`continue_count`（spec §4 态8）。
 
-- [ ] **Step 1: 写失败测试——三计数器/熔断/CONTINUE 落点/A 禁 CONTINUE/清零**
+- [ ] **Step 1: 写失败测试,三计数器/熔断/CONTINUE 落点/A 禁 CONTINUE/清零**
   新建 `tests/test_statemachine_counters.py`：
   ```python
   from sie.state import RunState
@@ -3035,7 +3035,7 @@ EOF
   - Run: `cd ~/CodesSelf/self-evolve && python -m pytest tests/test_statemachine_counters.py -q`
   - Expected: FAIL（`ImportError`/计数器与落点逻辑缺失）
 
-- [ ] **Step 3: 写最小实现——计数器/熔断/落点/守卫**
+- [ ] **Step 3: 写最小实现,计数器/熔断/落点/守卫**
   在 `tools/sie/statemachine.py` 加入：
   ```python
   def apply_acceptor_outcome(st, decision, params):
@@ -3226,7 +3226,7 @@ EOF
 
 ---
 
-### Task M2.1: anchors.py — extract_anchors + coverage（锚字段代码判定）
+### Task M2.1: anchors.py, extract_anchors + coverage（锚字段代码判定）
 
 **Files:**
 - Create: `~/CodesSelf/self-evolve/tools/sie/anchors.py`
@@ -3257,7 +3257,7 @@ EOF
   }
   ```
 
-- [ ] **Step 2: 写失败测试 — extract 提锚 + coverage 计算**
+- [ ] **Step 2: 写失败测试, extract 提锚 + coverage 计算**
   在 `tests/test_anchors_extract.py`：
   ```python
   import json, os
@@ -3365,7 +3365,7 @@ EOF
 
 ---
 
-### Task M2.2: anchors.py — effective_independent_count（去相关/同源降权）
+### Task M2.2: anchors.py, effective_independent_count（去相关/同源降权）
 
 **Files:**
 - Modify: `~/CodesSelf/self-evolve/tools/sie/anchors.py`（追加 `_source_cluster_key` + `effective_independent_count`）
@@ -3377,7 +3377,7 @@ EOF
 
 > 关键/易错（去相关）：8 个 source_url/cik/period 全同的锚必须折算成"约 4"而非 8，否则相关锚会在 e-process 里制造虚高 e-value。下限门 `effective_independent_anchor_min=12`。
 
-- [ ] **Step 1: 写失败测试 — 同源簇被降权**
+- [ ] **Step 1: 写失败测试, 同源簇被降权**
   在 `tests/test_anchors_independence.py`：
   ```python
   import math
@@ -3467,7 +3467,7 @@ EOF
 
 ---
 
-### Task M2.3: anchors.py — split_visible_holdout（确定性可复现拆分）
+### Task M2.3: anchors.py, split_visible_holdout（确定性可复现拆分）
 
 **Files:**
 - Modify: `~/CodesSelf/self-evolve/tools/sie/anchors.py`
@@ -3553,7 +3553,7 @@ EOF
 
 ---
 
-### Task M2.4: anchors.py — verify_anchor（edgartools/价格核查，先清 ~/.edgar 缓存）
+### Task M2.4: anchors.py, verify_anchor（edgartools/价格核查，先清 ~/.edgar 缓存）
 
 **Files:**
 - Modify: `~/CodesSelf/self-evolve/tools/sie/anchors.py`
@@ -3728,7 +3728,7 @@ EOF
 
 ---
 
-### Task M2.5: anchors.py — marginal_gain（EVE 边际增益）
+### Task M2.5: anchors.py, marginal_gain（EVE 边际增益）
 
 **Files:**
 - Modify: `~/CodesSelf/self-evolve/tools/sie/anchors.py`
@@ -3796,7 +3796,7 @@ EOF
 
 ---
 
-### Task M2.6: acceptor.py — B 档 per-anchor 配对 + n_min/独立性下限门
+### Task M2.6: acceptor.py, B 档 per-anchor 配对 + n_min/独立性下限门
 
 **Files:**
 - Modify: `~/CodesSelf/self-evolve/tools/sie/acceptor.py`（在 M1b 已有 `decide()` 内增 tier=="B" 分支与 e-process 复用）
@@ -3812,7 +3812,7 @@ EOF
 > 3. 主观分不进 B（B 全是已核验客观增益），但仍套 `evalue_max_step` 单轮上限防一锚爆表。
 > e-value ≥ 1/α(=20) 且三门全过才 ACCEPT；e-value 介于阈与 1 之间且属随机档 → CONTINUE（B 是随机档允许 CONTINUE）；e-value ≤ 阈下界 → REJECT。
 
-- [ ] **Step 1: 写失败测试 — 三门 + 三态**
+- [ ] **Step 1: 写失败测试, 三门 + 三态**
   在 `tests/test_acceptor_btier.py`：
   ```python
   from tools.sie import acceptor
@@ -3925,7 +3925,7 @@ EOF
 
 ---
 
-### Task M2.7: selfdeception.py — holdout 背离闸 + 累计漂移预算
+### Task M2.7: selfdeception.py, holdout 背离闸 + 累计漂移预算
 
 **Files:**
 - Modify: `~/CodesSelf/self-evolve/tools/sie/selfdeception.py`（M1b 可能仅占位；此处落 `index()` 多闸 + 累计漂移）
@@ -3941,7 +3941,7 @@ EOF
 > ③ **holdout 背离**：`visible_anchor_gain > 0 且 holdout_gain <= 0` → alert `overfit_holdout` + `force_human=True`；
 > ④ **累计漂移预算**：`|value| > selfdeception_alert_band(0.15)` → alert `judge_anchor_divergence`；漂移由 statemachine 累计计入 `drift_count`，本函数只报当轮信号。
 
-- [ ] **Step 1: 写失败测试 — 四闸**
+- [ ] **Step 1: 写失败测试, 四闸**
   在 `tests/test_selfdeception_holdout.py`：
   ```python
   from tools.sie import selfdeception
@@ -4028,7 +4028,7 @@ EOF
 
 ---
 
-### Task M2.8: proxy.py — harness 代发 + 参数白名单枚举 + URL/header/body 熵 + base64/hex 检测
+### Task M2.8: proxy.py, harness 代发 + 参数白名单枚举 + URL/header/body 熵 + base64/hex 检测
 
 **Files:**
 - Create: `~/CodesSelf/self-evolve/tools/sie/proxy.py`
@@ -4040,9 +4040,9 @@ EOF
 - Produces: `shannon_entropy(data: bytes | str) -> float`、`looks_encoded(s: str) -> bool`（base64/hex 检测）
 - Consumes: 无（出站审查叶子；序列检测在 M2.9）
 
-> 关键/易错（沙箱边界 / 出站隐蔽信道，spec §6）。candidate **不能自选 ticker/时序**：`dispatch` 只接受 `kind ∈ allowlist`，每个 kind 声明结构化参数 + 正则白名单（CIK=`^\d{1,10}$`、ticker=`^[A-Z]{1,6}$`、date=`^\d{4}-\d{2}-\d{2}$`），harness 用白名单参数自行拼 URL 代发，结果回填——candidate 永远拿不到原始 URL 构造权。`screen_request`（用于 judge 进程等仍需直发的受控出站）查：URL/header/body 各段 Shannon 熵超阈、体积超上限、出现长 base64/hex 段（隐写）即 violation。
+> 关键/易错（沙箱边界 / 出站隐蔽信道，spec §6）。candidate **不能自选 ticker/时序**：`dispatch` 只接受 `kind ∈ allowlist`，每个 kind 声明结构化参数 + 正则白名单（CIK=`^\d{1,10}$`、ticker=`^[A-Z]{1,6}$`、date=`^\d{4}-\d{2}-\d{2}$`），harness 用白名单参数自行拼 URL 代发，结果回填,candidate 永远拿不到原始 URL 构造权。`screen_request`（用于 judge 进程等仍需直发的受控出站）查：URL/header/body 各段 Shannon 熵超阈、体积超上限、出现长 base64/hex 段（隐写）即 violation。
 
-- [ ] **Step 1: 写失败测试 — 熵 + 编码检测 + 白名单枚举**
+- [ ] **Step 1: 写失败测试, 熵 + 编码检测 + 白名单枚举**
   在 `tests/test_proxy_outbound.py`：
   ```python
   import os, re
@@ -4225,7 +4225,7 @@ EOF
 
 ---
 
-### Task M2.9: proxy.py — 跨请求序列异常检测
+### Task M2.9: proxy.py, 跨请求序列异常检测
 
 **Files:**
 - Modify: `~/CodesSelf/self-evolve/tools/sie/proxy.py`（追加序列状态 + `sequence_anomaly`）
@@ -4343,7 +4343,7 @@ EOF
 
 ---
 
-### Task M2.10: probes/fact_probe.py — 锚字段代码判定探针
+### Task M2.10: probes/fact_probe.py, 锚字段代码判定探针
 
 **Files:**
 - Create: `~/CodesSelf/self-evolve/tools/sie/probes/fact_probe.py`
@@ -4454,7 +4454,7 @@ EOF
 
 ---
 
-### Task M2.11: profile.py — 升 A/B/C 三档 + visible/holdout 拆分落盘隔离
+### Task M2.11: profile.py, 升 A/B/C 三档 + visible/holdout 拆分落盘隔离
 
 **Files:**
 - Modify: `~/CodesSelf/self-evolve/tools/sie/profile.py`（M1a 已有 `run_profile` A/C 二分；此处接 fact_probe、拆 visible/holdout、A/B/C 可叠加、holdout 物理隔离落盘）
@@ -4464,7 +4464,7 @@ EOF
 - Produces（扩展，不改签名）：`run_profile(target: str, base_ref: str) -> dict`，返回 `target.json` dict 增 `tier`（可为 `"A+B"`/`"B"`/`"A+B+C"` 等叠加）、`anchors_visible`、`anchors_holdout_ref`（holdout 只存引用/路径，真值物理隔离）、`probe_evidence`
 - Consumes: `probes.fact_probe.probe`、`anchors.split_visible_holdout`、`exec_probe`（M1a 既有）
 
-> 关键/易错（铁律4 tier 冻结 + 铁律5 数据隔离）。① tier 是 A/B/C **可叠加**（既有可验证 test 又有锚字段 → `"A+B"`）；② visible 锚写进 `target.json` 给评测计分，**holdout 锚的 verified 值不能写进 target.json**（proposer 可读 target.json）——holdout 落到独立 `run/<id>/_holdout/holdout.json`（proposer 进程无读权），target.json 只存 `anchors_holdout_ref` 指针 + 计数；③ tier 只首次 PROFILE 冻结，resume 不重跑（M1a 已保证，这里不破坏）。
+> 关键/易错（铁律4 tier 冻结 + 铁律5 数据隔离）。① tier 是 A/B/C **可叠加**（既有可验证 test 又有锚字段 → `"A+B"`）；② visible 锚写进 `target.json` 给评测计分，**holdout 锚的 verified 值不能写进 target.json**（proposer 可读 target.json）,holdout 落到独立 `run/<id>/_holdout/holdout.json`（proposer 进程无读权），target.json 只存 `anchors_holdout_ref` 指针 + 计数；③ tier 只首次 PROFILE 冻结，resume 不重跑（M1a 已保证，这里不破坏）。
 
 - [ ] **Step 1: 写失败测试**
   在 `tests/test_profile_abc.py`：
@@ -4565,7 +4565,7 @@ EOF
 
 ---
 
-### Task M2.12: evaluate.py — B 档评测编排 + coverage 门 + holdout 抽检背离
+### Task M2.12: evaluate.py, B 档评测编排 + coverage 门 + holdout 抽检背离
 
 **Files:**
 - Modify: `~/CodesSelf/self-evolve/tools/sie/evaluate.py`（M1a 已有 A 档编排；增 B 维：visible 计分 + holdout 每 K 轮抽检 + coverage 门 + 喂 acceptor/selfdeception）
@@ -4674,7 +4674,7 @@ EOF
           "anchors_visible_verified": vis,
       }
   ```
-  并在 `evaluate()` 主分发里加：`if "B" in ctx.get("tier",""): return _evaluate_btier(ctx)`（A 维分支保留；A+B 叠加时 statemachine 按配对优先级 A>B>C 取，evaluate 各维都算——M2 先保证 B 路径产出，叠加合并由 statemachine 处理）。
+  并在 `evaluate()` 主分发里加：`if "B" in ctx.get("tier",""): return _evaluate_btier(ctx)`（A 维分支保留；A+B 叠加时 statemachine 按配对优先级 A>B>C 取，evaluate 各维都算,M2 先保证 B 路径产出，叠加合并由 statemachine 处理）。
 
 - [ ] **Step 4: 跑测试看通过**
   - Run: `cd ~/CodesSelf/self-evolve && python -m pytest tests/test_evaluate_btier.py -q`
@@ -4697,7 +4697,7 @@ EOF
 
 ---
 
-### Task M2.13: 集成 — statemachine B 档接线 + 对抗序列端到端验收
+### Task M2.13: 集成, statemachine B 档接线 + 对抗序列端到端验收
 
 **Files:**
 - Modify: `~/CodesSelf/self-evolve/tools/sie/statemachine.py`（ACCEPT 态接 B：coverage_floor_violation/selfdeception.force_human → 9.5 强制人审；drift 累计计 `drift_count`）
@@ -4713,7 +4713,7 @@ EOF
 - [ ] **Step 1: 写 small-cap fixture（>=24 互异源锚）**
   写 `tests/fixtures/smallcap_artifact.json`：24+ section，每 section 一个带 `claim/span/source_url(互异 host)/cik/period/metric/expected` 的锚（形态同 anchored_artifact.json 但规模 >=24、source host 多样）。可用脚本生成后落盘，确保 `extract_anchors` 得 >=24、`effective_independent_count` >=12。
 
-- [ ] **Step 2: 写失败测试 — 4 条硬验收**
+- [ ] **Step 2: 写失败测试, 4 条硬验收**
   在 `tests/test_m2_acceptance.py`：
   ```python
   import os, json
@@ -4769,7 +4769,7 @@ EOF
   - Run: `cd ~/CodesSelf/self-evolve && python -m pytest tests/test_m2_acceptance.py -q`
   - Expected: FAIL（`statemachine.resolve_accept` 未对 B 接线 / 缺 force_human 转移）
 
-- [ ] **Step 4: 写最小实现 — statemachine.resolve_accept B 接线**
+- [ ] **Step 4: 写最小实现, statemachine.resolve_accept B 接线**
   在 `tools/sie/statemachine.py` 增/改 `resolve_accept(st, eval_out, params) -> dict`：
   ```python
   from . import acceptor as _acceptor
@@ -4849,7 +4849,7 @@ EOF
 
 ---
 
-### Task M3.1: judges.py —— Codex 适配器（codex skill，最强模型，禁 browser/playwright）
+### Task M3.1: judges.py, Codex 适配器（codex skill，最强模型，禁 browser/playwright）
 
 **Files:**
 - Create: `tools/sie/judges.py`
@@ -4860,11 +4860,11 @@ EOF
 **Interfaces:**
 - Consumes: `anchors.coverage(anchors: list[dict]) -> float`；`proxy` 的出站审查（judge 走独立联网进程，prompt 无真值，纳入出站审查）。
 - Produces:
-  - `score(artifact_path: str, anchors_visible: list[dict], family: str) -> dict` —— `family∈{"claude","codex"}`；返回 `{"family":str,"available":bool,"span_scores":[{"span":str,"score":float}],"aggregate":float,"unspanned_penalized":int}`。
-  - `judge_codex.invoke_codex_judge(prompt: str, timeout_s: int) -> dict` —— `{"available":bool,"raw":str}`；不可用（限速/故障/退出码非0）返回 `{"available":False,"raw":""}`。
-  - `judges.build_judge_prompt(artifact_text: str, spans: list[str]) -> str` —— prompt 不携带任何真值（铁律5）。
+  - `score(artifact_path: str, anchors_visible: list[dict], family: str) -> dict`, `family∈{"claude","codex"}`；返回 `{"family":str,"available":bool,"span_scores":[{"span":str,"score":float}],"aggregate":float,"unspanned_penalized":int}`。
+  - `judge_codex.invoke_codex_judge(prompt: str, timeout_s: int) -> dict`, `{"available":bool,"raw":str}`；不可用（限速/故障/退出码非0）返回 `{"available":False,"raw":""}`。
+  - `judges.build_judge_prompt(artifact_text: str, spans: list[str]) -> str`, prompt 不携带任何真值（铁律5）。
 
-- [ ] **Step 1: 写失败测试 —— Codex judge 不可用时返回 available=False，绝不抛**
+- [ ] **Step 1: 写失败测试, Codex judge 不可用时返回 available=False，绝不抛**
 ```python
 # tests/test_judges_codex.py
 import json
@@ -4885,7 +4885,7 @@ def test_codex_unavailable_returns_flag(monkeypatch, tmp_path):
 - Run: `python -m pytest tests/test_judges_codex.py::test_codex_unavailable_returns_flag -q`
 - Expected: FAIL（`judges` / `judge_codex` 不存在）
 
-- [ ] **Step 2: 写最小实现 —— judge_codex 子进程包装（禁 browser/playwright、只用 web_search）**
+- [ ] **Step 2: 写最小实现, judge_codex 子进程包装（禁 browser/playwright、只用 web_search）**
 ```python
 # tools/sie/judge_codex.py
 """Codex judge 适配：走 codex skill 最强模型；禁 browser/playwright，只用 web_search。
@@ -4975,7 +4975,7 @@ def invoke_claude_judge(prompt: str, timeout_s: int = 600) -> dict:
 - Run: `python -m pytest tests/test_judges_codex.py::test_codex_unavailable_returns_flag -q`
 - Expected: PASS
 
-- [ ] **Step 3: 写失败测试 —— prompt 绝不携带真值（铁律5）**
+- [ ] **Step 3: 写失败测试, prompt 绝不携带真值（铁律5）**
 ```python
 # tests/test_judges_codex.py  (追加)
 def test_prompt_carries_no_truth():
@@ -4990,7 +4990,7 @@ def test_prompt_carries_no_truth():
 - Run: `python -m pytest tests/test_judges_codex.py::test_prompt_carries_no_truth -q`
 - Expected: PASS（实现已满足；此测试锁定铁律5 不被回归破坏）
 
-- [ ] **Step 4: 写失败测试 —— 无 span 断言零/负权重，不靠篇幅刷分**
+- [ ] **Step 4: 写失败测试, 无 span 断言零/负权重，不靠篇幅刷分**
 ```python
 # tests/test_judges_codex.py  (追加)
 def test_unspanned_penalized(monkeypatch, tmp_path):
@@ -5019,7 +5019,7 @@ Claude-Session: https://claude.ai/code/session_015s63syXfzXPq4Tz5UCM7yW"
 
 ---
 
-### Task M3.2: judges.py —— Claude 去偏次 judge + pairwise_agreement(α)
+### Task M3.2: judges.py, Claude 去偏次 judge + pairwise_agreement(α)
 
 **Files:**
 - Modify: `tools/sie/judge_claude.py`（充实 `invoke_claude_judge`）
@@ -5028,11 +5028,11 @@ Claude-Session: https://claude.ai/code/session_015s63syXfzXPq4Tz5UCM7yW"
 
 **Interfaces:**
 - Produces:
-  - `pairwise_agreement(scores_a: dict, scores_b: dict) -> float` —— 两判官按 span 对齐的配对一致性 α∈[0,1]（1=完全一致）。
-  - `judge_claude.invoke_claude_judge(prompt: str, timeout_s: int) -> dict` —— `{"available":bool,"raw":str}`。
-  - `debias_order(scores: dict) -> dict` —— 位置/长度去偏（按 span 排序、长度归一），返回去偏后副本。
+  - `pairwise_agreement(scores_a: dict, scores_b: dict) -> float`, 两判官按 span 对齐的配对一致性 α∈[0,1]（1=完全一致）。
+  - `judge_claude.invoke_claude_judge(prompt: str, timeout_s: int) -> dict`, `{"available":bool,"raw":str}`。
+  - `debias_order(scores: dict) -> dict`, 位置/长度去偏（按 span 排序、长度归一），返回去偏后副本。
 
-- [ ] **Step 1: 写失败测试 —— pairwise_agreement 同分=1、反相关→低**
+- [ ] **Step 1: 写失败测试, pairwise_agreement 同分=1、反相关→低**
 ```python
 # tests/test_judges_agreement.py
 from tools.sie import judges
@@ -5053,7 +5053,7 @@ def test_agreement_opposite_is_low():
 - Run: `python -m pytest tests/test_judges_agreement.py -q`
 - Expected: FAIL（`pairwise_agreement` 不存在）
 
-- [ ] **Step 2: 写最小实现 —— pairwise_agreement（按 span 对齐的 1−平均绝对差）+ 去偏**
+- [ ] **Step 2: 写最小实现, pairwise_agreement（按 span 对齐的 1−平均绝对差）+ 去偏**
 ```python
 # tools/sie/judges.py  (追加)
 def debias_order(scores: dict) -> dict:
@@ -5093,7 +5093,7 @@ def invoke_claude_judge(prompt: str, timeout_s: int = 600) -> dict:
 - Run: `python -m pytest tests/test_judges_agreement.py -q`
 - Expected: PASS
 
-- [ ] **Step 3: 写失败测试 —— 任一 judge 不可用→α=-1.0（喂给降级分支）**
+- [ ] **Step 3: 写失败测试, 任一 judge 不可用→α=-1.0（喂给降级分支）**
 ```python
 # tests/test_judges_agreement.py  (追加)
 def test_agreement_unavailable_returns_sentinel():
@@ -5115,7 +5115,7 @@ Claude-Session: https://claude.ai/code/session_015s63syXfzXPq4Tz5UCM7yW"
 
 ---
 
-### Task M3.3: judges.py —— judge↔锚校准用独立 holdout 标注集
+### Task M3.3: judges.py, judge↔锚校准用独立 holdout 标注集
 
 **Files:**
 - Modify: `tools/sie/judges.py`（追加 `calibrate_judge_anchor`）
@@ -5124,11 +5124,11 @@ Claude-Session: https://claude.ai/code/session_015s63syXfzXPq4Tz5UCM7yW"
 **Interfaces:**
 - Consumes: `anchors.effective_independent_count(anchors) -> int`（去相关，借其同源去相关逻辑）。
 - Produces:
-  - `calibrate_judge_anchor(judge_scores: dict, holdout_anchors: list[dict]) -> dict` —— **用 holdout（不进 e-process 的锚）/人审标注集**算 judge↔锚 Pearson 相关；返回 `{"corr":float,"n_used":int,"degenerate":bool}`。`degenerate=True` 当有效独立 holdout 锚 < 阈或方差为 0（不可信校准）。
+  - `calibrate_judge_anchor(judge_scores: dict, holdout_anchors: list[dict]) -> dict`, **用 holdout（不进 e-process 的锚）/人审标注集**算 judge↔锚 Pearson 相关；返回 `{"corr":float,"n_used":int,"degenerate":bool}`。`degenerate=True` 当有效独立 holdout 锚 < 阈或方差为 0（不可信校准）。
 
-> 易错点：校准**绝不能用进 e-process 的 visible 锚**——否则 judge 和计分锚同源，相关性虚高、合谋检测失效。必须用 holdout 锚或人审标注集，且配对前同源去相关。
+> 易错点：校准**绝不能用进 e-process 的 visible 锚**,否则 judge 和计分锚同源，相关性虚高、合谋检测失效。必须用 holdout 锚或人审标注集，且配对前同源去相关。
 
-- [ ] **Step 1: 写失败测试 —— 校准只用 holdout，且同源去相关后 n_used 受限**
+- [ ] **Step 1: 写失败测试, 校准只用 holdout，且同源去相关后 n_used 受限**
 ```python
 # tests/test_judge_calibration.py
 from tools.sie import judges
@@ -5155,7 +5155,7 @@ def test_calibration_degenerate_when_too_few():
 - Run: `python -m pytest tests/test_judge_calibration.py -q`
 - Expected: FAIL（`calibrate_judge_anchor` 不存在）
 
-- [ ] **Step 2: 写最小实现 —— Pearson 相关 + 同源去相关 + degenerate 闸**
+- [ ] **Step 2: 写最小实现, Pearson 相关 + 同源去相关 + degenerate 闸**
 ```python
 # tools/sie/judges.py  (追加)
 from tools.sie import anchors as _anchors
@@ -5196,7 +5196,7 @@ Claude-Session: https://claude.ai/code/session_015s63syXfzXPq4Tz5UCM7yW"
 
 ---
 
-### Task M3.4: selfdeception.py —— 自欺指数多闸（新锚不计 / visible 留存<ε 禁 / holdout 背离报警 / 累计漂移预算）
+### Task M3.4: selfdeception.py, 自欺指数多闸（新锚不计 / visible 留存<ε 禁 / holdout 背离报警 / 累计漂移预算）
 
 **Files:**
 - Create: `tools/sie/selfdeception.py`
@@ -5205,13 +5205,13 @@ Claude-Session: https://claude.ai/code/session_015s63syXfzXPq4Tz5UCM7yW"
 **Interfaces:**
 - Consumes: `RunState`（`drift_count` 字段，来自 `state.py` 契约）。
 - Produces:
-  - `index(judge_gain: float, visible_anchor_gain: float, holdout_gain: float, st: RunState) -> dict` —— `-> {"value":float,"alerts":[...],"block_accept":bool,"force_review":bool}`，多闸。
-  - `retained_visible_gain(prev_anchors: list[dict], cur_anchors: list[dict]) -> float` —— **只算 frozen visible 留存锚增益，新增锚不计当轮**（闸①）。
-  - `cumulative_drift(lineage_visible_cum: float, lineage_holdout_cum: float, tolerance: float) -> bool` —— visible 累计涨幅 > holdout 累计涨幅×容差 → True（闸④累计漂移预算）。
+  - `index(judge_gain: float, visible_anchor_gain: float, holdout_gain: float, st: RunState) -> dict`, `-> {"value":float,"alerts":[...],"block_accept":bool,"force_review":bool}`，多闸。
+  - `retained_visible_gain(prev_anchors: list[dict], cur_anchors: list[dict]) -> float`, **只算 frozen visible 留存锚增益，新增锚不计当轮**（闸①）。
+  - `cumulative_drift(lineage_visible_cum: float, lineage_holdout_cum: float, tolerance: float) -> bool`, visible 累计涨幅 > holdout 累计涨幅×容差 → True（闸④累计漂移预算）。
 
 > 自欺指数 = `judge_gain − frozen 锚真实增益`。多闸：①新增锚不计；②visible 留存锚增益<ε 禁 ACCEPT；③visible 涨而 holdout 不涨→过拟合报警（**主信号**）；④累计漂移预算。
 
-- [ ] **Step 1: 写失败测试 —— 新增锚不计当轮增益（闸①）**
+- [ ] **Step 1: 写失败测试, 新增锚不计当轮增益（闸①）**
 ```python
 # tests/test_selfdeception.py
 from tools.sie import selfdeception as sd
@@ -5232,7 +5232,7 @@ def test_new_anchors_not_counted():
 - Run: `python -m pytest tests/test_selfdeception.py::test_new_anchors_not_counted -q`
 - Expected: FAIL（模块不存在）
 
-- [ ] **Step 2: 写最小实现 —— retained_visible_gain（只看 span 交集的增益变化）**
+- [ ] **Step 2: 写最小实现, retained_visible_gain（只看 span 交集的增益变化）**
 ```python
 # tools/sie/selfdeception.py
 """自欺指数多闸：=judge_gain - frozen 锚真实增益。
@@ -5260,7 +5260,7 @@ def retained_visible_gain(prev_anchors: list[dict], cur_anchors: list[dict]) -> 
 - Run: `python -m pytest tests/test_selfdeception.py::test_new_anchors_not_counted -q`
 - Expected: PASS
 
-- [ ] **Step 3: 写失败测试 —— visible 留存增益<ε 禁 ACCEPT（闸②）**
+- [ ] **Step 3: 写失败测试, visible 留存增益<ε 禁 ACCEPT（闸②）**
 ```python
 # tests/test_selfdeception.py  (追加)
 def test_below_eps_blocks_accept():
@@ -5272,7 +5272,7 @@ def test_below_eps_blocks_accept():
 - Run: `python -m pytest tests/test_selfdeception.py::test_below_eps_blocks_accept -q`
 - Expected: FAIL（`index` 不存在）
 
-- [ ] **Step 4: 写失败测试 —— visible 涨而 holdout 不涨→过拟合报警+强制人审（闸③，主信号）**
+- [ ] **Step 4: 写失败测试, visible 涨而 holdout 不涨→过拟合报警+强制人审（闸③，主信号）**
 ```python
 # tests/test_selfdeception.py  (追加)
 def test_visible_up_holdout_flat_alerts():
@@ -5291,7 +5291,7 @@ def test_judge_anchor_collusion_alert():
 - Run: `python -m pytest tests/test_selfdeception.py::test_visible_up_holdout_flat_alerts tests/test_selfdeception.py::test_judge_anchor_collusion_alert -q`
 - Expected: FAIL
 
-- [ ] **Step 5: 写最小实现 —— index 多闸**
+- [ ] **Step 5: 写最小实现, index 多闸**
 ```python
 # tools/sie/selfdeception.py  (追加)
 def index(judge_gain: float, visible_anchor_gain: float,
@@ -5324,7 +5324,7 @@ def index(judge_gain: float, visible_anchor_gain: float,
 - Run: `python -m pytest tests/test_selfdeception.py -q`
 - Expected: PASS
 
-- [ ] **Step 6: 写失败测试 —— 累计漂移预算（闸④）**
+- [ ] **Step 6: 写失败测试, 累计漂移预算（闸④）**
 ```python
 # tests/test_selfdeception.py  (追加)
 def test_cumulative_drift_budget():
@@ -5335,7 +5335,7 @@ def test_cumulative_drift_budget():
 - Run: `python -m pytest tests/test_selfdeception.py::test_cumulative_drift_budget -q`
 - Expected: FAIL
 
-- [ ] **Step 7: 写最小实现 —— cumulative_drift**
+- [ ] **Step 7: 写最小实现, cumulative_drift**
 ```python
 # tools/sie/selfdeception.py  (追加)
 def cumulative_drift(lineage_visible_cum: float, lineage_holdout_cum: float,
@@ -5357,7 +5357,7 @@ Claude-Session: https://claude.ai/code/session_015s63syXfzXPq4Tz5UCM7yW"
 
 ---
 
-### Task M3.5: acceptor.py —— C 档不退化配对 + 双向 α 门 + 纯 C 强制人审 + Codex 不可用降级
+### Task M3.5: acceptor.py, C 档不退化配对 + 双向 α 门 + 纯 C 强制人审 + Codex 不可用降级
 
 **Files:**
 - Modify: `tools/sie/acceptor.py`（在 M1b 的 `decide` 上叠加 C 档分支 + 双向 α + judge 降级）
@@ -5366,14 +5366,14 @@ Claude-Session: https://claude.ai/code/session_015s63syXfzXPq4Tz5UCM7yW"
 **Interfaces:**
 - Consumes: `RunState`；M1b 已有的 `decide(...)` A/B 分支与 confseq e-process 内核；`judges.pairwise_agreement`；`selfdeception.index`。
 - Produces（沿用契约签名，扩展返回字段，不改名）:
-  - `decide(paired, tier, st, params) -> dict` —— C 档配对消费 per-regression-task 一致性；返回新增 `force_review:bool` 与 `degrade_reason:str|None`。
-  - `c_tier_no_regression(replay_results: list[dict]) -> bool` —— 历史成功 replay 全保持=True，任一回退=False（硬门）。
-  - `alpha_gate(alpha: float, anchor_up: bool, params: dict) -> dict` —— 双向 α：`alpha<α_low`→人审；`alpha>α_high 且 not anchor_up`→人审+计自欺；返回 `{"force_review":bool,"count_selfdeception":bool}`。
-  - `judge_degrade(codex_available: bool, claude_available: bool) -> dict` —— Codex 不可用→禁单 Claude 自动 ACCEPT，`{"single_claude_block":bool,"anchor_only":bool,"force_review":bool}`。
+  - `decide(paired, tier, st, params) -> dict`, C 档配对消费 per-regression-task 一致性；返回新增 `force_review:bool` 与 `degrade_reason:str|None`。
+  - `c_tier_no_regression(replay_results: list[dict]) -> bool`, 历史成功 replay 全保持=True，任一回退=False（硬门）。
+  - `alpha_gate(alpha: float, anchor_up: bool, params: dict) -> dict`, 双向 α：`alpha<α_low`→人审；`alpha>α_high 且 not anchor_up`→人审+计自欺；返回 `{"force_review":bool,"count_selfdeception":bool}`。
+  - `judge_degrade(codex_available: bool, claude_available: bool) -> dict`, Codex 不可用→禁单 Claude 自动 ACCEPT，`{"single_claude_block":bool,"anchor_only":bool,"force_review":bool}`。
 
 > 关键易错：(a) 纯 C 档（coverage=0）欲 ACCEPT **必经强制人审**，auto 模式不自动采纳；(b) C 配对极低权重，绝不单独触发；(c) `α_low=0.4`/`α_high=0.85` 双向门；(d) Codex 不可用时**禁止单 Claude 自动 ACCEPT**。
 
-- [ ] **Step 1: 写失败测试 —— C 档历史成功 replay 任一回退=硬 REJECT**
+- [ ] **Step 1: 写失败测试, C 档历史成功 replay 任一回退=硬 REJECT**
 ```python
 # tests/test_acceptor_c_tier.py
 from tools.sie import acceptor
@@ -5391,7 +5391,7 @@ def test_c_no_regression_hard_reject():
 - Run: `python -m pytest tests/test_acceptor_c_tier.py::test_c_no_regression_hard_reject -q`
 - Expected: FAIL
 
-- [ ] **Step 2: 写最小实现 —— c_tier_no_regression**
+- [ ] **Step 2: 写最小实现, c_tier_no_regression**
 ```python
 # tools/sie/acceptor.py  (追加)
 def c_tier_no_regression(replay_results: list[dict]) -> bool:
@@ -5404,7 +5404,7 @@ def c_tier_no_regression(replay_results: list[dict]) -> bool:
 - Run: `python -m pytest tests/test_acceptor_c_tier.py::test_c_no_regression_hard_reject -q`
 - Expected: PASS
 
-- [ ] **Step 3: 写失败测试 —— 双向 α 门**
+- [ ] **Step 3: 写失败测试, 双向 α 门**
 ```python
 # tests/test_acceptor_c_tier.py  (追加)
 def test_alpha_gate_low_forces_review():
@@ -5427,7 +5427,7 @@ def test_alpha_gate_high_with_anchor_ok():
 - Run: `python -m pytest tests/test_acceptor_c_tier.py -k alpha_gate -q`
 - Expected: FAIL
 
-- [ ] **Step 4: 写最小实现 —— alpha_gate（双向）**
+- [ ] **Step 4: 写最小实现, alpha_gate（双向）**
 ```python
 # tools/sie/acceptor.py  (追加)
 def alpha_gate(alpha: float, anchor_up: bool, params: dict) -> dict:
@@ -5447,7 +5447,7 @@ def alpha_gate(alpha: float, anchor_up: bool, params: dict) -> dict:
 - Run: `python -m pytest tests/test_acceptor_c_tier.py -k alpha_gate -q`
 - Expected: PASS
 
-- [ ] **Step 5: 写失败测试 —— Codex 不可用→禁单 Claude 自动 ACCEPT，降级锚+人审**
+- [ ] **Step 5: 写失败测试, Codex 不可用→禁单 Claude 自动 ACCEPT，降级锚+人审**
 ```python
 # tests/test_acceptor_c_tier.py  (追加)
 def test_codex_unavailable_blocks_single_claude():
@@ -5464,7 +5464,7 @@ def test_both_judges_ok_no_degrade():
 - Run: `python -m pytest tests/test_acceptor_c_tier.py -k judge_degrade -q`
 - Expected: FAIL
 
-- [ ] **Step 6: 写最小实现 —— judge_degrade**
+- [ ] **Step 6: 写最小实现, judge_degrade**
 ```python
 # tools/sie/acceptor.py  (追加)
 def judge_degrade(codex_available: bool, claude_available: bool) -> dict:
@@ -5479,7 +5479,7 @@ def judge_degrade(codex_available: bool, claude_available: bool) -> dict:
 - Run: `python -m pytest tests/test_acceptor_c_tier.py -k judge_degrade -q`
 - Expected: PASS
 
-- [ ] **Step 7: 写失败测试 —— 纯 C 档（coverage=0）欲 ACCEPT 必 force_review，auto 不自动采纳**
+- [ ] **Step 7: 写失败测试, 纯 C 档（coverage=0）欲 ACCEPT 必 force_review，auto 不自动采纳**
 ```python
 # tests/test_acceptor_c_tier.py  (追加)
 def test_pure_c_accept_forces_review():
@@ -5493,7 +5493,7 @@ def test_pure_c_accept_forces_review():
 - Run: `python -m pytest tests/test_acceptor_c_tier.py::test_pure_c_accept_forces_review -q`
 - Expected: FAIL（`decide` 尚无 C/coverage 分支）
 
-- [ ] **Step 8: 写最小实现 —— decide 中 C 档 + coverage=0 强制人审分支**
+- [ ] **Step 8: 写最小实现, decide 中 C 档 + coverage=0 强制人审分支**
 ```python
 # tools/sie/acceptor.py  (在 decide 内，e-process 算出 base_decision 之后追加)
 def _apply_c_tier_gates(base: dict, tier: str, params: dict) -> dict:
@@ -5506,7 +5506,7 @@ def _apply_c_tier_gates(base: dict, tier: str, params: dict) -> dict:
         base["reason"] = base.get("reason", "") + ";pure_C_needs_human"
     return base
 ```
-> 在现有 `decide` 末尾返回前调用：`result = _apply_c_tier_gates(result, tier, params)`。同时把 C 档配对权重在 e-process 合成时乘以极小系数（`c_tier_weight=0.05`，绝不单独触发）——在 M1b 的合成处加 `if tier=="C": evalue *= params.get("c_tier_weight",0.05)`。
+> 在现有 `decide` 末尾返回前调用：`result = _apply_c_tier_gates(result, tier, params)`。同时把 C 档配对权重在 e-process 合成时乘以极小系数（`c_tier_weight=0.05`，绝不单独触发）,在 M1b 的合成处加 `if tier=="C": evalue *= params.get("c_tier_weight",0.05)`。
 - Run: `python -m pytest tests/test_acceptor_c_tier.py -q`
 - Expected: PASS（全部）
 
@@ -5521,7 +5521,7 @@ Claude-Session: https://claude.ai/code/session_015s63syXfzXPq4Tz5UCM7yW"
 
 ---
 
-### Task M3.6: statemachine.py —— 释放阀(仅升人审) + 累计漂移熔断 + 纯 C auto 强制 gated
+### Task M3.6: statemachine.py, 释放阀(仅升人审) + 累计漂移熔断 + 纯 C auto 强制 gated
 
 **Files:**
 - Modify: `tools/sie/statemachine.py`（态7 接 selfdeception/α 门、态9 释放阀+漂移熔断、态9.5 纯 C auto）
@@ -5530,13 +5530,13 @@ Claude-Session: https://claude.ai/code/session_015s63syXfzXPq4Tz5UCM7yW"
 **Interfaces:**
 - Consumes: `acceptor.decide`/`alpha_gate`/`judge_degrade`；`selfdeception.index`/`cumulative_drift`；`gate_human.enqueue`；`RunState.drift_count`/`forced_review`/`no_progress`。
 - Produces:
-  - `release_valve(st: RunState, params: dict) -> int` —— `no_progress≥M(<N)` 时**只返回升高后的人审触发频率**（不改阈、不采纳）；返回当前 review_frequency。
-  - `drift_circuit(st: RunState, holdout_up: bool, params: dict) -> bool` —— 连续 ACCEPT 但 holdout/全量回归不涨 → `drift_count++`；`≥N_drift`→True（停机人审）。
-  - `route_accept_with_gates(decision: dict, sd: dict, alpha_gate_out: dict, degrade: dict, mode: str, tier: str, coverage: float) -> str` —— 综合所有闸返回最终态 `"ARCHIVE"|"PAUSE_FOR_HUMAN"|"REJECT"`。
+  - `release_valve(st: RunState, params: dict) -> int`, `no_progress≥M(<N)` 时**只返回升高后的人审触发频率**（不改阈、不采纳）；返回当前 review_frequency。
+  - `drift_circuit(st: RunState, holdout_up: bool, params: dict) -> bool`, 连续 ACCEPT 但 holdout/全量回归不涨 → `drift_count++`；`≥N_drift`→True（停机人审）。
+  - `route_accept_with_gates(decision: dict, sd: dict, alpha_gate_out: dict, degrade: dict, mode: str, tier: str, coverage: float) -> str`, 综合所有闸返回最终态 `"ARCHIVE"|"PAUSE_FOR_HUMAN"|"REJECT"`。
 
-> 易错：释放阀**绝不在 auto 自动降阈采纳**——只升人审频率（spec §5.4/§13 验收5）。
+> 易错：释放阀**绝不在 auto 自动降阈采纳**,只升人审频率（spec §5.4/§13 验收5）。
 
-- [ ] **Step 1: 写失败测试 —— 释放阀只升人审频率，不降阈**
+- [ ] **Step 1: 写失败测试, 释放阀只升人审频率，不降阈**
 ```python
 # tests/test_statemachine_m3.py
 from tools.sie import statemachine as sm
@@ -5556,7 +5556,7 @@ def test_release_valve_only_raises_review_freq():
 - Run: `python -m pytest tests/test_statemachine_m3.py::test_release_valve_only_raises_review_freq -q`
 - Expected: FAIL
 
-- [ ] **Step 2: 写最小实现 —— release_valve**
+- [ ] **Step 2: 写最小实现, release_valve**
 ```python
 # tools/sie/statemachine.py  (追加)
 def release_valve(st: "RunState", params: dict) -> int:
@@ -5569,7 +5569,7 @@ def release_valve(st: "RunState", params: dict) -> int:
 - Run: `python -m pytest tests/test_statemachine_m3.py::test_release_valve_only_raises_review_freq -q`
 - Expected: PASS
 
-- [ ] **Step 3: 写失败测试 —— 累计漂移熔断（连续 ACCEPT 但 holdout 不涨 ≥ N_drift）**
+- [ ] **Step 3: 写失败测试, 累计漂移熔断（连续 ACCEPT 但 holdout 不涨 ≥ N_drift）**
 ```python
 # tests/test_statemachine_m3.py  (追加)
 def test_drift_circuit_trips():
@@ -5590,7 +5590,7 @@ def test_drift_circuit_resets_on_holdout_up():
 - Run: `python -m pytest tests/test_statemachine_m3.py -k drift_circuit -q`
 - Expected: FAIL
 
-- [ ] **Step 4: 写最小实现 —— drift_circuit**
+- [ ] **Step 4: 写最小实现, drift_circuit**
 ```python
 # tools/sie/statemachine.py  (追加)
 def drift_circuit(st: "RunState", holdout_up: bool, params: dict) -> bool:
@@ -5604,7 +5604,7 @@ def drift_circuit(st: "RunState", holdout_up: bool, params: dict) -> bool:
 - Run: `python -m pytest tests/test_statemachine_m3.py -k drift_circuit -q`
 - Expected: PASS
 
-- [ ] **Step 5: 写失败测试 —— 闸路由：纯 C auto / 自欺 force_review / 降级 → PAUSE_FOR_HUMAN**
+- [ ] **Step 5: 写失败测试, 闸路由：纯 C auto / 自欺 force_review / 降级 → PAUSE_FOR_HUMAN**
 ```python
 # tests/test_statemachine_m3.py  (追加)
 def test_route_pure_c_auto_forces_human():
@@ -5646,7 +5646,7 @@ def test_route_clean_accept_archives():
 - Run: `python -m pytest tests/test_statemachine_m3.py -k route_ -q`
 - Expected: FAIL
 
-- [ ] **Step 6: 写最小实现 —— route_accept_with_gates（闸优先级：block_accept > force_review > 降级 > 纯C auto > ACCEPT）**
+- [ ] **Step 6: 写最小实现, route_accept_with_gates（闸优先级：block_accept > force_review > 降级 > 纯C auto > ACCEPT）**
 ```python
 # tools/sie/statemachine.py  (追加)
 def route_accept_with_gates(decision: dict, sd: dict, alpha_gate_out: dict,
@@ -5683,7 +5683,7 @@ Claude-Session: https://claude.ai/code/session_015s63syXfzXPq4Tz5UCM7yW"
 
 ---
 
-### Task M3.7: evaluate.py —— C 档评测（内部一致性 + 历史成功 replay）+ judge 分注入
+### Task M3.7: evaluate.py, C 档评测（内部一致性 + 历史成功 replay）+ judge 分注入
 
 **Files:**
 - Modify: `tools/sie/evaluate.py`（追加 C 档分支 + judge 主观分注入 + 自欺指数填充）
@@ -5692,12 +5692,12 @@ Claude-Session: https://claude.ai/code/session_015s63syXfzXPq4Tz5UCM7yW"
 **Interfaces:**
 - Consumes: `judges.score`/`pairwise_agreement`/`calibrate_judge_anchor`；`selfdeception.index`/`retained_visible_gain`；`anchors.split_visible_holdout`；`c_tier_no_regression`。
 - Produces:
-  - `evaluate_c_tier(artifact_path: str, regression_replay: list[dict], internal_consistency: list[tuple[float,float]]) -> dict` —— `-> {"no_regression":bool, "consistency_paired":[(before,after)...], "coverage":0.0}`。
-  - `inject_judge_scores(artifact_path: str, anchors_visible: list[dict], holdout: list[dict]) -> dict` —— 在 contract 外注入 judge 主观分（非 candidate 提供，§8）；`-> {"codex":dict,"claude":dict,"alpha":float,"calibration":dict,"judge_gain":float}`。
+  - `evaluate_c_tier(artifact_path: str, regression_replay: list[dict], internal_consistency: list[tuple[float,float]]) -> dict`, `-> {"no_regression":bool, "consistency_paired":[(before,after)...], "coverage":0.0}`。
+  - `inject_judge_scores(artifact_path: str, anchors_visible: list[dict], holdout: list[dict]) -> dict`, 在 contract 外注入 judge 主观分（非 candidate 提供，§8）；`-> {"codex":dict,"claude":dict,"alpha":float,"calibration":dict,"judge_gain":float}`。
 
 > 关键：judge 主观分由 `evaluate.py` 在 contract 外注入（spec §8），candidate 不能自报 judge 分；judge 走独立联网进程。
 
-- [ ] **Step 1: 写失败测试 —— C 档评测产出 no_regression + 一致性配对 + coverage=0**
+- [ ] **Step 1: 写失败测试, C 档评测产出 no_regression + 一致性配对 + coverage=0**
 ```python
 # tests/test_evaluate_c_tier.py
 from tools.sie import evaluate
@@ -5714,7 +5714,7 @@ def test_evaluate_c_tier_shape(tmp_path):
 - Run: `python -m pytest tests/test_evaluate_c_tier.py::test_evaluate_c_tier_shape -q`
 - Expected: FAIL
 
-- [ ] **Step 2: 写最小实现 —— evaluate_c_tier**
+- [ ] **Step 2: 写最小实现, evaluate_c_tier**
 ```python
 # tools/sie/evaluate.py  (追加)
 from tools.sie.acceptor import c_tier_no_regression
@@ -5731,7 +5731,7 @@ def evaluate_c_tier(artifact_path: str, regression_replay: list[dict],
 - Run: `python -m pytest tests/test_evaluate_c_tier.py::test_evaluate_c_tier_shape -q`
 - Expected: PASS
 
-- [ ] **Step 3: 写失败测试 —— judge 分注入：candidate 自报的 judge 分被忽略，harness 独立算 α**
+- [ ] **Step 3: 写失败测试, judge 分注入：candidate 自报的 judge 分被忽略，harness 独立算 α**
 ```python
 # tests/test_evaluate_c_tier.py  (追加)
 from tools.sie import judges
@@ -5756,7 +5756,7 @@ def test_inject_judge_scores_independent(monkeypatch, tmp_path):
 - Run: `python -m pytest tests/test_evaluate_c_tier.py::test_inject_judge_scores_independent -q`
 - Expected: FAIL
 
-- [ ] **Step 4: 写最小实现 —— inject_judge_scores**
+- [ ] **Step 4: 写最小实现, inject_judge_scores**
 ```python
 # tools/sie/evaluate.py  (追加)
 from tools.sie import judges as _judges
@@ -5794,7 +5794,7 @@ Claude-Session: https://claude.ai/code/session_015s63syXfzXPq4Tz5UCM7yW"
 
 ---
 
-### Task M3.8: archive.py —— Pareto 多维硬维门 + Library Drift retire_stale
+### Task M3.8: archive.py, Pareto 多维硬维门 + Library Drift retire_stale
 
 **Files:**
 - Modify: `tools/sie/archive.py`（在 M1a 的 lineage/rollback 上补 `pareto_front` 硬维门 + `retire_stale`）
@@ -5803,13 +5803,13 @@ Claude-Session: https://claude.ai/code/session_015s63syXfzXPq4Tz5UCM7yW"
 **Interfaces:**
 - Consumes: M1a 已有 `add_version`/`rollback`/lineage 读写。
 - Produces（沿用契约签名）:
-  - `pareto_front(archive_dir: str) -> list[str]` —— 多维 Pareto 前沿，**硬维门**：进前沿者 A/frozen 锚维不低于前沿中位；纯软维优胜只冷藏、不可选 parent。
-  - `retire_stale(archive_dir: str, active_cap: int) -> None` —— Library Drift 活跃上限 + outcome-driven 退役（冷藏不删，写 `retired.jsonl`）。
-  - `selectable_parents(archive_dir: str) -> list[str]` —— 可选 parent（前沿中过硬维门者）。
+  - `pareto_front(archive_dir: str) -> list[str]`, 多维 Pareto 前沿，**硬维门**：进前沿者 A/frozen 锚维不低于前沿中位；纯软维优胜只冷藏、不可选 parent。
+  - `retire_stale(archive_dir: str, active_cap: int) -> None`, Library Drift 活跃上限 + outcome-driven 退役（冷藏不删，写 `retired.jsonl`）。
+  - `selectable_parents(archive_dir: str) -> list[str]`, 可选 parent（前沿中过硬维门者）。
 
 > 易错：硬维=A/frozen 锚；软维=judge 主观分。**软涨硬平**的版本不得进前沿可选集（计自欺由 selfdeception 负责报警），只冷藏。
 
-- [ ] **Step 1: 写失败测试 —— 硬维不低于前沿中位才可选 parent；纯软维优胜冷藏**
+- [ ] **Step 1: 写失败测试, 硬维不低于前沿中位才可选 parent；纯软维优胜冷藏**
 ```python
 # tests/test_archive_pareto.py
 import json
@@ -5835,7 +5835,7 @@ def test_hard_dim_gate_excludes_soft_only_winner(tmp_path):
 - Run: `python -m pytest tests/test_archive_pareto.py::test_hard_dim_gate_excludes_soft_only_winner -q`
 - Expected: FAIL
 
-- [ ] **Step 2: 写最小实现 —— pareto_front + selectable_parents（硬维门）**
+- [ ] **Step 2: 写最小实现, pareto_front + selectable_parents（硬维门）**
 ```python
 # tools/sie/archive.py  (追加)
 import json, statistics
@@ -5878,7 +5878,7 @@ def selectable_parents(archive_dir: str) -> list[str]:
 - Run: `python -m pytest tests/test_archive_pareto.py::test_hard_dim_gate_excludes_soft_only_winner -q`
 - Expected: PASS
 
-- [ ] **Step 3: 写失败测试 —— retire_stale 超活跃上限冷藏(写 retired.jsonl 不删)**
+- [ ] **Step 3: 写失败测试, retire_stale 超活跃上限冷藏(写 retired.jsonl 不删)**
 ```python
 # tests/test_archive_pareto.py  (追加)
 def test_retire_stale_cold_stores(tmp_path):
@@ -5898,7 +5898,7 @@ def test_retire_stale_cold_stores(tmp_path):
 - Run: `python -m pytest tests/test_archive_pareto.py::test_retire_stale_cold_stores -q`
 - Expected: FAIL
 
-- [ ] **Step 4: 写最小实现 —— retire_stale（outcome-driven，冷藏不删）**
+- [ ] **Step 4: 写最小实现, retire_stale（outcome-driven，冷藏不删）**
 ```python
 # tools/sie/archive.py  (追加)
 def retire_stale(archive_dir: str, active_cap: int) -> None:
@@ -5931,7 +5931,7 @@ Claude-Session: https://claude.ai/code/session_015s63syXfzXPq4Tz5UCM7yW"
 
 ---
 
-### Task M3.9: reflect.py + workflows —— N=3 并行 MARS 反思 + review-fanout
+### Task M3.9: reflect.py + workflows, N=3 并行 MARS 反思 + review-fanout
 
 **Files:**
 - Modify: `tools/sie/reflect.py`（串行→N=3 并行 fanout 调度，独立反思后 meta 汇总）
@@ -5942,12 +5942,12 @@ Claude-Session: https://claude.ai/code/session_015s63syXfzXPq4Tz5UCM7yW"
 **Interfaces:**
 - Consumes: M1 已有 `reflect.run_reflections`（串行）签名；`check_reflection`（M3.10 升 BenchTrace）。
 - Produces:
-  - `run_reflections_parallel(run_dir: str, history: list[dict], n_reflectors: int) -> list[dict]` —— N 个独立 MARS 反思并行（互不读对方草稿），返回 N 条反思。
-  - `meta_aggregate(reflections: list[dict]) -> dict` —— 汇总 N 条独立反思（去重/聚类→统一提案输入）。
+  - `run_reflections_parallel(run_dir: str, history: list[dict], n_reflectors: int) -> list[dict]`, N 个独立 MARS 反思并行（互不读对方草稿），返回 N 条反思。
+  - `meta_aggregate(reflections: list[dict]) -> dict`, 汇总 N 条独立反思（去重/聚类→统一提案输入）。
 
 > MARS=多 agent 独立反思后汇总；N=3（spec §12）。并行 fanout 走 `workflows/reflect-fanout.js`，**反思只读历史 trace（append-only 只读，铁律2）**。
 
-- [ ] **Step 1: 写失败测试 —— N=3 并行反思产出 3 条独立结果**
+- [ ] **Step 1: 写失败测试, N=3 并行反思产出 3 条独立结果**
 ```python
 # tests/test_reflect_fanout.py
 from tools.sie import reflect
@@ -5965,7 +5965,7 @@ def test_parallel_yields_n_independent(monkeypatch, tmp_path):
 - Run: `python -m pytest tests/test_reflect_fanout.py::test_parallel_yields_n_independent -q`
 - Expected: FAIL
 
-- [ ] **Step 2: 写最小实现 —— run_reflections_parallel（fanout 调度，独立）**
+- [ ] **Step 2: 写最小实现, run_reflections_parallel（fanout 调度，独立）**
 ```python
 # tools/sie/reflect.py  (追加)
 import subprocess, json
@@ -6000,7 +6000,7 @@ def meta_aggregate(reflections: list[dict]) -> dict:
 - Run: `python -m pytest tests/test_reflect_fanout.py::test_parallel_yields_n_independent -q`
 - Expected: PASS
 
-- [ ] **Step 3: 写失败测试 —— meta_aggregate 去重保序**
+- [ ] **Step 3: 写失败测试, meta_aggregate 去重保序**
 ```python
 # tests/test_reflect_fanout.py  (追加)
 def test_meta_aggregate_dedup():
@@ -6051,7 +6051,7 @@ Claude-Session: https://claude.ai/code/session_015s63syXfzXPq4Tz5UCM7yW"
 
 ---
 
-### Task M3.10: check_reflection.py —— 升 BenchTrace 校验
+### Task M3.10: check_reflection.py, 升 BenchTrace 校验
 
 **Files:**
 - Modify: `tools/sie/check_reflection.py`（M1 弱校验 → BenchTrace：反思须引用真实历史 trace 证据）
@@ -6060,11 +6060,11 @@ Claude-Session: https://claude.ai/code/session_015s63syXfzXPq4Tz5UCM7yW"
 **Interfaces:**
 - Consumes: M1 已有 `check_reflection.check`（弱校验）签名；历史 trace（append-only 只读）。
 - Produces:
-  - `check_benchtrace(reflection: dict, available_traces: list[str], threshold: float) -> dict` —— `-> {"pass":bool, "grounded_ratio":float, "ungrounded":[...]}`；反思每条 finding 须引用至少一条真实 trace id（BenchTrace），grounded 比例 < `reflection_correctness_threshold(0.5)` → 不通过。
+  - `check_benchtrace(reflection: dict, available_traces: list[str], threshold: float) -> dict`, `-> {"pass":bool, "grounded_ratio":float, "ungrounded":[...]}`；反思每条 finding 须引用至少一条真实 trace id（BenchTrace），grounded 比例 < `reflection_correctness_threshold(0.5)` → 不通过。
 
 > BenchTrace：反思必须**可追溯到真实历史 trace 证据**，杜绝凭空臆造的"改进方向"。引用了不存在的 trace id 即为 ungrounded。
 
-- [ ] **Step 1: 写失败测试 —— 引用真实 trace 通过、臆造 trace id 不通过**
+- [ ] **Step 1: 写失败测试, 引用真实 trace 通过、臆造 trace id 不通过**
 ```python
 # tests/test_check_reflection_benchtrace.py
 from tools.sie import check_reflection as cr
@@ -6090,7 +6090,7 @@ def test_benchtrace_fabricated_fails():
 - Run: `python -m pytest tests/test_check_reflection_benchtrace.py -q`
 - Expected: FAIL（`check_benchtrace` 不存在）
 
-- [ ] **Step 2: 写最小实现 —— check_benchtrace**
+- [ ] **Step 2: 写最小实现, check_benchtrace**
 ```python
 # tools/sie/check_reflection.py  (追加)
 def check_benchtrace(reflection: dict, available_traces: list[str],
@@ -6127,7 +6127,7 @@ Claude-Session: https://claude.ai/code/session_015s63syXfzXPq4Tz5UCM7yW"
 
 ---
 
-### Task M3.11: 端到端验收 —— C 不退化 / 自欺合谋报警 / 纯 C 强制人审 / Codex 不可用不降级
+### Task M3.11: 端到端验收, C 不退化 / 自欺合谋报警 / 纯 C 强制人审 / Codex 不可用不降级
 
 **Files:**
 - Create: `tests/test_m3_acceptance.py`（对抗端到端，覆盖 spec §13 M3 全部验收）
@@ -6137,7 +6137,7 @@ Claude-Session: https://claude.ai/code/session_015s63syXfzXPq4Tz5UCM7yW"
 - Consumes: 本里程碑全部 Produces（acceptor/judges/selfdeception/statemachine/evaluate/archive）。
 - Produces: 无新签名（集成验收）。
 
-- [ ] **Step 1: 写验收测试 —— C 不退化门生效（replay 回退→硬 REJECT，全保持+一致正向→可达 ACCEPT 但纯 C 经人审）**
+- [ ] **Step 1: 写验收测试, C 不退化门生效（replay 回退→硬 REJECT，全保持+一致正向→可达 ACCEPT 但纯 C 经人审）**
 ```python
 # tests/test_m3_acceptance.py
 from tools.sie import acceptor, selfdeception, statemachine, evaluate
@@ -6161,7 +6161,7 @@ def test_c_tier_no_regression_gate():
     assert ev2["no_regression"] is True
 ```
 
-- [ ] **Step 2: 写验收测试 —— 纯 C 档 auto 欲 ACCEPT 强制人审（不自动采纳）**
+- [ ] **Step 2: 写验收测试, 纯 C 档 auto 欲 ACCEPT 强制人审（不自动采纳）**
 ```python
 # tests/test_m3_acceptance.py  (追加)
 def test_pure_c_auto_forces_human():
@@ -6174,7 +6174,7 @@ def test_pure_c_auto_forces_human():
     assert route == "PAUSE_FOR_HUMAN"
 ```
 
-- [ ] **Step 3: 写验收测试 —— 自欺指数对"锚↔judge 合谋"报警（holdout 背离为主信号）**
+- [ ] **Step 3: 写验收测试, 自欺指数对"锚↔judge 合谋"报警（holdout 背离为主信号）**
 ```python
 # tests/test_m3_acceptance.py  (追加)
 def test_selfdeception_collusion_alert_holdout_primary():
@@ -6189,7 +6189,7 @@ def test_selfdeception_collusion_alert_holdout_primary():
     assert ag["count_selfdeception"] is True
 ```
 
-- [ ] **Step 4: 写验收测试 —— Codex 不可用时不降级单 Claude 自动提交**
+- [ ] **Step 4: 写验收测试, Codex 不可用时不降级单 Claude 自动提交**
 ```python
 # tests/test_m3_acceptance.py  (追加)
 def test_codex_unavailable_no_single_claude_autoaccept():
@@ -6204,7 +6204,7 @@ def test_codex_unavailable_no_single_claude_autoaccept():
     assert route == "PAUSE_FOR_HUMAN"  # 绝不自动 ARCHIVE
 ```
 
-- [ ] **Step 5: 写验收测试 —— 累计漂移熔断停机人审**
+- [ ] **Step 5: 写验收测试, 累计漂移熔断停机人审**
 ```python
 # tests/test_m3_acceptance.py  (追加)
 def test_cumulative_drift_circuit_breaks():
@@ -6234,9 +6234,9 @@ Claude-Session: https://claude.ai/code/session_015s63syXfzXPq4Tz5UCM7yW"
 ```
 ## 里程碑 M4: 自举隔离 (~6-10h，默认关)
 
-**目标**：让 self-evolve 安全地把自己当作 target（`--self`）—— IMMUTABLE 裁决代码集从 frozen base ref 按内容哈希锁定加载、启动即校验、运行期绝不从 candidate worktree import；supervisor 双进程把"评测裁决"与"被评测的 candidate"物理分开（candidate 不裁决自己）；递归隔离到独立 worktree；自举时禁 candidate 自定义 `grade()`（改用 frozen/外部 grader）；任何 patch 命中 IMMUTABLE 路径硬拒。
+**目标**：让 self-evolve 安全地把自己当作 target（`--self`）, IMMUTABLE 裁决代码集从 frozen base ref 按内容哈希锁定加载、启动即校验、运行期绝不从 candidate worktree import；supervisor 双进程把"评测裁决"与"被评测的 candidate"物理分开（candidate 不裁决自己）；递归隔离到独立 worktree；自举时禁 candidate 自定义 `grade()`（改用 frozen/外部 grader）；任何 patch 命中 IMMUTABLE 路径硬拒。
 
-**验收标准（spec §13 M4 / §6 自举 / §9 安全负向）**：自举负向用例全过——(a) patch 改 `gate_human.py`/`acceptor.py` 等 IMMUTABLE 路径 → 硬拒（reason=immutable_hit）；(b) candidate 在自举 worktree 内自定义/改写 `grade()` → 不被采信（评测用 frozen/外部 grader，candidate 的 grade 结果被忽略）；(c) candidate worktree 篡改 IMMUTABLE 文件内容 → 启动哈希校验 fail-closed 拒绝运行；(d) supervisor 进程从 frozen 副本 import，candidate worktree 路径不在 sys.path、`import` IMMUTABLE 模块解析到 frozen 而非 candidate。默认关：非 `--self` 路径行为零变化。
+**验收标准（spec §13 M4 / §6 自举 / §9 安全负向）**：自举负向用例全过,(a) patch 改 `gate_human.py`/`acceptor.py` 等 IMMUTABLE 路径 → 硬拒（reason=immutable_hit）；(b) candidate 在自举 worktree 内自定义/改写 `grade()` → 不被采信（评测用 frozen/外部 grader，candidate 的 grade 结果被忽略）；(c) candidate worktree 篡改 IMMUTABLE 文件内容 → 启动哈希校验 fail-closed 拒绝运行；(d) supervisor 进程从 frozen 副本 import，candidate worktree 路径不在 sys.path、`import` IMMUTABLE 模块解析到 frozen 而非 candidate。默认关：非 `--self` 路径行为零变化。
 
 > **前置依赖**：本里程碑消费 M1a 的 `sandbox.canonical_in_sandbox`/`make_worktree`、M1a 的 `patch.apply_patch` AST 门、契约 `acceptor.decide`、契约 grade() schema、M2 的 `verifiable.run_grader`。M4 在这些之上加一层"frozen 锁 + supervisor 分进程"，不改其签名。
 
@@ -6249,17 +6249,17 @@ Claude-Session: https://claude.ai/code/session_015s63syXfzXPq4Tz5UCM7yW"
 **Files:**
 - Create: `~/CodesSelf/self-evolve/tools/sie/immutable.py`
 - Create: `~/CodesSelf/self-evolve/tests/test_immutable.py`
-- Modify: `~/CodesSelf/self-evolve/tools/sie/__init__.py`（无则 Create；导出 `immutable` 子模块，无需改行号——append 一行 `from . import immutable  # noqa: F401`）
+- Modify: `~/CodesSelf/self-evolve/tools/sie/__init__.py`（无则 Create；导出 `immutable` 子模块，无需改行号,append 一行 `from . import immutable  # noqa: F401`）
 
 **Interfaces:**
 - Consumes（M1a sandbox）：`make_worktree(target: str, base_ref: str, run_id: str) -> str`
 - Produces：
-  - `IMMUTABLE_RELPATHS: tuple[str, ...]`  —— 相对 `tools/sie/` 的 IMMUTABLE 文件清单
-  - `is_immutable_relpath(relpath: str) -> bool`  —— 路径归一化后命中判定（防 `./`、`..`、反斜杠绕过）
-  - `materialize_frozen(base_ref: str, sie_root: str, frozen_dir: str) -> dict[str, str]`  —— 从 git base ref 取 IMMUTABLE 文件内容写入 `frozen_dir`，返回 `{relpath: sha256}`
-  - `hash_file(path: str) -> str`  —— sha256 hexdigest
+  - `IMMUTABLE_RELPATHS: tuple[str, ...]`, 相对 `tools/sie/` 的 IMMUTABLE 文件清单
+  - `is_immutable_relpath(relpath: str) -> bool`, 路径归一化后命中判定（防 `./`、`..`、反斜杠绕过）
+  - `materialize_frozen(base_ref: str, sie_root: str, frozen_dir: str) -> dict[str, str]`, 从 git base ref 取 IMMUTABLE 文件内容写入 `frozen_dir`，返回 `{relpath: sha256}`
+  - `hash_file(path: str) -> str`, sha256 hexdigest
 
-- [ ] **Step 1: 写失败测试——IMMUTABLE 清单覆盖 spec 列举的全部裁决模块**
+- [ ] **Step 1: 写失败测试,IMMUTABLE 清单覆盖 spec 列举的全部裁决模块**
 ```python
 # tests/test_immutable.py
 import os, hashlib, subprocess, pathlib, pytest
@@ -6289,7 +6289,7 @@ def test_is_immutable_relpath_normalizes_and_rejects_bypass():
   - Run: `cd ~/CodesSelf/self-evolve && python -m pytest tests/test_immutable.py -q`
   - Expected: FAIL（`ModuleNotFoundError: tools.sie.immutable` 或 AttributeError）
 
-- [ ] **Step 3: 写最小实现——清单 + 归一化命中判定**
+- [ ] **Step 3: 写最小实现,清单 + 归一化命中判定**
 ```python
 # tools/sie/immutable.py
 """IMMUTABLE 裁决代码集权威清单 + frozen 物化/哈希（spec §3 铁律3, §6 自举）。"""
@@ -6333,7 +6333,7 @@ def hash_file(path: str) -> str:
   - Run: `cd ~/CodesSelf/self-evolve && python -m pytest tests/test_immutable.py -q`
   - Expected: 上两个测试 PASS（materialize 测试尚未写）
 
-- [ ] **Step 5: 写失败测试——从 base ref 物化 frozen 副本并记录哈希**
+- [ ] **Step 5: 写失败测试,从 base ref 物化 frozen 副本并记录哈希**
 ```python
 # 追加到 tests/test_immutable.py
 def _init_repo_with_sie(tmp_path):
@@ -6428,9 +6428,9 @@ run 启动时（且仅当 IMMUTABLE 锁开启，即自举或显式 enforce）核
 - Consumes：`hash_file`, `IMMUTABLE_RELPATHS`, `materialize_frozen`（M4.1）
 - Produces：
   - `class ImmutableViolation(Exception)`
-  - `verify_immutable(candidate_sie_root: str, frozen_digests: dict[str, str]) -> None`  —— 比对 candidate 内 IMMUTABLE 文件哈希；任一不符或缺失 raise `ImmutableViolation`
+  - `verify_immutable(candidate_sie_root: str, frozen_digests: dict[str, str]) -> None`, 比对 candidate 内 IMMUTABLE 文件哈希；任一不符或缺失 raise `ImmutableViolation`
 
-- [ ] **Step 1: 写失败测试——candidate 改了 IMMUTABLE 文件，启动门必须 raise**
+- [ ] **Step 1: 写失败测试,candidate 改了 IMMUTABLE 文件，启动门必须 raise**
 ```python
 # 追加到 tests/test_immutable.py
 def test_verify_immutable_raises_on_tamper(tmp_path):
@@ -6513,9 +6513,9 @@ EOF
 **Interfaces:**
 - Consumes：`immutable.is_immutable_relpath`（M4.1）；契约 patch 表示（M1a `apply_patch(patch: dict, worktree: str, ...) -> dict`，其中 `patch["target"]` 为相对 sie_root 的路径列表/单路径）
 - Produces：
-  - `immutable_gate(target_relpaths: list[str], enforce: bool) -> dict | None`  —— 命中返回 `{"decision":"REJECT","reason":"immutable_hit","paths":[...]}`；未命中或 `enforce=False` 返回 `None`
+  - `immutable_gate(target_relpaths: list[str], enforce: bool) -> dict | None`, 命中返回 `{"decision":"REJECT","reason":"immutable_hit","paths":[...]}`；未命中或 `enforce=False` 返回 `None`
 
-- [ ] **Step 1: 写失败测试——enforce 时改 IMMUTABLE 路径被拒、改普通路径放行、非 enforce 全放行**
+- [ ] **Step 1: 写失败测试,enforce 时改 IMMUTABLE 路径被拒、改普通路径放行、非 enforce 全放行**
 ```python
 # tests/test_patch_immutable_gate.py
 from tools.sie.patch import immutable_gate
@@ -6601,11 +6601,11 @@ supervisor 是只读主进程：从 frozen 副本目录 import 裁决模块（ac
 **Interfaces:**
 - Consumes：`immutable.verify_immutable`, `immutable.materialize_frozen`（M4.1/M4.2）；契约 `acceptor.decide(paired, tier, st, params) -> dict`
 - Produces：
-  - `load_frozen_decider(frozen_dir: str, module: str) -> ModuleType`  —— 用隔离 import（仅 frozen_dir 入临时 path），返回 frozen 版裁决模块；frozen 缺该模块 → raise `ImmutableViolation`
+  - `load_frozen_decider(frozen_dir: str, module: str) -> ModuleType`, 用隔离 import（仅 frozen_dir 入临时 path），返回 frozen 版裁决模块；frozen 缺该模块 → raise `ImmutableViolation`
   - `class Supervisor` 含 `__init__(self, frozen_dir: str, frozen_digests: dict)` 和 `decide(self, paired, tier, st, params) -> dict`（内部用 frozen acceptor，**不**从 candidate import）
-  - `candidate_path_is_isolated(frozen_dir: str, candidate_worktree: str) -> bool`  —— 断言 candidate worktree 不在 supervisor 的模块解析路径上
+  - `candidate_path_is_isolated(frozen_dir: str, candidate_worktree: str) -> bool`, 断言 candidate worktree 不在 supervisor 的模块解析路径上
 
-- [ ] **Step 1: 写失败测试——loader 从 frozen 加载，且解析的不是 candidate 版本**
+- [ ] **Step 1: 写失败测试,loader 从 frozen 加载，且解析的不是 candidate 版本**
 ```python
 # tests/test_supervisor.py
 import os, sys, types, pathlib, pytest
@@ -6698,7 +6698,7 @@ class Supervisor:
   - Run: `cd ~/CodesSelf/self-evolve && python -m pytest tests/test_supervisor.py -q`
   - Expected: PASS
 
-- [ ] **Step 5: 写失败测试——Supervisor 用 frozen acceptor 而非 candidate 篡改版裁决**
+- [ ] **Step 5: 写失败测试,Supervisor 用 frozen acceptor 而非 candidate 篡改版裁决**
 ```python
 # 追加到 tests/test_supervisor.py
 def test_supervisor_decide_uses_frozen_not_candidate(tmp_path):
@@ -6743,10 +6743,10 @@ EOF
 **Interfaces:**
 - Consumes：`load_frozen_decider`（M4.4）；契约 grade() schema（`task_passed/grader_exit_code/dimensions/anchors/verifiable_coverage`）；M2 `verifiable.run_grader(task, snapshot, env_whitelist) -> dict`
 - Produces：
-  - `Supervisor.grade(self, task: dict, candidate_worktree: str, *, self_mode: bool) -> dict`  —— `self_mode=True` 时用 frozen verifiable.run_grader（外部 grader），不调用 candidate 的 grade()；`self_mode=False` 时退回正常路径（调 candidate contract grade，非自举）
-  - `candidate_grade_is_trusted(self_mode: bool) -> bool`  —— 自举=False（不采信），非自举=True
+  - `Supervisor.grade(self, task: dict, candidate_worktree: str, *, self_mode: bool) -> dict`, `self_mode=True` 时用 frozen verifiable.run_grader（外部 grader），不调用 candidate 的 grade()；`self_mode=False` 时退回正常路径（调 candidate contract grade，非自举）
+  - `candidate_grade_is_trusted(self_mode: bool) -> bool`, 自举=False（不采信），非自举=True
 
-- [ ] **Step 1: 写失败测试——自举模式下 candidate grade 不被采信**
+- [ ] **Step 1: 写失败测试,自举模式下 candidate grade 不被采信**
 ```python
 # 追加到 tests/test_supervisor.py
 def test_candidate_grade_not_trusted_in_self_mode():
@@ -6834,10 +6834,10 @@ CLI 增 `--self` 旗标（默认关）；为自举建**独立**于普通 run 的
 **Interfaces:**
 - Consumes：`sandbox.make_worktree`（M1a）、`immutable.materialize_frozen/verify_immutable`（M4.1/2）、`supervisor.Supervisor`（M4.4/5）、`supervisor.candidate_path_is_isolated`
 - Produces：
-  - `selfboot_init(self_repo_root: str, base_ref: str, run_id: str, runs_root: str) -> dict`  —— 返回 `{"candidate_worktree","frozen_dir","frozen_digests","supervisor"}`；frozen_dir 放 `runs_root/<run_id>/_frozen`（candidate worktree 之外、不可写区）；建好后立刻 `verify_immutable` + 断言 `candidate_path_is_isolated`
+  - `selfboot_init(self_repo_root: str, base_ref: str, run_id: str, runs_root: str) -> dict`, 返回 `{"candidate_worktree","frozen_dir","frozen_digests","supervisor"}`；frozen_dir 放 `runs_root/<run_id>/_frozen`（candidate worktree 之外、不可写区）；建好后立刻 `verify_immutable` + 断言 `candidate_path_is_isolated`
   - `is_self_run(args) -> bool`
 
-- [ ] **Step 1: 写失败测试——selfboot 建独立 worktree + frozen 在 worktree 外 + 隔离成立**
+- [ ] **Step 1: 写失败测试,selfboot 建独立 worktree + frozen 在 worktree 外 + 隔离成立**
 ```python
 # tests/test_selfboot.py
 import os, subprocess, pathlib, pytest
@@ -6937,7 +6937,7 @@ def selfboot_init(self_repo_root: str, base_ref: str, run_id: str, runs_root: st
                        action="store_true", help="显式开 IMMUTABLE 哈希锁(非自举也可强制)")
 ```
 在 `run` 分发处（解析 args 后）加：`enforce = args.self_mode or args.enforce_immutable`，并把 `enforce` 透传到 statemachine 主循环入参。
-- [ ] **Step 6: statemachine 接线测试——enforce 时 PATCH 透传 enforce_immutable=True**
+- [ ] **Step 6: statemachine 接线测试,enforce 时 PATCH 透传 enforce_immutable=True**
 ```python
 # 追加到 tests/test_selfboot.py
 def test_statemachine_patch_receives_enforce_flag(monkeypatch):
@@ -6985,7 +6985,7 @@ EOF
 **Interfaces:**
 - Consumes：`selfboot.selfboot_init`、`patch.immutable_gate`/`patch.apply_patch`、`supervisor.Supervisor`、`immutable.verify_immutable/ImmutableViolation`
 
-- [ ] **Step 1: 写负向用例(a)——patch 改 gate_human/acceptor 被硬拒**
+- [ ] **Step 1: 写负向用例(a),patch 改 gate_human/acceptor 被硬拒**
 ```python
 # tests/test_m4_selfboot_negative.py
 import os, subprocess, pathlib, pytest
@@ -7002,7 +7002,7 @@ def test_neg_a_patch_hits_immutable_rejected():
         res = P.immutable_gate([tgt], enforce=True)
         assert res["decision"] == "REJECT" and res["reason"] == "immutable_hit"
 ```
-- [ ] **Step 2: 写负向用例(b)——candidate 改 grade() 不被采信**
+- [ ] **Step 2: 写负向用例(b),candidate 改 grade() 不被采信**
 ```python
 # 追加到 tests/test_m4_selfboot_negative.py
 def test_neg_b_candidate_grade_not_trusted(tmp_path):
@@ -7031,7 +7031,7 @@ def test_neg_b_candidate_grade_not_trusted(tmp_path):
     assert res["task_passed"] is False  # candidate 的 True 被忽略
     assert res["graded_by"] == "FROZEN"
 ```
-- [ ] **Step 3: 写负向用例(c)+(d)——篡改 IMMUTABLE 启动拒 + candidate 不在解析路径**
+- [ ] **Step 3: 写负向用例(c)+(d),篡改 IMMUTABLE 启动拒 + candidate 不在解析路径**
 ```python
 # 追加到 tests/test_m4_selfboot_negative.py
 def test_neg_c_tampered_immutable_startup_rejected(tmp_path):
@@ -7078,7 +7078,7 @@ EOF
 > 由 5 个里程碑并行起草后统一对齐；执行任一里程碑前先读本节，避免接口/命名漂移。
 
 1. **run 布局（固化）**：`<target>/.sie/runs/<run_id>/`（state/events/reflections/proposals/traces/evals/acceptor/pending_actions）；archive 在 `<target>/.sie/archive/`。写进 `reference/runbook.md`。
-2. **params 基线（M1a.1 之前先建 `tools/sie/params.py`）**：canonical 键名以英文为准并给默认值——`alpha=0.05, n_min=8, anchor_set_min=24, effective_independent_anchor_min=12, holdout_fraction=0.3, continue_count_cap=5, no_progress_circuit=8, no_progress_release=3, static_reject_circuit=6, forced_review_circuit=5, drift_circuit=4, cumulative_drift_tolerance=1.5, frozen_anchor_effective_gain_eps=0.02, selfdeception_alert_band=0.15, evalue_max_step, n_reflectors=1, reflection_correctness_threshold=0.5, judge_alpha_low=0.4, judge_alpha_high=0.85, active_cap=64, K=5`。`acceptor.decide` 兼容历史键 'α'，但 canonical 为 'alpha'；所有里程碑读 params.py。
+2. **params 基线（M1a.1 之前先建 `tools/sie/params.py`）**：canonical 键名以英文为准并给默认值,`alpha=0.05, n_min=8, anchor_set_min=24, effective_independent_anchor_min=12, holdout_fraction=0.3, continue_count_cap=5, no_progress_circuit=8, no_progress_release=3, static_reject_circuit=6, forced_review_circuit=5, drift_circuit=4, cumulative_drift_tolerance=1.5, frozen_anchor_effective_gain_eps=0.02, selfdeception_alert_band=0.15, evalue_max_step, n_reflectors=1, reflection_correctness_threshold=0.5, judge_alpha_low=0.4, judge_alpha_high=0.85, active_cap=64, K=5`。`acceptor.decide` 兼容历史键 'α'，但 canonical 为 'alpha'；所有里程碑读 params.py。
 3. **archive 契约补充（M1a 已实现，回填 00-head 契约）**：除 `add_version/rollback/pareto_front/retire_stale` 外，新增 `snapshot_version(archive_dir, vid, sandbox_root)->None` 与 `lineage(archive_dir)->list[dict]`（rollback 验收需真实快照取回）。`pareto_front/retire_stale` 在 M1a 为占位（签名锁定），硬维门 Pareto 与 Library Drift 退役在 M3 落实。
 4. **acceptor.decide 演进（签名永不变）**：M1a=no-regression 硬门内部实现（不产 CONTINUE）；M1b 替换为 PACE A 档 e-process（二态、站 confseq）；M2/M3 在 decide 内补全 B/C 分支（B: per-anchor 边际增益配对 + `n_anchor<n_min` 或 `effective_independent_count<effective_independent_anchor_min`→禁 ACCEPT；C: per-regression 一致性 + 主观分方差缩放 + `evalue_max_step`）。
 5. **CLI 分阶段**：M1a=`init|run|status|replay|rollback`；`review`+非阻塞队列 resolve 在 M1b；`land`（对外落地子流程）在 M2 起；`diff` 任意里程碑可补。
