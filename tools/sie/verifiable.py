@@ -132,7 +132,7 @@ def minimal_env() -> dict:
 
     # Create an empty jail directory for HOME/USERPROFILE.
     # tempfile.mkdtemp returns a directory only readable by the current user,
-    # but more importantly it is empty — no .credentials.json can exist there.
+    # but more importantly it is empty, no .credentials.json can exist there.
     jail = tempfile.mkdtemp(prefix="sie_home_")
     # Note: jail is readable/writable to allow subprocess to create temp files.
     # The security model depends on the jail being initially empty, not on permissions.
@@ -159,8 +159,8 @@ def _grader_env(sandbox_root: str) -> tuple[dict, str, str]:
     # PYTHONPATH: site_dir first (loads sitecustomize), then sandbox_root
     # (makes sandbox modules importable without install), then the current
     # interpreter's full sys.path so that pytest and all installed packages are
-    # reachable in the stripped env.  We strip secret-bearing *env vars* — not
-    # the interpreter's own package resolution — so this is intentional.
+    # reachable in the stripped env.  We strip secret-bearing *env vars*, not
+    # the interpreter's own package resolution, so this is intentional.
     # Filter out empty strings and zip files (not useful on PYTHONPATH).
     extra_paths = [
         p for p in sys.path
@@ -263,7 +263,7 @@ def snapshot_hash(sandbox_root: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Mutation testing — inject_mutants + mutation_validity_gate
+# Mutation testing, inject_mutants + mutation_validity_gate
 # ---------------------------------------------------------------------------
 
 # Operator flip tables for Compare nodes.
@@ -439,7 +439,7 @@ def mutation_validity_gate(
 
         for mut_id, mut_src in mutants:
             total += 1
-            # Write mutant, run, restore — always restore in finally.
+            # Write mutant, run, restore, always restore in finally.
             try:
                 with open(abs_path, "w", encoding="utf-8") as fh:
                     fh.write(mut_src)

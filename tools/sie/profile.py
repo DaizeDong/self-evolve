@@ -86,7 +86,7 @@ def run_profile(target: str, base_ref: str, run_dir: str | None = None) -> dict:
         if verifiable:
             tiers.add("A")
     else:
-        exec_res = {}  # no exec signal — treat as empty
+        exec_res = {}  # no exec signal, treat as empty
 
     # --- B 维: fact 探针 + visible/holdout 拆分 (铁律5) ---
     fp = _fact_probe.probe(target, base_ref)
@@ -110,7 +110,7 @@ def run_profile(target: str, base_ref: str, run_dir: str | None = None) -> dict:
         visible, holdout = _anchors.split_visible_holdout(all_anchors, frac, seed=seed)
         anchors_visible = visible
 
-        # 铁律5: holdout 真值物理隔离 — 写独立目录, target.json 只存指针
+        # 铁律5: holdout 真值物理隔离, 写独立目录, target.json 只存指针
         # holdout_dir: inside run_dir if provided, else sibling _run/_holdout of target
         if run_dir is not None:
             holdout_dir = os.path.join(run_dir, "_holdout")
@@ -137,7 +137,7 @@ def run_profile(target: str, base_ref: str, run_dir: str | None = None) -> dict:
         "tier": tier_str,
         "verifiability_score": verifiability_score,
         "anchors_visible": anchors_visible,
-        "anchors_holdout_ref": holdout_ref,  # pointer only — no holdout truth values
+        "anchors_holdout_ref": holdout_ref,  # pointer only, no holdout truth values
         "probe_evidence": {
             "fact": fp["evidence"],
             "anchor_count": fp["anchor_count"],

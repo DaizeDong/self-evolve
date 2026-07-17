@@ -155,7 +155,7 @@ def pairwise_agreement(scores_a: dict, scores_b: dict) -> Optional[float]:
 
 # ── M3.3: judge↔锚校准（独立 holdout 标注集）─────────────────────────────────
 
-from tools.sie import anchors as _anchors  # noqa: E402 — placed after M3.2 block
+from tools.sie import anchors as _anchors  # noqa: E402, placed after M3.2 block
 
 _CALIB_MIN_INDEP = 4  # 有效独立 holdout 锚下限；低于此校准不可信
 

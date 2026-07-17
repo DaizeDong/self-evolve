@@ -18,7 +18,7 @@ from tools.sie.sandbox import canonical_in_sandbox
 from tools.sie import immutable as _im
 
 # ---------------------------------------------------------------------------
-# Baseline dangerous calls — used by import_gate (M1a baseline).
+# Baseline dangerous calls, used by import_gate (M1a baseline).
 # ---------------------------------------------------------------------------
 _DANGER_CALLS = {"eval", "exec", "compile", "__import__"}
 _DANGER_ATTR = {("os", "system"), ("os", "popen")}
@@ -31,7 +31,7 @@ _DEFAULT_ALLOW: frozenset[str] = frozenset({
 })
 
 # ---------------------------------------------------------------------------
-# M1b public constants — full danger surface for scan_ast_dangerous.
+# M1b public constants, full danger surface for scan_ast_dangerous.
 # ---------------------------------------------------------------------------
 
 # Dangerous bare names / attribute leaf names when called.
@@ -269,7 +269,7 @@ def scan_ast_dangerous(
 
             # --- Bare name call: eval(), exec(), compile(), __import__() ---
             # Only real dangerous builtins are blocked here (not run/get/post/etc.,
-            # which are only dangerous when called on a dangerous module — those are
+            # which are only dangerous when called on a dangerous module, those are
             # caught via DANGEROUS_MODULE_PREFIXES in the Attribute branch below).
             if isinstance(fn, ast.Name):
                 name = fn.id
@@ -293,7 +293,7 @@ def scan_ast_dangerous(
                     reasons.append(f"builtins bypass: {chain}")
 
                 # Specific dangerous (module, method) pairs on otherwise-allowed modules
-                # (e.g. os.system, os.popen — os itself is allowed but these methods are not).
+                # (e.g. os.system, os.popen, os itself is allowed but these methods are not).
                 elif (top, leaf) in _DANGEROUS_MODULE_METHOD_PAIRS:
                     reasons.append(f"dangerous call: {chain}")
 
@@ -366,7 +366,7 @@ def scan_ast_dangerous(
                 if sandbox_root and _is_outside_sandbox(arg0.value, sandbox_root, target_path or ""):
                     reasons.append(f"open outside sandbox: {arg0.value!r}")
             elif sandbox_root:
-                # Dynamic path — cannot prove in-sandbox statically.
+                # Dynamic path, cannot prove in-sandbox statically.
                 reasons.append("open with non-literal path (cannot prove in-sandbox)")
 
     return reasons
@@ -483,7 +483,7 @@ def apply_patch(
 
     target = os.path.normpath(os.path.join(sandbox_root, file_rel))
 
-    # Gate 1: boundary — must run BEFORE any I/O.
+    # Gate 1: boundary, must run BEFORE any I/O.
     if not canonical_in_sandbox(target, sandbox_root):
         return {"status": "REJECT", "reason": "path outside sandbox boundary"}
 
@@ -493,7 +493,7 @@ def apply_patch(
         if not ok:
             return {"status": "REJECT", "reason": f"AST gate: {why}"}
 
-    # Gate 3: scan_ast_dangerous (M1b full danger surface — alias bypass,
+    # Gate 3: scan_ast_dangerous (M1b full danger surface, alias bypass,
     # importlib, builtins, sandbox-escaping open).
     if file_rel.endswith(".py"):
         ast_reasons = scan_ast_dangerous(
@@ -505,7 +505,7 @@ def apply_patch(
         if ast_reasons:
             return {"status": "REJECT", "reason": f"AST danger gate: {'; '.join(ast_reasons)}"}
 
-    # All gates passed — write.
+    # All gates passed, write.
     parent = os.path.dirname(target)
     if parent:
         os.makedirs(parent, exist_ok=True)

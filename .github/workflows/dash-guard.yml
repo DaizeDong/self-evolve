@@ -1,0 +1,20 @@
+# dash-guard in CI: the house rule that published prose carries no en/em dash (the ASCII hyphen is
+# code syntax and is left alone). Runtime output is normalized in the skill's _inline renderer; this
+# gate keeps the docs and source comments clean. Style, not security, so it scans the current tree
+# only (a dash in old history is harmless and needs no rewrite).
+name: dash-guard
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: No en/em dash in published prose
+        run: python tools/dash_guard.py --tree

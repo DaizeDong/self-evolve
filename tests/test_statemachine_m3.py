@@ -13,7 +13,7 @@ def _rs(**kw):
 
 
 # ---------------------------------------------------------------------------
-# Step 1: release_valve — 只升人审频率，不降阈，不自动采纳
+# Step 1: release_valve, 只升人审频率，不降阈，不自动采纳
 # ---------------------------------------------------------------------------
 
 def test_release_valve_only_raises_review_freq():
@@ -43,7 +43,7 @@ def test_release_valve_below_M_returns_base():
 
 
 # ---------------------------------------------------------------------------
-# Step 3: drift_circuit — 连续 ACCEPT 但 holdout 不涨 → drift++ → ≥N 停机
+# Step 3: drift_circuit, 连续 ACCEPT 但 holdout 不涨 → drift++ → ≥N 停机
 # ---------------------------------------------------------------------------
 
 def test_drift_circuit_trips():
@@ -95,7 +95,7 @@ def test_drift_circuit_persists_via_event(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Step 5: route_accept_with_gates — 各闸组合 → 正确终态
+# Step 5: route_accept_with_gates, 各闸组合 → 正确终态
 # ---------------------------------------------------------------------------
 
 def test_route_pure_c_auto_forces_human():
@@ -139,7 +139,7 @@ def test_route_clean_accept_archives():
 
 
 # ---------------------------------------------------------------------------
-# 额外: 端到端验证 — Codex 不可用 → 单 Claude 不能 auto ACCEPT
+# 额外: 端到端验证, Codex 不可用 → 单 Claude 不能 auto ACCEPT
 # ---------------------------------------------------------------------------
 
 def test_route_codex_unavailable_single_claude_block_end_to_end():
@@ -178,7 +178,7 @@ def test_route_pure_c_no_coverage_gated_mode_ok():
         alpha_gate_out={"force_review": False},
         degrade={"single_claude_block": False, "force_review": False},
         mode="gated", tier="C", coverage=0.0)
-    # gated 模式不走 auto 强制路径 — 返回 ARCHIVE (已由人介入核准)
+    # gated 模式不走 auto 强制路径, 返回 ARCHIVE (已由人介入核准)
     assert out == "ARCHIVE"
 
 

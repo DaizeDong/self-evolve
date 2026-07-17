@@ -25,7 +25,7 @@ _DRIFT_CIRCUIT = 4       # N_drift
 
 
 # ---------------------------------------------------------------------------
-# 闸①辅助: retained_visible_gain —— 只计留存锚增益，新增锚不计当轮
+# 闸①辅助: retained_visible_gain, 只计留存锚增益，新增锚不计当轮
 # ---------------------------------------------------------------------------
 
 def retained_visible_gain(prev_anchors: list[dict], cur_anchors: list[dict]) -> float:
@@ -52,7 +52,7 @@ def retained_visible_gain(prev_anchors: list[dict], cur_anchors: list[dict]) -> 
 
 
 # ---------------------------------------------------------------------------
-# 闸④辅助: cumulative_drift —— 累计漂移预算检测
+# 闸④辅助: cumulative_drift, 累计漂移预算检测
 # ---------------------------------------------------------------------------
 
 def cumulative_drift(lineage_visible_cum: float, lineage_holdout_cum: float,
@@ -71,7 +71,7 @@ def cumulative_drift(lineage_visible_cum: float, lineage_holdout_cum: float,
 
 
 # ---------------------------------------------------------------------------
-# 主函数: index —— 多闸检测，返回自欺指数与各闸信号
+# 主函数: index, 多闸检测，返回自欺指数与各闸信号
 # ---------------------------------------------------------------------------
 
 def index(

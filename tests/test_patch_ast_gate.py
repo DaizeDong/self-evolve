@@ -202,7 +202,7 @@ def test_apply_patch_allows_clean_file(tmp_path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# M1b.1: No false positives — common method names on safe receivers must pass
+# M1b.1: No false positives, common method names on safe receivers must pass
 # ---------------------------------------------------------------------------
 
 def test_client_get_passes() -> None:

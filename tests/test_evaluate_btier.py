@@ -183,7 +183,7 @@ def test_coverage_floor_violation_without_intent(monkeypatch):
         "anchors_visible": vis,
         "base_scores": {a["anchor_id"]: 0.0 for a in vis},
         "with_scores": {a["anchor_id"]: 0.3 for a in vis},
-        # No intended_accept — intent is None
+        # No intended_accept, intent is None
     }
     monkeypatch.setattr(evaluate, "_verify_visible", lambda anchors, ctx: anchors)
     out = evaluate.evaluate(ctx)

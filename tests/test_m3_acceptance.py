@@ -51,7 +51,7 @@ def test_c_tier_no_regression_gate():
 
 
 # ---------------------------------------------------------------------------
-# 验收③ 纯 C 强制人审 (auto 不自动采纳) — 经 run_loop 端到端
+# 验收③ 纯 C 强制人审 (auto 不自动采纳), 经 run_loop 端到端
 # ---------------------------------------------------------------------------
 
 def test_pure_c_auto_forces_human():
@@ -111,7 +111,7 @@ def test_pure_c_auto_forces_human_e2e(tmp_path, monkeypatch):
         return {
             "codex": {"available": True, "aggregate": 0.6, "span_scores": []},
             "claude": {"available": True, "aggregate": 0.6, "span_scores": []},
-            "alpha": 0.9,       # high alpha — both judges agree
+            "alpha": 0.9,       # high alpha, both judges agree
             "calibration": {"corr": 0.5, "n_used": 2, "degenerate": False},
             "judge_gain": 0.6,
         }

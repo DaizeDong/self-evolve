@@ -39,7 +39,7 @@ def test_empty_run_dir_not_anomalous(tmp_path):
 
 def test_insufficient_window_not_anomalous(tmp_path):
     d = str(tmp_path)
-    # Only 3 records — below _MONOTONE_RUN_MIN=6
+    # Only 3 records, below _MONOTONE_RUN_MIN=6
     for t in ["AAA", "AAB", "AAC"]:
         proxy.record_outbound(d, "quote", {"ticker": t})
     out = proxy.sequence_anomaly(d)

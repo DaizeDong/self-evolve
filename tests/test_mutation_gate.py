@@ -36,7 +36,7 @@ def _read(wt: str, rel: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# inject_mutants — unit tests
+# inject_mutants, unit tests
 # ---------------------------------------------------------------------------
 
 def test_inject_mutants_produces_variants():
@@ -92,7 +92,7 @@ def test_inject_mutants_unique_ids():
 
 
 # ---------------------------------------------------------------------------
-# mutation_validity_gate — integration tests with fake run_one
+# mutation_validity_gate, integration tests with fake run_one
 # ---------------------------------------------------------------------------
 
 def test_real_test_kills_all_mutants(tmp_path):
@@ -147,7 +147,7 @@ def test_file_restored_after_gate(tmp_path):
     src_rel = _write(wt, "pkg/calc.py", original_content)
 
     def run_one(worktree):
-        return True  # watering — ensures some mutants survive, exercises restore path
+        return True  # watering, ensures some mutants survive, exercises restore path
 
     mutation_validity_gate(wt, [src_rel], run_one)
 

@@ -11,13 +11,13 @@ description: "Use to autonomously self-improve a skill/repo via reflect/propose/
 **方法论恒定，信号来源自适应。** reflect → propose → evaluate → judge → accept，全程
 反自欺；唯一随目标变的是「评测信号从哪来」。
 
-> **能跑就跑，能核就核，都不能就生成场景让异质判官评——所以没有不能进化的目标。**
+> **能跑就跑，能核就核，都不能就生成场景让异质判官评,所以没有不能进化的目标。**
 
 ## 统一评测框架（评测策略，不是目标等级）
 
 只要目标意图可抽取、可操作化，信号就能造出来，故不存在不可评的目标。下面三者是同一
 `evaluate` 契约的三个 **provider**，可叠加（`A+B`、`C+B`…），按可核验强度排序，往上尽量
-取、取不到向下兜底——底永远存在：
+取、取不到向下兜底,底永远存在：
 
 | 评测策略 | 取信号的方式 | 何时用 | 强度 |
 |---|---|---|---|
@@ -29,8 +29,8 @@ description: "Use to autonomously self-improve a skill/repo via reflect/propose/
 可打分 rubric、让两个异质模型盲评取一致性。「取不到任何信号」在工程上不存在。纯 C 默认
 走人审落地，是信号最弱时把终判交回人的审慎，**不是「目标不可用」**。
 （**落地状态**：C 的「真 coverage（场景对意图的覆盖率）」与对 A/B 的 accept 端平权由
-scenario-eval 模块承载；当前代码对纯主观 C 仍取保守处理——`coverage=0`、权重偏低、默认
-人审——平权是 scenario-eval 的设计 / 落地方向。）详见
+scenario-eval 模块承载；当前代码对纯主观 C 仍取保守处理,`coverage=0`、权重偏低、默认
+人审,平权是 scenario-eval 的设计 / 落地方向。）详见
 [`docs/philosophy.md`](docs/philosophy.md)、[`reference/signal-providers.md`](reference/signal-providers.md)。
 
 ## Pipeline
@@ -58,11 +58,11 @@ scenario-eval 模块承载；当前代码对纯主观 C 仍取保守处理——
 
 ## 铁律（不可违背）
 
-1. **LLM 提议，代码裁决**——采纳 / 拒绝 / 回滚 / 定信号源全由 harness 确定性代码决定；LLM 绝不评判自己产出。
-2. **原始证据只读**——trace / 反思 append-only，`events.jsonl` 唯一真相源，崩溃可 replay 重建。
-3. **真值隔离**——测试 / 锚 / 场景的真值对 reflect/propose/patch 物理不可读（holdout 隔离到 `_holdout/`）。
-4. **信号源一次冻结**——PROFILE 定的策略首轮冻结，resume 不重评。
-5. **沙箱内全自动，出沙箱走人审**——push / 合主分支 / 对外发送只在独立人审子流程发生。
+1. **LLM 提议，代码裁决**,采纳 / 拒绝 / 回滚 / 定信号源全由 harness 确定性代码决定；LLM 绝不评判自己产出。
+2. **原始证据只读**,trace / 反思 append-only，`events.jsonl` 唯一真相源，崩溃可 replay 重建。
+3. **真值隔离**,测试 / 锚 / 场景的真值对 reflect/propose/patch 物理不可读（holdout 隔离到 `_holdout/`）。
+4. **信号源一次冻结**,PROFILE 定的策略首轮冻结，resume 不重评。
+5. **沙箱内全自动，出沙箱走人审**,push / 合主分支 / 对外发送只在独立人审子流程发生。
 
 ## 自举隔离（`--self`）
 

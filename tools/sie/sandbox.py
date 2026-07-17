@@ -20,7 +20,7 @@ import os
 import subprocess
 
 # ---------------------------------------------------------------------------
-# IMMUTABLE: outward-facing ops are always GATED — not subject to --mode.
+# IMMUTABLE: outward-facing ops are always GATED, not subject to --mode.
 # Ops: push (VCS push), merge_main (main merge), send (external dispatch),
 # delete_outside (boundary deletion), land (human-initiated landing),
 # approve (human-initiated approval).
@@ -66,7 +66,7 @@ def canonical_in_sandbox(path: str, sandbox_root: str) -> bool:
     try:
         common = os.path.commonpath([rp, root])
     except ValueError:
-        # Different drives on Windows — definitely outside.
+        # Different drives on Windows, definitely outside.
         return False
     return common == root
 

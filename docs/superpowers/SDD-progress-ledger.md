@@ -15,7 +15,7 @@ Task M1a.5: complete (commits 6f48d3d..3f59473, review clean after fix; UDP send
   M2-PREREQ: replace parent-sys.path PYTHONPATH with isolated venv (Python-layer attack surface) [reviewer Important, plan-deferred to M2]
   minors-for-final-review: jail chmod reverted (empty-jail is operative protection); native/ctypes net bypass = accepted residual (spec §6)
 Task M1a.6: complete (commits 76c8989..30bd56f, review clean after fix; ImportFrom danger-symbol bypass closed)
-  M1b-PREREQ(full AST gate): alias bypass (fn=eval;fn()), importlib.import_module, builtins.__import__ — deferred to M1b full danger-call list
+  M1b-PREREQ(full AST gate): alias bypass (fn=eval;fn()), importlib.import_module, builtins.__import__, deferred to M1b full danger-call list
 Task M1a.7: complete (commit 7079ac1, review clean, no fix needed; acceptor no-regression fallback, signature locked for M1b PACE)
   minors-for-final-review: placeholder evalue 'improved' counts fail->partial (M1b PACE replaces evalue)
 Task M1a.8: complete (commit 786e5b4, review clean, no fix needed; lineage append-only + rollback真恢复内容)
