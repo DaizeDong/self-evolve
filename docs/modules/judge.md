@@ -14,7 +14,7 @@ self-evolve 的方法论恒定为 reflect → propose → evaluate → judge →
 
 判官有两家，分别由独立子进程调用，与被评测的候选物理隔离（候选进程拿不到判官、也改不了判官的打分）：
 
-- **Codex 判官**（`judge_codex.invoke_codex_judge`）：走 `workflows/codex-judge.js`，内部用当下最强的 codex 模型（代码里写死 `gpt-5.5` + `xhigh` effort，跑一轮后按校准调整），**关掉 browser/playwright，只留 web_search**。
+- **Codex 判官**（`judge_codex.invoke_codex_judge`）：走 `workflows/codex-judge.js`，内部用当下最强的 codex 模型（具体型号 pin 在 `tools/sie/judge_codex.py` 的 `_CODEX_MODEL`/`_CODEX_EFFORT`，2026-07 = `gpt-5.6-sol` + `max`），**关掉 browser/playwright，只留 web_search**。
 - **Claude 判官**（`judge_claude.invoke_claude_judge`）：走 `workflows/claude-judge.js`，同样**只开 web_search**。
 
 两家用的是不同公司、不同训练的模型,这就是"异质"的含义。同质判官会犯一样的错、一起被同一个漂亮但空洞的产物骗过去；异质判官各自的盲区不一样，它们之间的**分歧**本身就是一个有用的信号。

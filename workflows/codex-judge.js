@@ -11,8 +11,8 @@
  *   --no-browser     : 禁止 browser 工具
  *   --no-playwright  : 禁止 playwright 工具
  *   --tools web_search : 仅允许 web_search
- *   --model <id>     : 指定模型（默认 gpt-5.5，当下最强）
- *   --effort <level> : 指定 effort（默认 xhigh）
+ *   --model <id>     : 指定模型（默认 gpt-5.6-sol，当下最强）
+ *   --effort <level> : 指定 effort（默认 max）
  *
  * 本文件是 invoke_codex_judge 中 --no-browser/--no-playwright 约束的实际执行点。
  * judge_codex.py 拼装这些 flag 并通过 subprocess 传入；本脚本解析后以相同约束调用 codex CLI。
@@ -28,8 +28,8 @@ const path = require('path');
 
 // ── CLI flag 解析 ──────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
-let model = 'gpt-5.5';
-let effort = 'xhigh';
+let model = 'gpt-5.6-sol';
+let effort = 'max';
 let noBrowser = false;
 let noPlaywright = false;
 let tools = null;
