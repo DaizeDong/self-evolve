@@ -6,8 +6,8 @@ from __future__ import annotations
 import subprocess
 
 # 2026-06 当下最强 codex 模型；跑一轮后按 §12 校准
-_CODEX_MODEL = "gpt-5.5"
-_CODEX_EFFORT = "xhigh"
+_CODEX_MODEL = "gpt-5.6-sol"   # align with the fleet default (~/.codex/config.toml); was a stale gpt-5.5
+_CODEX_EFFORT = "max"          # house rule: always strongest; was a stale xhigh
 
 
 def invoke_codex_judge(prompt: str, timeout_s: int = 600) -> dict:
