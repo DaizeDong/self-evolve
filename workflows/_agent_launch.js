@@ -21,9 +21,9 @@ const { launchClaude } = require('./_claude_launch');
 const TIMEOUT_MS = 590000;
 
 function _launchCodex(opts, prompt) {
-  // 默认当下最强（与 memory 一致: codex 永远用最强模型 + xhigh）。
-  const model = opts.model || 'gpt-5.5';
-  const effort = opts.effort || 'xhigh';
+  // 默认当下最强（与 memory 一致: codex 永远用最强模型）。2026-07 = gpt-5.6-sol + max。
+  const model = opts.model || 'gpt-5.6-sol';
+  const effort = opts.effort || 'max';
   const outFile = path.join(os.tmpdir(), `sie-agent-codex-${process.pid}-${Date.now()}.txt`);
   // read-only 沙箱: codex 不能写盘/逃逸 shell（任意阶段调 codex 都只读, 防副作用）。
   // -o 取最终消息避开 header/MCP 噪声。prompt 走 stdin → shell:true 下无注入面。

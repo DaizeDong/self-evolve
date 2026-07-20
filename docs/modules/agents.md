@@ -15,7 +15,7 @@ evaluate / judge 任一阶段都能：
 **家族分发**（`workflows/_agent_launch.js: launch(family, opts, prompt)`）：
 - `claude` / `cc` → 经 `_claude_launch`（cc 优先、claude fallback、`-p` json、prompt 走 stdin）。
 - `codex` → `codex exec -s read-only`（只读沙箱：任意阶段调 codex 都不能写盘 / 逃逸 shell；
-  `-o` 取最终消息避噪；默认 `gpt-5.5` + `xhigh`，与「codex 永远用最强」一致）。
+  `-o` 取最终消息避噪；默认 `gpt-5.6-sol` + `max`，与「codex 永远用最强」一致）。
 
 **统一入口**（`workflows/agent.js`）：`--family <claude|cc|codex> [--role ..] [--model ..]
 [--tools web_search] [--effort ..]`，stdin prompt → stdout 结果。是「在某阶段调某家族 agent」
