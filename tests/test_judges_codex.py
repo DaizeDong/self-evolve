@@ -178,7 +178,7 @@ def test_invoke_codex_judge_argv_flags(monkeypatch):
     assert cmd[tools_idx + 1] == "web_search", f"expected web_search, got {cmd[tools_idx+1]}"
     assert "--model" in cmd, f"--model missing in {cmd}"
     model_idx = cmd.index("--model")
-    assert cmd[model_idx + 1] == "gpt-5.5", f"expected gpt-5.5, got {cmd[model_idx+1]}"
+    assert cmd[model_idx + 1] == "gpt-5.6-sol", f"expected gpt-5.6-sol, got {cmd[model_idx+1]}"
 
 
 # ── I2: claude 不可用时 score() 返回契约 sentinel（显式 mock，脱离环境依赖）─
