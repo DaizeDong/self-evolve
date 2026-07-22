@@ -280,6 +280,7 @@ def test_generic_and_placeholder_usernames_pass(path):
     "reads ~/.secrets/token.cred",
     r"$HOME/.agent-center/state",
     r"%USERPROFILE%\.pw-auth\sephora.json",
+    r'-File "$env:USERPROFILE\.claude\scripts\runner.ps1"',   # the PowerShell wrapper form ($env: anchor)
 ])
 def test_catches_a_private_tool_home_path(path):
     assert "PRIVATE-PATH" in kinds(path)
