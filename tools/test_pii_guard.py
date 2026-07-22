@@ -331,7 +331,8 @@ def test_cross_repo_tokens_from_visibility(tmp_path, monkeypatch):
         "owner/my-public-tool": "PUBLIC",          # a public repo name is itself public: not a token
         "owner/notes": "PRIVATE",                  # generic word, no separators: excluded
         "owner/data-augmentation": "PRIVATE",      # one hyphen + ordinary ML phrase: excluded (FP risk)
-        "owner/self-repo": "PRIVATE",              # not distinctive AND the current repo: excluded
+        "owner/self-repo": "PRIVATE",              # the CURRENT repo names itself: excluded
+        "owner/self-repo-config": "PRIVATE",       # the current repo's OWN companion: self-reference, excluded
     }), encoding="utf-8")
     monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/self-repo.git\n")
     toks = g.load_cross_repo_tokens(".", vis_path=str(vis))
@@ -340,6 +341,7 @@ def test_cross_repo_tokens_from_visibility(tmp_path, monkeypatch):
     assert "notes" not in toks                    # generic single word
     assert "data-augmentation" not in toks        # one-hyphen common term: would false-positive
     assert "self-repo" not in toks                # the current repo names itself
+    assert "self-repo-config" not in toks         # the current repo's OWN companion: not a cross-repo leak
 
 
 def test_cross_repo_token_is_caught_as_a_finding():
