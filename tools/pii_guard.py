@@ -263,7 +263,10 @@ def load_cross_repo_tokens(root, vis_path=None):
         # on public research repos -- and a gate that cries wolf gets bypassed. So require a `-config`
         # companion (the fleet's private state repos) OR a multi-part slug (>=2 separators), which
         # ordinary prose almost never is. Everything else is left to the semantic gate (P2).
-        if (name and name != self_name and len(name) >= 5
+        # Self-exclude the current repo AND its own namespace companions (`<self>-config`, `<self>-data`):
+        # a repo referencing its OWN declared companion (a `.dataclass.json` pointing at `foo-config`)
+        # is a self-reference, not a cross-repo fleet link, and flagging it blocks the repo's own commits.
+        if (name and name != self_name and not name.startswith(self_name + "-") and len(name) >= 5
                 and (name.endswith("-config") or (name.count("-") + name.count("_")) >= 2)):
             toks.add(name)
     return sorted(toks)
