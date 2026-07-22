@@ -174,6 +174,24 @@ def _repo_root(start):
     return out or start
 
 
+def _repo_slug(root):
+    """The origin remote parsed to (owner/name, name), both lowercased; ('', '') if there is no origin.
+
+    Two callers need to identify the current repo from its origin URL: the per-repo denylist
+    exemption (keyed on owner/name) and the P1.5 self-exclusion (keyed on name). Kept in one place so
+    the parse cannot drift between them. NOTE: `git filter-repo` strips the origin remote, so inside a
+    freshly-filtered bare clone this returns ('', '') -- self-exclusion then cannot fire and a repo's
+    OWN `<name>-config` companion false-positives; re-add origin before scanning such a clone.
+    """
+    url = _run(["git", "remote", "get-url", "origin"], root).strip().lower().rstrip("/")
+    if url.endswith(".git"):
+        url = url[:-4]
+    parts = [p for p in url.replace(":", "/").split("/") if p]
+    key = "/".join(parts[-2:]) if len(parts) >= 2 else ""
+    name = parts[-1] if parts else ""
+    return key, name
+
+
 def load_repo_allow(root):
     """Repo-local `.pii-allow`: real literals this repo is ALLOWED to contain, each with a reason."""
     path = os.path.join(root, ".pii-allow")
@@ -219,11 +237,7 @@ def load_private_denylist(root=None):
             exempt = json.load(f)
     except (OSError, ValueError):
         return toks
-    url = _run(["git", "remote", "get-url", "origin"], root).strip().lower().rstrip("/")
-    if url.endswith(".git"):
-        url = url[:-4]
-    parts = [p for p in url.replace(":", "/").split("/") if p]
-    key = "/".join(parts[-2:]) if len(parts) >= 2 else ""
+    key, _ = _repo_slug(root)
     drop = {str(t).lower() for t in (exempt.get(key) or [])}
     return [t for t in toks if t not in drop]
 
@@ -249,11 +263,7 @@ def load_cross_repo_tokens(root, vis_path=None):
         return []
     if not isinstance(vis, dict):
         return []
-    url = _run(["git", "remote", "get-url", "origin"], root).strip().lower().rstrip("/")
-    if url.endswith(".git"):
-        url = url[:-4]
-    parts = [p for p in url.replace(":", "/").split("/") if p]
-    self_name = parts[-1] if parts else ""
+    _, self_name = _repo_slug(root)
     toks = set()
     for key, v in vis.items():
         if str(v).upper() != "PRIVATE":
@@ -341,15 +351,15 @@ def scan_text(text, where, allow, deny, out, strict=True, deny_only=False):
     for m in USER_PATH_RE.finditer(text):
         if m.group(1).lower() in GENERIC_USERS:
             continue                          # a standard / CI / placeholder account, not a person
-        hit = m.group(0); low = hit.lower()
-        if low in allow or any(a in low for a in allow):
+        hit = m.group(0); hl = hit.lower()
+        if hl in allow or any(a in hl for a in allow):
             continue
         out.append((where, "USER-PATH", hit))               # a real account name: never, anywhere
     for m in PRIVATE_PATH_RE.finditer(text):
-        dotpath = m.group(1); low = dotpath.lower()
-        if PUBLIC_DOTPATH_RE.match(low):
+        dotpath = m.group(1); dl = dotpath.lower()
+        if PUBLIC_DOTPATH_RE.match(dl):
             continue                          # ~/.claude.json, .claude-plugin, shallow skills/<name>
-        if low in allow or any(a in low for a in allow):
+        if dl in allow or any(a in dl for a in allow):
             continue
         out.append((where, "PRIVATE-PATH", m.group(0)))     # the full home-anchored path
 
