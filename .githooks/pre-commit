@@ -5,7 +5,7 @@
 #
 # Scope: the whole git-tracked tree, under the full synthetic-namespace rule -- nothing that merely
 # LOOKS like a real-world identifier gets in, including a vendor nobody anticipated. That is stricter
-# than the machine-wide hook (the global hook), which only checks the staged
+# than the machine-wide global hook, which only checks the staged
 # diff for breach classes because it also has to run in forks and research code without nagging.
 #
 # WHY THE OUTPUT IS CAPTURED INSTEAD OF PRINTED DIRECTLY (this bit is load-bearing):

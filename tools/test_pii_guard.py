@@ -17,6 +17,7 @@ is for, and it is tested through the mechanism, never through its contents.
 
 Run: python -m pytest test_pii_guard.py -q
 """
+import json
 import os
 import sys
 
@@ -244,6 +245,112 @@ def test_structural_checks_still_run_without_the_private_denylist():
     out = []
     g.scan_text("ship to NJ 07030", "x", set(), [], out)      # empty denylist
     assert ("x", "ZIP", "07030") in out
+
+
+# ---------------------------------------------------------------- machine paths (the 2026-07 gap)
+# The class the audit found leaking MOST and the guard had NO detector for: the operator's real home
+# directory baked into a public tool's CODE. `~/.claude/scripts/<script>` and `C:\Users\<name>\...`
+# reached the tree AND history of public repos and sailed straight through the gate.
+
+@pytest.mark.parametrize("path", [
+    r"C:\Users\janedoe\Desktop\notes.txt",
+    "/home/janedoe/.bashrc",
+    "/Users/janedoe/Library/x",
+])
+def test_catches_a_real_username_home_path(path):
+    assert "USER-PATH" in kinds(path)
+    assert "USER-PATH" in kinds(path, strict=False)          # a breach: enforced in history too
+
+
+@pytest.mark.parametrize("path", [
+    "/home/runner/work/repo",             # CI runner
+    r"C:\Users\Public\Desktop",           # standard Windows account
+    r"C:\Users\Administrator\x",
+    "/Users/shared/x",
+    "/home/user/x", r"C:\Users\you\x",    # placeholders
+])
+def test_generic_and_placeholder_usernames_pass(path):
+    assert "USER-PATH" not in kinds(path)
+
+
+@pytest.mark.parametrize("path", [
+    "_RUNNER = os.path.expanduser(r'~/.claude/scripts/agent.ps1')",   # the exact llmcall leak shape
+    'relay = os.path.expanduser("~/.claude/scripts/notify.py")',
+    'relay = "~/.claude/skills/other-tool/scripts/relay.py"',        # deep cross-tool path (llmcall leaked this)
+    "reads ~/.secrets/token.cred",
+    r"$HOME/.agent-center/state",
+    r"%USERPROFILE%\.pw-auth\sephora.json",
+])
+def test_catches_a_private_tool_home_path(path):
+    assert "PRIVATE-PATH" in kinds(path)
+    assert "PRIVATE-PATH" in kinds(path, strict=False)              # breach: history too
+
+
+@pytest.mark.parametrize("path", [
+    "~/.claude/skills/my-skill",   # a skill's OWN documented install location (public convention)
+    "~/.claude/plugins/some-plugin",
+    "junctions into ~/.claude/skills",
+    "~/.claude.json",              # the Claude Code config FILE -- a public convention, not a private dir
+    ".claude.json in .gitignore",  # a bare gitignore entry has no home anchor
+    "the .claude-plugin/plugin.json manifest",
+    "config lives in ~/.my-tool-config/data",   # a repo's OWN -config companion (P1.5's job, not this)
+    "config in .some-tool-config/",             # bare -config, no anchor
+])
+def test_public_conventions_and_own_config_are_not_flagged(path):
+    assert "PRIVATE-PATH" not in kinds(path)
+
+
+def test_private_path_is_pii_allow_exemptable():
+    """A repo may document its OWN private install path with a written reason (unlike ~/.claude/skills,
+    a public convention that needs no entry)."""
+    p = "reads ~/.claude/scripts/self.ps1"
+    assert "PRIVATE-PATH" in kinds(p)
+    assert "PRIVATE-PATH" not in kinds(p, allow=[".claude/scripts/self.ps1"])
+
+
+@pytest.mark.parametrize("s", [
+    "self.claude_client.messages.create()",   # attribute access, not a path
+    "obj.codex = 1", "x = a.secrets_manager",
+    "~/.config/app/settings", "~/.ssh/id_rsa", "~/.cache/pip",   # generic dotdirs, not private tools
+    "the cost/health chain, codex first",     # the word 'codex' in prose, no path
+])
+def test_no_false_positive_on_attribute_access_or_generic_dotdirs(s):
+    assert "PRIVATE-PATH" not in kinds(s)
+
+
+# ---------------------------------------------------------------- P1.5 cross-repo fleet linkage
+def test_cross_repo_tokens_from_visibility(tmp_path, monkeypatch):
+    """A public repo naming another PRIVATE repo is the fleet-linkage leak. Built from visibility.json,
+    self-excluding the current repo, distinctive slugs only, PRIVATE repos only."""
+    vis = tmp_path / "visibility.json"
+    # SYNTHETIC repo names -- this file is scanned by the guard, so it must not itself carry a real
+    # private slug (that would be the leak, one directory over -- the same argument as the denylist).
+    vis.write_text(json.dumps({
+        "owner/acme-alpha-config": "PRIVATE",
+        "owner/acme-beta-config": "PRIVATE",
+        "owner/my-public-tool": "PUBLIC",          # a public repo name is itself public: not a token
+        "owner/notes": "PRIVATE",                  # generic word, no separators: excluded
+        "owner/data-augmentation": "PRIVATE",      # one hyphen + ordinary ML phrase: excluded (FP risk)
+        "owner/self-repo": "PRIVATE",              # not distinctive AND the current repo: excluded
+    }), encoding="utf-8")
+    monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/self-repo.git\n")
+    toks = g.load_cross_repo_tokens(".", vis_path=str(vis))
+    assert "acme-alpha-config" in toks and "acme-beta-config" in toks
+    assert "my-public-tool" not in toks           # public
+    assert "notes" not in toks                    # generic single word
+    assert "data-augmentation" not in toks        # one-hyphen common term: would false-positive
+    assert "self-repo" not in toks                # the current repo names itself
+
+
+def test_cross_repo_token_is_caught_as_a_finding():
+    """The private repo NAME appearing in another public repo's text is a finding."""
+    assert "PRIVATE-DENYLIST" in kinds("depends on acme-alpha-config for the keys",
+                                       deny=["acme-alpha-config"])
+
+
+def test_cross_repo_absent_visibility_degrades_to_empty(tmp_path):
+    """CI / a contributor's checkout has no visibility.json: the layer is empty, not an error."""
+    assert g.load_cross_repo_tokens(".", vis_path=str(tmp_path / "no-such-visibility.json")) == []
 
 
 if __name__ == "__main__":
