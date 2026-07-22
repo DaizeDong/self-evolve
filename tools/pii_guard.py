@@ -6,9 +6,11 @@ WHY THIS EXISTS (read before changing it)
 These repos are authored by an agent that is simultaneously looking at the operator's real private
 data. When it needs an example, the nearest example is that real data. In 2026-07 that produced real
 PII in several public repos across a range of categories -- contact details, a home location, an
-employer name, a health-provider name, a social handle -- plus the operator's real email stamped on
-the author line of nearly every commit. (The categories are named here only to show the guard's
-coverage; the specifics belong to the operator and are deliberately kept out of this file.)
+employer name, a health-provider name, a social handle, and the operator's private machine paths
+(a home dir / a hardcoded ~/.<tool> script path) baked into the CODE of a public tool -- plus the
+operator's real email stamped on the author line of nearly every commit. (The categories are named
+here only to show the guard's coverage; the specifics belong to the operator and are deliberately
+kept out of this file.)
 
 Each of those was "fixed" at the time by editing the offending FILE. The working tree went clean and
 the commit that introduced it stayed on GitHub forever. That is the failure this guard exists to make
@@ -104,6 +106,44 @@ PHONE_RE = re.compile(r"(?<![\w.])(?:\+?1[\s.\-])?\(?([2-9]\d{2})\)?[\s.\-]([2-9
 # says it is one -- which is the shape a real home ZIP arrives in ("ship to <state> <zip>").
 ZIP_RE = re.compile(r"(?:\bZIP\b|\bzip\b|邮编|\bship(?:ping)?\s+to\b|\bdeliver\s+to\b)[^\n]{0,24}?\b([0-9]{5})\b")
 
+# ---- machine paths ----------------------------------------------------------------------------
+# A public repo must never carry the operator's real home directory. This is the SAME kind of
+# structural, allowlist-shaped check as EMAIL/PHONE -- a home path has a fixed shape -- and it is the
+# class the 2026-07 audit found leaking most: a hardcoded `~/.claude/scripts/<private-script>` and
+# `C:\Users\<name>\...` in the CODE and docs of public tool repos, which the guard had no detector
+# for and waved straight through. Two shapes, both enforced against tree AND history (a breach):
+#
+# HARD (USER-PATH): a real account name in a home path -> reveals the operator's username; never
+#   legitimate. `C:\Users\<name>`, `/home/<name>`, `/Users/<name>` for a non-generic <name>.
+USER_PATH_RE = re.compile(r"(?:[A-Za-z]:\\Users\\|/(?:home|Users)/)([A-Za-z0-9][\w.\-]{0,31})")
+GENERIC_USERS = {"public", "default", "defaultuser", "administrator", "admin", "user", "users",
+                 "shared", "guest", "root", "runner", "runneradmin", "vscode", "distiller", "vagrant",
+                 "ubuntu", "ec2-user", "circleci", "travis", "jenkins", "you", "youruser", "username",
+                 "name", "someone", "example", "test", "me", "home", "app", "docker", "node",
+                 "foo", "bar", "baz", "alice", "bob", "yourname", "your-name"}
+# SOFT (PRIVATE-PATH): a HOME-ANCHORED reference into a private-tool dir -- `~/.claude/scripts`,
+#   `$HOME/.agent-center`, `%USERPROFILE%\.secrets`. The ANCHOR is the whole discriminator: a leak is
+#   a hardcoded home path (`os.path.expanduser("~/.claude/scripts/x")`), whereas a bare `.claude.json`
+#   in a .gitignore or a `.claude-plugin/plugin.json` manifest has NO anchor and is a PUBLIC Claude
+#   Code convention. A repo's OWN `.<name>-config` companion is a false positive on itself -- cross-repo
+#   config references are P1.5's job -- so `-config` is deliberately NOT matched here. The dir NAMES are
+#   public tool conventions (no private data), safe to publish.
+# Only dirs that are the OPERATOR's private machine state, never a public tool convention. Excluded on
+# purpose: `.codex` / `.claude.json` (a tool's own documented config), `.pii-guard` (this guard's own
+# mechanism), `.llmcall` / `.memory-doctor` (a tool's own runtime dir -- a self-reference in its repo).
+PRIVATE_DOTDIRS = ("claude", "agent-center", "secrets", "pw-auth")
+PRIVATE_PATH_RE = re.compile(
+    r"(?:~|\$HOME|%USERPROFILE%)[\\/](\.(?:" + "|".join(PRIVATE_DOTDIRS) + r")\b[\w./\\-]*)", re.I)
+# Public Claude Code conventions sharing the .claude prefix that are NOT a private-dir reference: the
+# config file (~/.claude.json), the plugin manifest (.claude-plugin/), and the SHALLOW install dirs
+# `~/.claude/{skills,plugins,agents,commands}[/<name>]` (a repo naming its OWN install location). A
+# DEEPER path -- `~/.claude/skills/<name>/scripts/<file>` -- is a hardcoded path into a tool's
+# internals (exactly how llmcall leaked another tool's relay.py) and stays a finding; a legitimate
+# self-reference goes in .pii-allow with a reason.
+PUBLIC_DOTPATH_RE = re.compile(
+    r"^\.claude(?:\.json\b|-plugin|[\\/](?:skills|plugins|agents|commands)(?:[\\/][\w.\-]+)?[\\/]?$)",
+    re.I)
+
 # Python decorators read as emails to the regex: a diff line `+@pytest.mark.xfail` scans as
 # `+@pytest.mark.xfail`, and `def n@pytest.mark.skip` as `n@pytest.mark.skip`. Match on the DOMAIN
 # side -- the local part is whatever character happened to precede the `@`.
@@ -187,6 +227,48 @@ def load_private_denylist(root=None):
     return [t for t in toks if t not in drop]
 
 
+def load_cross_repo_tokens(root, vis_path=None):
+    """Operator-machine layer (P1.5): the NAMES of the operator's OTHER PRIVATE repos.
+
+    A public repo that names one of the operator's PRIVATE repos is a fleet-map linkage leak -- it is
+    exactly how a consumer-map doc linked a whole private fleet together (each private tool's `*-config`
+    companion, and the like). This is a DYNAMIC denylist built from ~/.pii-guard/visibility.json
+    (the same cache the hooks already use), so it needs no hand-maintained list and self-excludes the
+    current repo (a repo naming itself is not a leak). It is limited to DISTINCTIVE slugs (a hyphen or
+    underscore, len>=5) -- a private repo called `notes` would false-positive on the English word.
+
+    PRIVATE repos only: a public repo's name is itself public, and cross-referencing public tools is
+    normal. Absent visibility.json (CI, a contributor's checkout) -> empty, exactly like the private
+    denylist: the structural checks still run everywhere; this extra layer only augments the operator.
+    """
+    try:
+        with open(vis_path or os.path.expanduser("~/.pii-guard/visibility.json"), encoding="utf-8") as f:
+            vis = json.load(f)
+    except (OSError, ValueError):
+        return []
+    if not isinstance(vis, dict):
+        return []
+    url = _run(["git", "remote", "get-url", "origin"], root).strip().lower().rstrip("/")
+    if url.endswith(".git"):
+        url = url[:-4]
+    parts = [p for p in url.replace(":", "/").split("/") if p]
+    self_name = parts[-1] if parts else ""
+    toks = set()
+    for key, v in vis.items():
+        if str(v).upper() != "PRIVATE":
+            continue
+        name = str(key).split("/")[-1].strip().lower()
+        # DISTINCTIVE slugs only, to stay far from common technical terms. A private repo named
+        # `data-augmentation` or `scaling-law` (one hyphen, an ordinary ML phrase) would false-positive
+        # on public research repos -- and a gate that cries wolf gets bypassed. So require a `-config`
+        # companion (the fleet's private state repos) OR a multi-part slug (>=2 separators), which
+        # ordinary prose almost never is. Everything else is left to the semantic gate (P2).
+        if (name and name != self_name and len(name) >= 5
+                and (name.endswith("-config") or (name.count("-") + name.count("_")) >= 2)):
+            toks.add(name)
+    return sorted(toks)
+
+
 _DENY_RE_CACHE = {}
 
 
@@ -252,6 +334,20 @@ def scan_text(text, where, allow, deny, out, strict=True, deny_only=False):
     for z in set(ZIP_RE.findall(text)):
         if z not in ALLOWED_ZIPS and z not in allow:
             out.append((where, "ZIP", z))
+    for m in USER_PATH_RE.finditer(text):
+        if m.group(1).lower() in GENERIC_USERS:
+            continue                          # a standard / CI / placeholder account, not a person
+        hit = m.group(0); low = hit.lower()
+        if low in allow or any(a in low for a in allow):
+            continue
+        out.append((where, "USER-PATH", hit))               # a real account name: never, anywhere
+    for m in PRIVATE_PATH_RE.finditer(text):
+        dotpath = m.group(1); low = dotpath.lower()
+        if PUBLIC_DOTPATH_RE.match(low):
+            continue                          # ~/.claude.json, .claude-plugin, shallow skills/<name>
+        if low in allow or any(a in low for a in allow):
+            continue
+        out.append((where, "PRIVATE-PATH", m.group(0)))     # the full home-anchored path
 
 
 def scan_tree(root, allow, deny):
@@ -359,7 +455,9 @@ def main():
         a.tree = True
 
     root = _repo_root(os.path.abspath(a.repo))
-    allow, deny = load_repo_allow(root), load_private_denylist(root)
+    allow = load_repo_allow(root)
+    deny = load_private_denylist(root)
+    deny += [t for t in load_cross_repo_tokens(root) if t not in set(deny)]   # P1.5 fleet-linkage
 
     findings = []
     if a.tree:

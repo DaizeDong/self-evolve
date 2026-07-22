@@ -51,7 +51,7 @@ self-evolve/
     selfdeception.py  # 自欺指数多闸 + 累计漂移
     archive.py        # lineage + Pareto 硬维门 + Library Drift 退役 + rollback
     gate_human.py     # action 分级→pending 队列 + 非阻塞
-    notify.py         # 仅主进程: 调 the notifier
+    notify.py         # 仅主进程: 调外部 notifier(路径由 env 配置)
     proxy.py          # (M2) 出站 harness 代发 + 内容/序列审查
   workflows/{reflect-fanout.js, review-fanout.js}
   reference/{target_contract.md, acceptor_math.md, signal-providers.md, runbook.md}
