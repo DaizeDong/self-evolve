@@ -133,7 +133,8 @@ GENERIC_USERS = {"public", "default", "defaultuser", "administrator", "admin", "
 # mechanism), `.llmcall` / `.memory-doctor` (a tool's own runtime dir -- a self-reference in its repo).
 PRIVATE_DOTDIRS = ("claude", "agent-center", "secrets", "pw-auth")
 PRIVATE_PATH_RE = re.compile(
-    r"(?:~|\$HOME|%USERPROFILE%)[\\/](\.(?:" + "|".join(PRIVATE_DOTDIRS) + r")\b[\w./\\-]*)", re.I)
+    r"(?:~|\$HOME|\$env:USERPROFILE|\$env:HOME|%USERPROFILE%)[\\/](\.(?:"
+    + "|".join(PRIVATE_DOTDIRS) + r")\b[\w./\\-]*)", re.I)
 # Public Claude Code conventions sharing the .claude prefix that are NOT a private-dir reference: the
 # config file (~/.claude.json), the plugin manifest (.claude-plugin/), and the SHALLOW install dirs
 # `~/.claude/{skills,plugins,agents,commands}[/<name>]` (a repo naming its OWN install location). A
