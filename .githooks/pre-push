@@ -21,7 +21,27 @@ ROOT="$(git rev-parse --show-toplevel)"
 GUARD="$ROOT/tools/pii_guard.py"
 BOUNDARY="$ROOT/tools/data_boundary.py"
 [ -f "$GUARD" ] || exit 0
-PY=$(command -v python || command -v python3 || command -v py) || exit 0
+# A MISSING INTERPRETER MUST FAIL CLOSED. This used to be
+#   PY=$(command -v python || command -v python3 || command -v py) || exit 0
+# which means: on any machine where python does not resolve, every gate below silently does nothing
+# and the operation sails through looking guarded. That is not hypothetical here -- a Windows PATH
+# that resolved `python` only to the WindowsApps App Execution Alias has already burned this
+# operator, and a stub RESOLVES: `command -v` finds it, it just cannot run anything. So probe the
+# interpreter, never infer from the fact that a name resolved.
+PY=""
+for _cand in python python3 py; do
+  _bin=$(command -v "$_cand" 2>/dev/null) || continue
+  "$_bin" -c "import sys" >/dev/null 2>&1 || continue
+  PY=$_bin
+  break
+done
+if [ -z "$PY" ]; then
+  echo "BLOCKED: no WORKING python interpreter found (tried python, python3, py)."
+  echo "The guards cannot run, so nothing at all would be checking this."
+  echo "On Windows this is usually PATH resolving only the WindowsApps stub, which resolves but"
+  echo "cannot execute. Install a real python or put it ahead of WindowsApps on PATH."
+  exit 1
+fi
 
 out=$("$PY" "$GUARD" --tree --history 2>&1)
 rc=$?

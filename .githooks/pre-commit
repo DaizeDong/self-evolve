@@ -15,11 +15,209 @@
 # and the commit sails through -- while the findings are still on screen, so it LOOKS like it blocked.
 # A gate whose verdict the caller's pager can destroy is not a gate. So: capture the output, record
 # the exit code with nothing in between, and decide from the code alone.
+# --- IDENTITY ASSERTION (fail closed, no interpreter needed) ------------------------------------
+# Is this commit going to be signed by the identity this repository's owner expects?
+#
+# Repeatedly, commits here have landed under an identity nobody chose: one form carried a GitHub
+# noreply address with NO numeric account id, which links to no account at all, and took a history
+# rewrite across a dozen repos to repair. Every occurrence had the same producer, and it was never
+# the thing that got fixed: identity config quietly falling through to some default.
+#
+# So this check ignores how config resolved. It asks the repo where it belongs (origin), asks git
+# who is about to sign (git var, which also sees GIT_AUTHOR_EMAIL / GIT_COMMITTER_EMAIL env
+# overrides that no config rule can reach), and compares the two.
+#
+# pii_guard does not cover this and cannot: its author-email rule accepts ANY
+# @users.noreply.github.com address, so a wrong-account address and the id-less form both pass it
+# clean.
+#
+# THE EXPECTED-IDENTITY TABLE IS MACHINE-LOCAL ON PURPOSE: ~/.pii-guard/identities.conf.
+# This file is vendored into public repositories, and an account map is exactly the kind of thing
+# that should not be published as a side effect of shipping a hook. So the mapping lives outside
+# every working tree. Where it is absent (any clone but the maintainer's), the structural check
+# below runs instead: it needs no table and still catches the id-less noreply form.
+#
+# NO ORIGIN -> NO EXPECTATION. A local-only repo has nothing to be checked against, so it passes
+# with a note. That is not a hole: with user.useConfigOnly set, a repo no config rule maps still
+# cannot commit at all, because git refuses to invent an identity rather than guessing one.
+#
+# ESCAPE HATCH, explicit and per repo, for a repo that deliberately commits as something other than
+# its owner (a pseudonymous project, an org repo):
+#   git config guard.expectedEmail <addr>
+#   git config guard.expectedName  <name>
+#
+# THE CASE-FOLDER IS PROBED, NOT ASSUMED (same reason as the interpreter probe below).
+# Every comparison in the strict branch runs BOTH sides through _lc. If `tr` is missing, each side
+# becomes the empty string, "" equals "", no mismatch is ever recorded, and the whole assertion
+# passes a wrong identity in silence -- measured, not theorized: with tr off PATH this hook exited 0
+# on the exact identity it otherwise blocks. A comparison whose failure mode is "everything matches"
+# has to be proven able to run before it is trusted, so probe it once and fail closed.
+_lc() { printf '%s' "$1" | tr 'A-Z' 'a-z'; }
+if [ "$(_lc ABC)" != "abc" ]; then
+  echo "BLOCKED: the identity assertion cannot case-fold (\`tr\` is missing or not working)."
+  echo "Without it every identity comparison silently succeeds, so the gate would pass anything."
+  echo "Put a working coreutils \`tr\` on PATH (on Windows it ships with Git for Windows)."
+  exit 1
+fi
+_id_fail=0
+_id_msg=""
+_id_url=$(git remote get-url origin 2>/dev/null)
+if [ -z "$_id_url" ]; then
+  _id_msg="identity: no origin remote, so there is no owner to check against -- skipped."
+else
+  # Owner = the path segment before the repo name. Covers every remote form in use here:
+  #   https://github.com/OWNER/repo.git      git@github.com:OWNER/repo.git
+  #   git@<ssh-alias>:OWNER/repo.git         <ssh-alias>:OWNER/repo.git
+  #   ssh://git@<ssh-alias>/OWNER/repo.git
+  _p=${_id_url%.git}
+  _p=${_p#*://}
+  _p=${_p#*@}
+  _p=${_p#*:}
+  case "$_p" in
+    */*) _owner=${_p%/*}; _owner=${_owner##*/} ;;
+    *)   _owner="" ;;
+  esac
+
+  _exp_name=""
+  _exp_email=""
+  _idfile="$HOME/.pii-guard/identities.conf"
+  _idtable=0
+  [ -f "$_idfile" ] && _idtable=1
+  if [ -n "$_owner" ] && [ "$_idtable" -eq 1 ]; then
+    _want=$(_lc "$_owner")
+    while IFS='|' read -r _l _n _e; do
+      case "$_l" in ''|'#'*) continue ;; esac
+      [ "$(_lc "$_l")" = "$_want" ] || continue
+      _exp_name=$_n
+      _exp_email=$_e
+      break
+    done < "$_idfile"
+  fi
+  _o=$(git config --get guard.expectedEmail 2>/dev/null)
+  [ -n "$_o" ] && _exp_email=$_o
+  _o=$(git config --get guard.expectedName 2>/dev/null)
+  [ -n "$_o" ] && _exp_name=$_o
+
+  _aid=$(git var GIT_AUTHOR_IDENT 2>/dev/null)
+  _cid=$(git var GIT_COMMITTER_IDENT 2>/dev/null)
+  if [ -z "$_aid" ] || [ -z "$_cid" ]; then
+    _id_fail=1
+    _id_msg="IDENTITY UNRESOLVABLE -- git cannot name an author/committer for this repo.
+  origin           : $_id_url
+  owner (from URL) : ${_owner:-<could not parse>}
+This is user.useConfigOnly doing its job: no config rule maps this repo to an identity, and git is
+refusing to invent one from the OS. Set it explicitly:
+  git config user.name  \"<name>\"
+  git config user.email \"<id>+<login>@users.noreply.github.com\""
+  else
+    _an=${_aid%% <*}; _t=${_aid#*<}; _ae=${_t%%>*}
+    _cn=${_cid%% <*}; _t=${_cid#*<}; _ce=${_t%%>*}
+
+    if [ -n "$_exp_email" ]; then
+      _bad=""
+      [ "$(_lc "$_ae")" = "$(_lc "$_exp_email")" ] || _bad="author email"
+      [ "$(_lc "$_ce")" = "$(_lc "$_exp_email")" ] || _bad="${_bad:+$_bad, }committer email"
+      if [ -n "$_exp_name" ]; then
+        [ "$(_lc "$_an")" = "$(_lc "$_exp_name")" ] || _bad="${_bad:+$_bad, }author name"
+        [ "$(_lc "$_cn")" = "$(_lc "$_exp_name")" ] || _bad="${_bad:+$_bad, }committer name"
+      fi
+      if [ -n "$_bad" ]; then
+        _id_fail=1
+        _id_msg="IDENTITY MISMATCH -- this commit would be attributed to the wrong account.
+  origin           : $_id_url
+  owner (from URL) : $_owner
+  expected         : $_exp_name <$_exp_email>
+  author           : $_an <$_ae>
+  committer        : $_cn <$_ce>
+  mismatched       : $_bad
+Fix it repo-locally, which wins over every global rule:
+  git config user.name  \"$_exp_name\"
+  git config user.email \"$_exp_email\"
+If this repo commits under a different identity ON PURPOSE, declare that instead of loosening this:
+  git config guard.expectedEmail <addr>   (and guard.expectedName)"
+      fi
+    else
+      # No expected identity for this owner: either a third party's repo, or this machine has no
+      # ~/.pii-guard/identities.conf. Fall back to the one invariant that needs no table: a GitHub
+      # noreply address must carry the numeric account id. The id-less <login>@users.noreply.github.com
+      # form is the shape that produced 17 unattributable commits, and it is indistinguishable from a
+      # correct address to anything that only checks the domain.
+      _shape_bad=""
+      for _pair in "author:$_ae" "committer:$_ce"; do
+        _who=${_pair%%:*}
+        _addr=${_pair#*:}
+        case "$_addr" in
+          *@users.noreply.github.com)
+            _lp=${_addr%@users.noreply.github.com}
+            case "$_lp" in
+              *+*) _num=${_lp%%+*}
+                   case "$_num" in ''|*[!0-9]*) _shape_bad="${_shape_bad:+$_shape_bad, }$_who" ;; esac ;;
+              *)   _shape_bad="${_shape_bad:+$_shape_bad, }$_who" ;;
+            esac ;;
+        esac
+      done
+      if [ -n "$_shape_bad" ]; then
+        _id_fail=1
+        _id_msg="IDENTITY MALFORMED -- a GitHub noreply address with no numeric account id.
+  origin           : $_id_url
+  owner (from URL) : ${_owner:-<could not parse>}
+  author           : $_an <$_ae>
+  committer        : $_cn <$_ce>
+  malformed        : $_shape_bad
+<login>@users.noreply.github.com is attributed to NO account. The linkable form is
+<account id>+<login>@users.noreply.github.com (find the id with: gh api users/<login> --jq .id)."
+      elif [ "$_idtable" -eq 0 ]; then
+        # Say this out loud. A missing table means the gate silently dropped to its weak form, and
+        # silent degradation is the failure mode this whole guard exists to stop.
+        _id_msg="identity: no ~/.pii-guard/identities.conf on this machine, so only the address-shape
+check ran. Owner-to-identity matching is off until that table exists."
+      fi
+      # Table present, owner simply is not one of ours (a third party's repo, an org): there is no
+      # expectation to state, so say nothing. One informational line per commit across ~50 upstream
+      # clones is exactly the nagging that gets a gate switched off.
+    fi
+  fi
+fi
+if [ "$_id_fail" -ne 0 ]; then
+  printf '%s\n' "$_id_msg"
+  echo ""
+  echo "commit BLOCKED by the identity assertion. Do not --no-verify: an author line is baked into"
+  echo "the commit object, so after this the fix is a history rewrite and a force push, on every"
+  echo "clone and every tag that pins the old commit."
+  exit 1
+fi
+# A full strict match is silent -- a gate that talks on every successful commit gets tuned out. The
+# only thing worth saying is that the check could NOT be made in full, which is what _id_msg holds.
+if [ -n "$_id_msg" ]; then
+  printf '%s\n' "$_id_msg"
+fi
+# --- end identity assertion ---------------------------------------------------------------------
+
 ROOT="$(git rev-parse --show-toplevel)"
 GUARD="$ROOT/tools/pii_guard.py"
 BOUNDARY="$ROOT/tools/data_boundary.py"
 [ -f "$GUARD" ] || exit 0          # guard not vendored into this repo yet: do not block
-PY=$(command -v python || command -v python3 || command -v py) || exit 0
+# A MISSING INTERPRETER MUST FAIL CLOSED. This used to be
+#   PY=$(command -v python || command -v python3 || command -v py) || exit 0
+# which means: on any machine where python does not resolve, every gate below silently does nothing
+# and the operation sails through looking guarded. That is not hypothetical here -- a Windows PATH
+# that resolved `python` only to the WindowsApps App Execution Alias has already burned this
+# operator, and a stub RESOLVES: `command -v` finds it, it just cannot run anything. So probe the
+# interpreter, never infer from the fact that a name resolved.
+PY=""
+for _cand in python python3 py; do
+  _bin=$(command -v "$_cand" 2>/dev/null) || continue
+  "$_bin" -c "import sys" >/dev/null 2>&1 || continue
+  PY=$_bin
+  break
+done
+if [ -z "$PY" ]; then
+  echo "BLOCKED: no WORKING python interpreter found (tried python, python3, py)."
+  echo "The guards cannot run, so nothing at all would be checking this."
+  echo "On Windows this is usually PATH resolving only the WindowsApps stub, which resolves but"
+  echo "cannot execute. Install a real python or put it ahead of WindowsApps on PATH."
+  exit 1
+fi
 
 out=$("$PY" "$GUARD" --tree 2>&1)
 rc=$?
