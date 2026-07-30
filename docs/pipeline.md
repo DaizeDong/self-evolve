@@ -36,16 +36,16 @@ pipeline 在态6/态7 里按 `prof["tier"]` 分派到不同的评测与裁决路
 
 | 态 | 名字 | 代码落点 | 做什么 | 失败/异常走向 |
 |----|------|---------|--------|--------------|
-| 0 | INIT | `make_worktree` + 首个 INIT 事件 | 建沙箱 worktree，写 run 起点 |, |
-| 1 | PROFILE | `run_profile` / `load_target` + freeze | 冻结档位 tier；resume 时幂等不重跑 |, |
-| 2 | SELECT_PARENT | `select_parent` (`:399`) | 选父版本：谱系空→`"base"`；否则谱系末版 vid |, |
-| 3 | REFLECT | `reflect` / `run_reflections_parallel`+`meta_aggregate` | 串行(默认)或 N=3 并行反思去重，产出 findings |, |
+| 0 | INIT | `make_worktree` + 首个 INIT 事件 | 建沙箱 worktree，写 run 起点 | 无 |
+| 1 | PROFILE | `run_profile` / `load_target` + freeze | 冻结档位 tier；resume 时幂等不重跑 | 无 |
+| 2 | SELECT_PARENT | `select_parent` (`:399`) | 选父版本：谱系空→`"base"`；否则谱系末版 vid | 无 |
+| 3 | REFLECT | `reflect` / `run_reflections_parallel`+`meta_aggregate` | 串行(默认)或 N=3 并行反思去重，产出 findings | 无 |
 | 3b | CHECK_REFLECTION | `check(r, 0.5)` | 弱校验闸：过滤掉强度 < 0.5 的反思 | 全空 → `note_static_reject` → STATIC_REJECT 事件 → continue |
 | 4 | PROPOSE | `propose(..., backend=proposer)` | 把 findings 变成补丁提案（builtin 确定性 / llm 真 Claude） | 空 → `note_static_reject` → STATIC_REJECT → continue |
 | 5 | PATCH | `apply_patch`（AST + 边界 + immutable 闸） | 逐个落盘提案；任一 APPLIED 即 `applied=True` | 全拒 → `note_static_reject` → STATIC_REJECT → continue |
-| 6 | EVALUATE | `evaluate(...)` 按档分派 | A:pytest / B:锚证据 / C:judge，产出 paired 增益与门控信号 |, |
-| 7 | DECIDE | A:`apply_acceptor_outcome` / B:`resolve_accept` / C:`route_accept_with_gates` | 综合 acceptor + 反自欺多闸，路由到 8/9/9.5/6 |, |
-| 8 | ACCEPT | `archive.add_version` + `snapshot_version` | 入谱系、快照沙箱、清零三计数器 |, |
+| 6 | EVALUATE | `evaluate(...)` 按档分派 | A:pytest / B:锚证据 / C:judge，产出 paired 增益与门控信号 | 无 |
+| 7 | DECIDE | A:`apply_acceptor_outcome` / B:`resolve_accept` / C:`route_accept_with_gates` | 综合 acceptor + 反自欺多闸，路由到 8/9/9.5/6 | 无 |
+| 8 | ACCEPT | `archive.add_version` + `snapshot_version` | 入谱系、快照沙箱、清零三计数器 | 无 |
 | 9 | REJECT | REJECT 事件 (`no_progress_delta=1`) | 拒绝本轮，no_progress++ | 熔断 → break |
 | 9.5 | PAUSE_FOR_HUMAN | `gate_human.enqueue` + `note_forced_review` | 强制人审：非阻塞入队、forced_review++ | 熔断 → break |
 
