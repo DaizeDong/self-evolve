@@ -19,9 +19,16 @@ Markdown safety: fenced ``` code blocks and inline `code` spans are skipped, so 
 literal example survives. In every other text file each en/em dash is treated as prose.
 
 Replacement (deterministic):
+  markdown table cell that is ONLY a dash  -> "none"  (the cell means "no value", not an aside)
+  markdown table cell STARTING with a dash -> ASCII "-" (a sub-item marker, not an aside)
   spaced   ` — ` / ` – `                 -> ", "   (appositive / aside; never grammatically wrong)
   ASCII range  A–B  (word char both sides) -> "A to B"  (e.g. T1–T9, 2020–2026)
-  any leftover run  —— / – / ―           -> ","
+  any leftover run  —— / – / ―           -> "," glued to the preceding word (never " ,")
+
+Why the table rules exist: a table cell holding a single long dash is the conventional way to write
+"no default". Substituting punctuation there produced cells reading "," or ", something", which is
+not prose at all, and NO gate can see it afterwards because the output contains no dash. The cell
+rules run before the prose rules so a dash that is a value never reaches the appositive rule.
 """
 from __future__ import annotations
 
@@ -55,16 +62,70 @@ _KIND = {".md": "md", ".markdown": "md", ".rst": "md", ".txt": "prose", ".py": "
 
 _SPACED = re.compile(rf"\s+[{_DASHES}]+\s+")
 _RANGE = re.compile(rf"([A-Za-z0-9])[{_DASHES}]+([A-Za-z0-9])")
-_RUN = re.compile(rf"[{_DASHES}]+")
+# The leftover run is matched TOGETHER with the blanks hugging it, so the replacement decides the
+# spacing instead of inheriting a stray space and emitting " ,".
+_RUN = re.compile(rf"[ \t]*[{_DASHES}]+[ \t]*")
+
+NO_VALUE = "none"                  # what an empty-meaning table cell says (fleet convention)
+
+
+def _run_sub(m) -> str:
+    """Replacement for a dash run that neither the spaced rule nor the range rule claimed.
+
+    Three shapes, all of which used to collapse to a bare "," carrying whatever blank happened to
+    sit in front of it:
+      "... one thing —"  (hard-wrapped prose, sentence continues next line) -> "... one thing,"
+      "foo —bar" / "foo— bar"                                              -> "foo, bar"
+      "— foo"  at the very start of the segment (decoration, not an aside)  -> "foo"
+
+    A dash with NO blank on either side ("$2.0B–$4.6B") keeps the old bare comma on purpose: those
+    are ranges the range rule cannot claim (it needs a word character on both sides and a currency
+    symbol is not one), rendering them is a separate judgement call, and widening the spacing here
+    would churn hundreds of lines across the fleet without making any of them correct.
+    """
+    text, run = m.string, m.group()
+    lead, trail = run[:1].isspace(), run[-1:].isspace()
+    if not lead and not trail:
+        return ","                               # tight dash: unchanged, no gratuitous respacing
+    rest = text[m.end():]
+    if rest in ("", "\r"):                       # the dash ended the line: glue the comma on
+        return ","
+    if m.start() == 0 and trail:
+        return ""                                # a leading dash is decoration; drop it
+    return ", "
 
 
 def fix_prose(s: str) -> str:
     """Replace en/em dashes in one prose segment. Order matters: spaced separators first (they
-    become ', '), then ASCII ranges ('A to B'), then any leftover dash run collapses to a comma."""
+    become ', '), then ASCII ranges ('A to B'), then any leftover dash run becomes a comma that is
+    glued to the preceding word."""
     s = _SPACED.sub(", ", s)
     s = _RANGE.sub(r"\1 to \2", s)
-    s = _RUN.sub(",", s)
+    s = _RUN.sub(_run_sub, s)
     return s
+
+
+# --- markdown table cells -------------------------------------------------------------------
+# A pipe-table row. Markdown allows up to three leading spaces before the pipe.
+_TABLE_ROW = re.compile(r"^ {0,3}\|")
+# A cell whose ENTIRE content is a dash run: it means "no value", so it becomes a word.
+_CELL_DASH_ONLY = re.compile(rf"(?<=\|)\s*[{_DASHES}]+\s*(?=\||\r?$)")
+# A cell that OPENS with a dash run followed by text: a sub-item marker, so it becomes an ASCII
+# hyphen (which this guard never touches) and keeps the indent it was drawing.
+_CELL_DASH_LEAD = re.compile(rf"(?<=\|)(\s*)[{_DASHES}]+(?=[ \t]\S)")
+
+
+def fix_table_cells(line: str) -> str:
+    """Rewrite dash-as-value cells in one markdown table row, before any prose rule sees them."""
+    if not _TABLE_ROW.match(line) or line.count("|") < 2:
+        return line
+
+    def _cell(m):
+        rest = m.string[m.end():]                       # no trailing pad on the last cell of a row
+        return f" {NO_VALUE} " if rest.startswith("|") else f" {NO_VALUE}"
+
+    line = _CELL_DASH_ONLY.sub(_cell, line)
+    return _CELL_DASH_LEAD.sub(r"\1-", line)
 
 
 def _split_md_code(line: str, in_fence: bool):
@@ -122,19 +183,16 @@ def process_text(text: str, kind: str):
             out_lines.append(line)
             continue
         if is_md:
-            segs, in_fence = _split_md_code(line, in_fence)
-            new_parts, changed = [], False
+            # Table cells first: a dash that IS the value must never reach the appositive rule.
+            work = line if in_fence else fix_table_cells(line)
+            segs, in_fence = _split_md_code(work, in_fence)
+            new_parts = []
             for part, is_code in segs:
-                if is_code:
-                    new_parts.append(part)
-                else:
-                    fixed = fix_prose(part)
-                    if fixed != part:
-                        changed = True
-                    new_parts.append(fixed)
-            if changed:
+                new_parts.append(part if is_code else fix_prose(part))
+            new_line = "".join(new_parts)
+            if new_line != line:
                 hits.append((lineno, line))
-            out_lines.append("".join(new_parts))
+            out_lines.append(new_line)
         else:
             fixed = fix_prose(line)
             if fixed != line:

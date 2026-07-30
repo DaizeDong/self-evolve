@@ -34,7 +34,7 @@
 | 223 | 19 | DSPy/MIPROv2 | 2024 | |
 | 216 | 33 | ADAS | 2024 | meta-agent 设计 |
 | **212** | 33 | GEPA | 2025 | 增速快，押注对象 |
-| 203 |, | EvoPrompt | 2023 | |
+| 203 | n/a | EvoPrompt | 2023 | |
 | 166 | 33 | TextGrad | 2024 | |
 | 128 | 11 | 综述：Comprehensive Self-Evolving Agents | 2025 | |
 | **122** | 6 | **Darwin Gödel Machine** | 2025 | 标杆但引用尚低（太新）|
