@@ -38,11 +38,11 @@ python -m tools.sie.cli status --target <target> --run-id <run_id>
 | `phase` | 当前所在态（INIT/PROFILE/REFLECT/PROPOSE/PATCH/EVALUATE/ACCEPT/ARCHIVE） |
 | `round` | 当前轮次 |
 | `tier` | 目标档位（A=有效 pytest；C=无法验证） |
-| `no_progress` | 连续无改进轮次计数（M1b 加熔断阈） |
+| `no_progress` | 连续无改进轮次计数；`≥ 3` 起 `release_valve` 升人审频率，`≥ 8` 触发 `no_progress_circuit` 停机 |
 | `static_reject` | 静态拒绝累计（无有效反思/提案/patch） |
-| `forced_review` | 强制人审累计（M1b 完整实现） |
+| `forced_review` | 强制人审累计；`≥ 5` 触发 `forced_review_circuit` 停机 |
 | `pareto` | archive Pareto 前沿（已采纳版本及分值） |
-| `pending` | 待人审动作队列（出沙箱动作，M1b+） |
+| `pending` | 待人审动作队列（出沙箱动作），来自 `gate_human.pending(run_dir)`；只列 status 仍为 `pending` 且未超 ttl（默认 86400 秒）的记录 |
 
 ## 说明
 

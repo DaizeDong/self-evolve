@@ -4,7 +4,7 @@ Point an agent at any skill / repo / project and have it self-iterate, behind an
 
 [![Claude Code Skill](https://img.shields.io/badge/Claude%20Code-Skill-orange?style=flat)](https://docs.anthropic.com/en/docs/claude-code)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-521%20passing-green?style=flat)](tests/)
+[![Tests](https://img.shields.io/badge/tests-555%20under%20tests%2F-green?style=flat)](tests/)
 [![Anti-self-deception](https://img.shields.io/badge/anti--self--deception-6%20paths%20closed-green?style=flat)](SKILL.md)
 [![Languages](https://img.shields.io/badge/Languages-EN%20%2F%20CN-blue?style=flat)](#languages)
 [![Roadmap](https://img.shields.io/badge/Roadmap-v0.1.0-purple?style=flat)](ROADMAP.md)
@@ -75,7 +75,7 @@ python -m tools.sie.cli rollback --target <target> --run-id <id> --vid <vid>
 python -m tools.sie.cli run --target <self-evolve itself> --run-id <id> --self --enforce-immutable
 ```
 
-Default mode is `builtin` / `serial` (deterministic, used by the 521 tests, no external calls). `--live` (= `--proposer llm --reflect-mode parallel`) opens the real-agent closed loop: proposer / reflector / two judges go through the local `cc` gateway (split-billing, fallback `claude`) + the `codex` CLI.
+Default mode is `builtin` / `serial` (deterministic, no external calls), which is what the harness test suite exercises: **555 tests under `tests/`**, i.e. what `pytest tests` collects from the repo root. Note that a bare `pytest` at the repo root collects **669**, because it also picks up the 114 tests under `tools/` (the vendored `pii_guard` suite). Always state which of the two you mean. `--live` (= `--proposer llm --reflect-mode parallel`) opens the real-agent closed loop: proposer / reflector / two judges go through the local `cc` gateway (split-billing, fallback `claude`) + the `codex` CLI.
 
 ## How to invoke
 

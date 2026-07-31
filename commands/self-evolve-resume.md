@@ -37,7 +37,7 @@ harness 内部会检测 target.json 是否存在，若存在则跳过 PROFILE（
 ## 铁律提示
 
 - **tier 不重算**：续跑使用已冻结的 target.json（铁律4），保证 A/C 档判定一致。
-- **沙箱内全自动**：续跑仍在沙箱（`sie` harness 驱动），落地须走人审（M1b+）。
+- **沙箱内全自动**：续跑仍在沙箱（`sie` harness 驱动），落地须走人审队列。
 - **LLM 只提议，代码裁决**：ACCEPT/REJECT 仍由 harness 代码执行。
 
 ## 查看 run 状态
