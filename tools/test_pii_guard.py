@@ -19,6 +19,7 @@ Run: python -m pytest test_pii_guard.py -q
 """
 import json
 import os
+import subprocess
 import sys
 
 import pytest
@@ -354,6 +355,107 @@ def test_cross_repo_token_is_caught_as_a_finding():
 def test_cross_repo_absent_visibility_degrades_to_empty(tmp_path):
     """CI / a contributor's checkout has no visibility.json: the layer is empty, not an error."""
     assert g.load_cross_repo_tokens(".", vis_path=str(tmp_path / "no-such-visibility.json")) == []
+
+
+# ---------------------------------------------------------------- the enumeration fail-open
+# Until 2026-07-30 `_run` returned "" whenever git exited nonzero, and every caller read that as an
+# ANSWER rather than as a failure: no tracked files, no history, no diff. scan_tree's loop then ran
+# zero times and main() printed "pii_guard: clean (tree)" and exited 0 having opened no file at all.
+# A directory that is not a repo, an extracted git-archive, git absent from PATH, an index.lock and
+# a permission error all produced that identical green result -- including in the CI workflow, whose
+# entire job is running this command on 18 public repos where it is the authority. A verifier hit it
+# for real. These tests fail if that behaviour ever comes back.
+
+def _guard_run(args, cwd, env_overrides=None):
+    """Invoke the scanner the way a hook or CI does: as a process, judged by its exit code."""
+    env = dict(os.environ)
+    env.update(env_overrides or {})
+    return subprocess.run([sys.executable, g.__file__] + args, cwd=str(cwd),
+                          capture_output=True, text=True, env=env)
+
+
+def _inside_a_repo(d):
+    return subprocess.run(["git", "-C", str(d), "rev-parse", "--show-toplevel"],
+                          capture_output=True).returncode == 0
+
+
+def test_a_failed_git_call_raises_and_carries_gits_stderr():
+    """The contract itself: nonzero exit is an exception, not an empty answer."""
+    with pytest.raises(g.GitError) as ei:
+        g._run(["git", "definitely-not-a-subcommand"], os.getcwd())
+    assert "definitely-not-a-subcommand" in str(ei.value)
+
+
+def test_allow_fail_returns_none_which_is_not_an_empty_answer():
+    """The one legitimate use of a swallowed failure returns None. Empty STDOUT from a SUCCESSFUL
+    git call must still be "", or 'no origin' and 'an empty diff' become the same thing."""
+    assert g._run(["git", "definitely-not-a-subcommand"], os.getcwd(), allow_fail=True) is None
+
+
+def test_a_successful_git_call_with_no_output_still_returns_empty_string(tmp_path):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
+    assert g._run(["git", "ls-files"], str(tmp_path)) == ""      # not None: git worked
+
+
+def test_missing_git_is_a_failure_not_an_empty_file_list(tmp_path):
+    with pytest.raises(g.GitError) as ei:
+        g._run(["this-executable-does-not-exist-anywhere"], str(tmp_path))
+    assert "cannot execute" in str(ei.value)
+
+
+def test_tracked_files_raises_in_a_directory_that_is_not_a_repo(tmp_path):
+    if _inside_a_repo(tmp_path):
+        pytest.skip("temp dir is inside a git repo; the enumeration cannot fail here")
+    with pytest.raises(g.GitError):
+        g.tracked_files(str(tmp_path))
+
+
+def test_a_non_repo_directory_exits_nonzero_and_never_prints_clean(tmp_path):
+    """THE REGRESSION. Before the fix this exited 0 with 'pii_guard: clean (tree)'."""
+    if _inside_a_repo(tmp_path):
+        pytest.skip("temp dir is inside a git repo")
+    p = _guard_run(["--tree", "--repo", "."], tmp_path)
+    assert p.returncode != 0, "a directory with no repo reported success: %r" % p.stdout
+    assert "clean" not in p.stdout
+    assert "SCAN FAILED" in p.stderr
+
+
+def test_an_exported_tree_with_no_git_dir_exits_nonzero(tmp_path):
+    """A git-archive extraction: real content, real PII risk, no .git. It must refuse to grade it."""
+    if _inside_a_repo(tmp_path):
+        pytest.skip("temp dir is inside a git repo")
+    (tmp_path / "README.md").write_text("exported content\n", encoding="utf-8")
+    p = _guard_run(["--tree", "--repo", "."], tmp_path)
+    assert p.returncode != 0 and "clean" not in p.stdout
+
+
+def test_git_missing_from_path_exits_nonzero_with_a_readable_message(tmp_path):
+    """Not a traceback and never a clean report. PATH is emptied; python is invoked absolutely."""
+    empty = tmp_path / "nothing-on-path"
+    empty.mkdir()
+    p = _guard_run(["--tree", "--repo", "."], tmp_path,
+                   {"PATH": str(empty), "GIT_EXEC_PATH": str(empty)})
+    assert p.returncode != 0 and "clean" not in p.stdout
+    assert "SCAN FAILED" in p.stderr and "Traceback" not in p.stderr
+
+
+def test_a_repo_tracking_zero_files_says_so_instead_of_printing_only_clean(tmp_path):
+    """Zero tracked files in a REAL repo is legitimate, so it stays exit 0 -- but it must not be
+    reported in the same words as a scan that actually read something."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
+    p = _guard_run(["--tree", "--repo", "."], tmp_path)
+    assert p.returncode == 0
+    assert "tracks 0 files" in p.stderr
+    assert "0 file(s) scanned" in p.stdout
+
+
+def test_a_clean_report_states_how_much_was_examined(tmp_path):
+    """'clean' with no count is the string that hid the fail-open for months."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
+    (tmp_path / "a.md").write_text("nothing private here\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "a.md"], check=True, capture_output=True)
+    p = _guard_run(["--tree", "--repo", "."], tmp_path)
+    assert p.returncode == 0 and "1 file(s) scanned" in p.stdout
 
 
 if __name__ == "__main__":

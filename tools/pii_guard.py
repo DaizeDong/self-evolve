@@ -47,7 +47,9 @@ USAGE
   python pii_guard.py --tree               # fast: git-tracked working tree (pre-commit)
   python pii_guard.py --tree --history     # full: + every blob/message/author in history (pre-push)
   python pii_guard.py --tree --history --repo /path/to/repo
-Exit 0 = clean, 1 = leak found (prints file:line and what tripped it).
+Exit 0 = clean, 1 = leak found (prints file:line and what tripped it),
+     2 = the scan could NOT be performed (git unusable / not a work tree). Never confuse 2 with 0:
+         see _run for the fail-open this replaced.
 Stdlib only.
 """
 import argparse
@@ -164,14 +166,67 @@ BINARY_EXT = {".png", ".jpg", ".jpeg", ".gif", ".pdf", ".zip", ".ico", ".woff", 
               ".sqlite3", ".db", ".bundle", ".pack", ".webp", ".mp4", ".xlsx"}
 
 
-def _run(args, cwd):
-    p = subprocess.run(args, cwd=cwd, capture_output=True, text=True, errors="replace")
-    return p.stdout if p.returncode == 0 else ""
+class GitError(RuntimeError):
+    """A git invocation this scan depends on did not succeed.
+
+    Raised, never swallowed. See _run for why an exception and not an empty string.
+    """
+
+
+def _run(args, cwd, allow_fail=False):
+    """Run a git command and return its stdout.
+
+    THIS USED TO FAIL OPEN, and it was the whole tool's single point of failure. The old body was
+    `return p.stdout if p.returncode == 0 else ""`. Every caller reads that empty string as an
+    ANSWER: no tracked files, no history, no staged diff. scan_tree's loop then iterated zero times,
+    findings stayed empty, and main() printed "pii_guard: clean (tree)" and exited 0 having read not
+    one byte. Everything that can break git produced that result -- a directory that is not a repo,
+    an extracted git-archive with no .git, git absent from PATH, an index.lock, a permission error,
+    a dubious-ownership refusal. The vendored CI workflow's entire job is running this command, so a
+    workflow that scanned nothing reported success, on 18 public repos where this is the authority.
+
+    So: a nonzero exit RAISES, carrying git's own stderr. A clean report now requires that the scan
+    actually happened.
+
+    allow_fail=True is ONLY for the calls where failure is an ordinary state of a healthy repo, not
+    a broken environment. Those get None -- deliberately distinct from "", which still means "git
+    succeeded and the output was genuinely empty" (an empty diff, a repo with no matching files).
+    Callers must not blanket-convert: see the note on each one.
+    """
+    try:
+        p = subprocess.run(args, cwd=cwd, capture_output=True, text=True, errors="replace")
+    except (OSError, ValueError) as e:
+        if allow_fail:
+            return None
+        raise GitError("cannot execute `%s` in %s: %s\n"
+                       "  (is git installed and on PATH?)" % (" ".join(args), cwd, e)) from None
+    if p.returncode != 0:
+        if allow_fail:
+            return None
+        raise GitError("`%s` exited %d in %s\n  %s"
+                       % (" ".join(args), p.returncode, cwd,
+                          (p.stderr or "").strip().replace("\n", "\n  ") or "(no stderr)"))
+    return p.stdout
+
+
+def _has_commits(root):
+    """True if HEAD resolves. A repo with no commits yet is legitimate, and every `git log` in it
+    exits 128 -- that is the one git failure here that is a STATE, not a breakage."""
+    return _run(["git", "rev-parse", "--verify", "--quiet", "HEAD"], root, allow_fail=True) is not None
 
 
 def _repo_root(start):
+    """The repo containing `start`. Raises rather than falling back to `start` itself.
+
+    The old `return out or start` meant a non-repo directory silently became its own "root", and the
+    ls-files that followed failed into an empty list. Refusing here is the honest answer: this tool
+    scans what git enumerates, so with no repo there is nothing to scan and "clean" would mean
+    "not examined".
+    """
     out = _run(["git", "rev-parse", "--show-toplevel"], start).strip()
-    return out or start
+    if not out:
+        raise GitError("git named no toplevel for %s (is it a work tree?)" % start)
+    return out
 
 
 def _repo_slug(root):
@@ -183,7 +238,10 @@ def _repo_slug(root):
     freshly-filtered bare clone this returns ('', '') -- self-exclusion then cannot fire and a repo's
     OWN `<name>-config` companion false-positives; re-add origin before scanning such a clone.
     """
-    url = _run(["git", "remote", "get-url", "origin"], root).strip().lower().rstrip("/")
+    # allow_fail: a repo with no origin is ordinary (a local-only repo, a filter-repo'd clone), and
+    # the documented contract of this function is already ('', '') in that case.
+    url = (_run(["git", "remote", "get-url", "origin"], root, allow_fail=True) or "")
+    url = url.strip().lower().rstrip("/")
     if url.endswith(".git"):
         url = url[:-4]
     parts = [p for p in url.replace(":", "/").split("/") if p]
@@ -364,23 +422,47 @@ def scan_text(text, where, allow, deny, out, strict=True, deny_only=False):
         out.append((where, "PRIVATE-PATH", m.group(0)))     # the full home-anchored path
 
 
-def scan_tree(root, allow, deny):
+def tracked_files(root):
+    """Every git-tracked path. Raises GitError if git cannot enumerate them (see _run)."""
+    return [r.strip() for r in _run(["git", "ls-files"], root).splitlines() if r.strip()]
+
+
+def scan_tree(root, allow, deny, files=None, stats=None):
+    """Scan the tracked working tree.
+
+    `stats` (optional dict) is filled with what was and was not examined. A skipped file is not a
+    scanned file, and a report that cannot tell the difference is how "clean" comes to mean
+    "nothing happened". The skips themselves are unchanged and still correct -- a PNG has no prose
+    to leak -- they are simply no longer invisible.
+    """
     out = []
-    for rel in _run(["git", "ls-files"], root).splitlines():
+    counts = {"enumerated": 0, "scanned": 0, "skipped_dir": 0, "skipped_binary_ext": 0,
+              "unreadable": []}
+    for rel in (tracked_files(root) if files is None else files):
         rel = rel.strip()
-        if not rel or any(part in SKIP_DIR for part in rel.split("/")):
+        if not rel:
+            continue
+        counts["enumerated"] += 1
+        if any(part in SKIP_DIR for part in rel.split("/")):
+            counts["skipped_dir"] += 1
             continue
         if os.path.splitext(rel)[1].lower() in BINARY_EXT:
+            counts["skipped_binary_ext"] += 1
             continue
         path = os.path.join(root, rel)
         try:
             with open(path, encoding="utf-8", errors="strict") as f:
                 lines = f.readlines()
-        except (OSError, UnicodeDecodeError):
-            continue                        # binary or unreadable: nothing textual to leak
+        except (OSError, UnicodeDecodeError) as e:
+            # Binary or unreadable: nothing textual to leak, so still a skip -- but a RECORDED one.
+            counts["unreadable"].append((rel, type(e).__name__))
+            continue
+        counts["scanned"] += 1
         deny_only = os.path.basename(rel) in SCANNER_FILES
         for i, line in enumerate(lines, 1):
             scan_text(line, "%s:%d" % (rel, i), allow, deny, out, deny_only=deny_only)
+    if stats is not None:
+        stats.update(counts)
     return out
 
 
@@ -391,6 +473,12 @@ def scan_history(root, allow, deny):
     and the commit that introduced the PII was never touched.
     """
     out = []
+    if not _has_commits(root):
+        # The one git failure in here that is a STATE, not a breakage. Say it out loud: a repo with
+        # no commits gives an empty history scan, and an empty scan must never read as a clean one.
+        print("pii_guard: NOTE %s has no commits yet -- the history scan examined nothing." % root,
+              file=sys.stderr)
+        return out
     for ident in set(_run(["git", "log", "--all", "--format=%ae%n%ce"], root).split()):
         if ident and not ALLOWED_AUTHOR_EMAIL_RE.search(ident):
             out.append(("<commit author/committer>", "AUTHOR-EMAIL", ident))
@@ -474,8 +562,17 @@ def main():
     deny += [t for t in load_cross_repo_tokens(root) if t not in set(deny)]   # P1.5 fleet-linkage
 
     findings = []
+    tree_stats = {}
     if a.tree:
-        findings += scan_tree(root, allow, deny)
+        files = tracked_files(root)
+        if not files:
+            # A real repo can legitimately track zero files (a fresh `git init`), so this is not an
+            # error -- but it is unusual, and it is indistinguishable in the OUTPUT from a scan that
+            # was prevented. State it instead of printing "clean".
+            print("pii_guard: WARNING %s is a git repo but tracks 0 files -- nothing was examined.\n"
+                  "  A clean result here means 'there was nothing to scan', not 'the content is "
+                  "clean'." % root, file=sys.stderr)
+        findings += scan_tree(root, allow, deny, files=files, stats=tree_stats)
     if a.history:
         findings += scan_history(root, allow, deny)
     if a.rev_range:
@@ -483,10 +580,26 @@ def main():
     if a.staged:
         findings += scan_staged(root, allow, deny)
 
+    # What a clean run examined, printed WITH the verdict. "clean" on its own is the same string
+    # whether the scanner read 400 files or zero, which is exactly how the fail-open above stayed
+    # invisible for so long.
+    if tree_stats.get("unreadable"):
+        print("pii_guard: %d tracked file(s) could not be decoded and were NOT scanned:"
+              % len(tree_stats["unreadable"]), file=sys.stderr)
+        for rel, why in tree_stats["unreadable"][:20]:
+            print("  unreadable  %-52s %s" % (rel, why), file=sys.stderr)
+
     if not findings:
         scope = "+".join([s for s, on in (("tree", a.tree), ("history", a.history),
-                                          ("push-range", bool(a.rev_range))) if on])
-        print("pii_guard: clean (%s)%s" % (scope, "" if deny else "  [no private denylist loaded]"))
+                                          ("push-range", bool(a.rev_range)),
+                                          ("staged", a.staged)) if on])
+        detail = ""
+        if a.tree:
+            detail = "  [%d file(s) scanned, %d skipped]" % (
+                tree_stats.get("scanned", 0),
+                tree_stats.get("enumerated", 0) - tree_stats.get("scanned", 0))
+        print("pii_guard: clean (%s)%s%s"
+              % (scope, detail, "" if deny else "  [no private denylist loaded]"))
         return 0
 
     # dedupe, keep first location of each (kind, value)
@@ -508,5 +621,21 @@ def main():
     return 1
 
 
+def cli():
+    """main() with the git-failure exit. Separate exit code so a caller can tell 'this repo has a
+    leak' (1) from 'this scan never ran' (2). Every hook and the CI workflow treat any nonzero as a
+    block, which is the right default: an unexamined tree is not a clean tree."""
+    try:
+        return main()
+    except GitError as e:
+        print("pii_guard: SCAN FAILED -- git could not be used, so NOTHING was examined.\n"
+              "  %s\n"
+              "  This is not a clean result. Do not treat it as one: fix git (or point --repo at a\n"
+              "  real work tree) and re-run. If you are scanning an exported/archived tree, scan the\n"
+              "  repository it came from instead -- an export has no history to check."
+              % str(e).replace("\n", "\n  "), file=sys.stderr)
+        return 2
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(cli())
