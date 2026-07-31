@@ -60,10 +60,19 @@ _DASH_RE = re.compile(f"[{_DASHES}]")
 #           like re.compile(r"[–—]")) is left untouched, so a functional dash-as-data is never
 #           corrupted. Output/display strings are handled by the skill's runtime _inline normalizer,
 #           not here.
+#   "tmpl"  A generator template, processed as Markdown. This extension exists because a template is
+#           the one file whose dashes are invisible twice over: the .tmpl suffix hid it from this map,
+#           and the generator that expands it holds the rest of its prose in Python STRING literals,
+#           which the "py" rule leaves alone by design. skill-smith therefore reported a clean tree
+#           while its CONFIG.md.tmpl carried 22 dashes and every repo it scaffolded was born failing
+#           the very gate it vendored. Markdown handling is the right rule even for a non-Markdown
+#           template (a systemd unit, a gitignore): those carry no fences and no inline code spans, so
+#           md degrades to plain prose on them, while a .md.tmpl keeps its fenced blocks protected.
 # Any extension not listed is left completely alone (a mixed prose/data code file we cannot auto-edit
 # safely). The rule is enforced on published docs + the .py comment prose; runtime output compliance
 # is the renderer's job.
-_KIND = {".md": "md", ".markdown": "md", ".rst": "md", ".txt": "prose", ".py": "py"}
+_KIND = {".md": "md", ".markdown": "md", ".rst": "md", ".txt": "prose", ".py": "py",
+         ".tmpl": "md"}
 
 _SPACED = re.compile(rf"\s+[{_DASHES}]+\s+")
 _RANGE = re.compile(rf"([A-Za-z0-9])[{_DASHES}]+([A-Za-z0-9])")
