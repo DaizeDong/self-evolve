@@ -8,7 +8,12 @@ three ever appear in code SYNTAX, so every occurrence outside a code span is pro
 
 Modes (exactly one action):
   --check  (default) print every offending file:line; exit 1 if any (pre-commit / CI gate)
-  --fix              rewrite the offending files in place
+  --fix              rewrite the offending files in place. NOT a gate: see the note at the end of
+                     main(). It exits 0 after a successful repair and 1 only for files it could not
+                     read, so wiring --fix into CI would install a check that cannot fail.
+
+Exit codes: 0 clean, 1 findings (or, under --fix, unexaminable files), 2 the scan could not run at
+all (git unusable / not a work tree). 2 must never be read as 0; see _git.
 
 Target set:
   --staged           the git staged text blobs (pre-commit hook)
@@ -146,14 +151,21 @@ def _split_md_code(line: str, in_fence: bool):
 _ALLOW = "dash-guard: allow"       # a line carrying this marker is left untouched (rare legit dash)
 
 
-def _process_py(text: str):
+def _process_py(text: str, notes=None):
     """De-dash Python COMMENT tokens ONLY. Every string literal (docstring AND a data literal such as
     re.compile(r"[–—]") or a test fixture) is left untouched, so a functional dash-as-data is never
     corrupted. A line carrying the allow marker is skipped. Unparseable source is left as-is (we never
-    blind-edit code we cannot tokenize). Returns (new_text, hits)."""
+    blind-edit code we cannot tokenize). Returns (new_text, hits).
+
+    Leaving unparseable source alone is the RIGHT behaviour and is unchanged. What was wrong is that
+    it returned the same (text, []) as a genuinely clean file, so a .py file full of dashes that the
+    tokenizer choked on counted as examined-and-clean. It now records the reason in `notes`, which
+    main() prints and counts, so a clean report can never quietly include a file nobody read."""
     try:
         toks = list(tokenize.generate_tokens(io.StringIO(text).readline))
-    except (tokenize.TokenError, IndentationError, SyntaxError, ValueError):
+    except (tokenize.TokenError, IndentationError, SyntaxError, ValueError) as e:
+        if notes is not None:
+            notes.append("untokenizable (%s)" % type(e).__name__)
         return text, []
     edits = {}                       # lineno -> (col_of_hash, fixed_comment)
     for tok in toks:
@@ -171,11 +183,12 @@ def _process_py(text: str):
     return "\n".join(lines), hits
 
 
-def process_text(text: str, kind: str):
+def process_text(text: str, kind: str, notes=None):
     """Return (new_text, hits) where hits = list of (lineno, original_line).
-    kind: "py" (comments only), "md" (prose, code spans exempt), "prose" (plain text, full)."""
+    kind: "py" (comments only), "md" (prose, code spans exempt), "prose" (plain text, full).
+    notes: optional list; anything appended is a reason this file was not fully examined."""
     if kind == "py":
-        return _process_py(text)
+        return _process_py(text, notes)
     is_md = (kind == "md")
     out_lines, hits, in_fence = [], [], False
     for lineno, line in enumerate(text.split("\n"), 1):
@@ -201,18 +214,57 @@ def process_text(text: str, kind: str):
     return "\n".join(out_lines), hits
 
 
-def _git(repo, *a):
-    r = subprocess.run(["git", "-C", repo, *a], capture_output=True, text=True, encoding="utf-8")
-    return r.stdout if r.returncode == 0 else ""
+class GitError(RuntimeError):
+    """A git invocation this run depends on did not succeed. Raised, never swallowed."""
+
+
+def _git(repo, *a, allow_fail=False):
+    """Run a git command and return its stdout.
+
+    THIS USED TO FAIL OPEN: `return r.stdout if r.returncode == 0 else ""`. _tracked() then returned
+    an empty list, the scan loop never executed, `total` stayed 0, and main() printed
+    "dash_guard: clean" and exited 0 without opening a single file. Every way git can fail -- not a
+    repo, an extracted git-archive with no .git, git missing from PATH, an index.lock, a permission
+    error -- arrived at that same green result, including in the CI workflow whose entire job is
+    running this command.
+
+    So a nonzero exit RAISES, carrying git's own stderr. allow_fail=True returns None instead, and
+    is only for calls where failure is an ordinary state rather than a broken environment. None is
+    deliberately distinct from "": that still means git succeeded with genuinely empty output (an
+    empty staged diff is the normal case and must stay a normal case).
+    """
+    try:
+        r = subprocess.run(["git", "-C", repo, *a], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
+    except (OSError, ValueError) as e:
+        if allow_fail:
+            return None
+        raise GitError("cannot execute `git %s` in %s: %s\n  (is git installed and on PATH?)"
+                       % (" ".join(a), repo, e)) from None
+    if r.returncode != 0:
+        if allow_fail:
+            return None
+        raise GitError("`git %s` exited %d in %s\n  %s"
+                       % (" ".join(a), r.returncode, repo,
+                          (r.stderr or "").strip().replace("\n", "\n  ") or "(no stderr)"))
+    return r.stdout
+
+
+def _eligible(paths):
+    return [f for f in paths if os.path.splitext(f)[1].lower() in _KIND]
 
 
 def _tracked(repo):
-    return [f for f in _git(repo, "ls-files").splitlines() if os.path.splitext(f)[1].lower() in _KIND]
+    """(all tracked paths, the ones with a de-dashable extension). Both are returned so main can
+    tell 'this repo tracks nothing' from 'this repo tracks no markdown/text/python'."""
+    all_paths = [f for f in _git(repo, "ls-files").splitlines() if f.strip()]
+    return all_paths, _eligible(all_paths)
 
 
 def _staged(repo):
     out = _git(repo, "diff", "--cached", "--name-only", "--diff-filter=ACM")
-    return [f for f in out.splitlines() if os.path.splitext(f)[1].lower() in _KIND]
+    all_paths = [f for f in out.splitlines() if f.strip()]
+    return all_paths, _eligible(all_paths)
 
 
 def main() -> int:
@@ -226,30 +278,67 @@ def main() -> int:
     args = ap.parse_args()
 
     repo = os.path.abspath(args.repo)
+    enumerated = None                 # how many paths git named, before the extension filter
+    source = "paths"
     if args.paths:
         files = args.paths
     elif args.staged:
-        files = _staged(repo)
+        source = "staged"
+        all_paths, files = _staged(repo)
+        enumerated = len(all_paths)
     else:
-        files = _tracked(repo)
+        source = "tree"
+        all_paths, files = _tracked(repo)
+        enumerated = len(all_paths)
+
+    # A git repo that enumerates nothing is possible (a fresh init, an empty staged set) but it is
+    # NOT the same event as a clean scan, and until now the two printed the same line. Say which.
+    if source == "tree" and enumerated == 0:
+        print("dash_guard: WARNING %s is a git repo but tracks 0 files -- nothing was examined."
+              % repo, file=sys.stderr)
+    elif enumerated and not files:
+        print("dash_guard: NOTE %d %s path(s), none with a de-dashable extension (%s)."
+              % (enumerated, source, " ".join(sorted(_KIND))), file=sys.stderr)
 
     total = 0
     changed_files = 0
+    examined = 0
+    # Two different things, kept apart because only one of them is a problem:
+    #   excluded  -- we CHOSE not to read this file (the guard's own source, an absent path). A
+    #                declared exclusion is a decision, and a decision does not fail a run.
+    #   unexamined -- we MEANT to read it and could not (undecodable bytes, source the tokenizer
+    #                rejects). The file may be full of dashes and nobody looked. Both are printed;
+    #                only this one affects an exit code.
+    excluded = []                     # (path, reason)
+    unexamined = []                   # (path, reason)
     _self = {"dash_guard.py", "test_dash_guard.py"}   # the guard's own source carries the dash set
     for rel in files:
         path = rel if os.path.isabs(rel) else os.path.join(repo, rel)
-        if not os.path.isfile(path) or os.path.basename(path) in _self:
+        if not os.path.isfile(path):
+            excluded.append((rel, "not a file on disk (sparse checkout, or removed)"))
+            continue
+        if os.path.basename(path) in _self:
+            excluded.append((rel, "the guard's own source (contains the dash set by design)"))
             continue
         try:
             text = open(path, encoding="utf-8").read()
-        except (UnicodeDecodeError, OSError):
-            continue
-        if not _DASH_RE.search(text):
+        except (UnicodeDecodeError, OSError) as e:
+            # Unchanged behaviour: an undecodable or unreadable file is skipped. It is now RECORDED,
+            # because "skipped" reported as "clean" is the same class of lie as the git fail-open.
+            unexamined.append((rel, "unreadable (%s)" % type(e).__name__))
             continue
         kind = _KIND.get(os.path.splitext(path)[1].lower())
         if kind is None:
+            excluded.append((rel, "no de-dash rule for this extension"))
             continue
-        new_text, hits = process_text(text, kind)
+        examined += 1
+        if not _DASH_RE.search(text):
+            continue
+        notes = []
+        new_text, hits = process_text(text, kind, notes)
+        for n in notes:                       # e.g. a .py the tokenizer could not parse
+            unexamined.append((rel, n))
+            examined -= 1
         if not hits:
             continue
         total += len(hits)
@@ -262,15 +351,57 @@ def main() -> int:
             for lineno, line in hits:
                 print(f"{os.path.relpath(path, repo)}:{lineno}: {line.strip()[:100]}")
 
+    # Print both lists BEFORE the verdict, in both modes. A file carrying a dash that the tokenizer
+    # rejected is exactly the file this guard exists for, and it used to vanish without a word.
+    def _report(label, rows):
+        if not rows:
+            return
+        print("dash_guard: %d file(s) %s:" % (len(rows), label), file=sys.stderr)
+        for rel, why in rows[:20]:
+            print("  %-52s %s" % (rel, why), file=sys.stderr)
+        if len(rows) > 20:
+            print("  ... and %d more" % (len(rows) - 20), file=sys.stderr)
+
+    _report("deliberately excluded", excluded)
+    _report("could NOT be examined", unexamined)
+
     if args.fix:
-        print(f"dash_guard: fixed {total} line(s) across {changed_files} file(s)")
+        print(f"dash_guard: fixed {total} line(s) across {changed_files} file(s); "
+              f"{examined} file(s) examined")
+        # --fix is a REPAIR, not a gate, and its exit code is deliberately not a verdict on the
+        # tree: it just rewrote the tree, so "0 remaining findings" would be true by construction
+        # and would let `dash_guard --fix` be wired into CI as a gate that can never fail. The gate
+        # is --check, and only --check. What --fix DOES report nonzero is the one thing it cannot
+        # honestly claim to have repaired: files it could not read. Those still hold whatever they
+        # held, and a repair run that silently left them behind is the same silent-success bug.
+        if unexamined:
+            print("dash_guard: --fix could not examine %d file(s) (listed above); re-run --check "
+                  "to gate." % len(unexamined), file=sys.stderr)
+            return 1
         return 0
     if total:
         print(f"dash_guard: {total} prose en/em dash(es) found (run with --fix)", file=sys.stderr)
         return 1
-    print("dash_guard: clean")
+    # The verdict states its own coverage. "dash_guard: clean" on its own is the identical string
+    # whether 400 files were read or none were, which is precisely how the fail-open stayed hidden.
+    skipped = len(excluded) + len(unexamined)
+    print(f"dash_guard: clean ({examined} file(s) examined"
+          + (f", {skipped} skipped)" if skipped else ")"))
     return 0
 
 
+def cli():
+    """main() with the git-failure exit. 0 clean, 1 findings, 2 the scan never ran. Any nonzero is
+    a block for the hook and for CI: an unexamined tree is not a clean tree."""
+    try:
+        return main()
+    except GitError as e:
+        print("dash_guard: SCAN FAILED -- git could not be used, so NOTHING was examined.\n"
+              "  %s\n"
+              "  This is not a clean result. Fix git, or point --repo at a real work tree."
+              % str(e).replace("\n", "\n  "), file=sys.stderr)
+        return 2
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(cli())

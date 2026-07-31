@@ -16,5 +16,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
+      # Run the guard's OWN tests first, exactly as the pii-guard workflow does. The reason is not
+      # symmetry: until 2026-07-30 a git failure (not a repo, no git on PATH, an index lock, an
+      # extracted archive) made the scanner enumerate zero files and print "dash_guard: clean" with
+      # exit 0. This job's entire content is that one command, so a run that examined nothing
+      # reported success. The regression for it lives in these tests, and a test CI does not run is
+      # not a test -- this suite shipped nowhere at all before now.
+      - name: Guard's own tests (a scan that never ran must not report clean)
+        run: |
+          python -m pip install --quiet pytest
+          python -m pytest tools/test_dash_guard.py -q
+
       - name: No en/em dash in published prose
         run: python tools/dash_guard.py --tree

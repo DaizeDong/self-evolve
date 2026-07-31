@@ -34,8 +34,36 @@
 # THE EXPECTED-IDENTITY TABLE IS MACHINE-LOCAL ON PURPOSE: ~/.pii-guard/identities.conf.
 # This file is vendored into public repositories, and an account map is exactly the kind of thing
 # that should not be published as a side effect of shipping a hook. So the mapping lives outside
-# every working tree. Where it is absent (any clone but the maintainer's), the structural check
-# below runs instead: it needs no table and still catches the id-less noreply form.
+# every working tree.
+#
+# THE LOOKUP IS WHAT MUST FAIL CLOSED, NOT THE FILE PROBE. Until 2026-07-30 the "we degraded"
+# announcement was keyed on whether the FILE existed, so the only failure it could describe was a
+# machine with no table at all. Deleting or mangling ONE row -- the table has two, so one line does
+# it -- left the file present, left _exp_email empty, dropped control into the weak address-shape
+# branch, and passed a commit authored by the wrong account with rc=0 and NOT ONE LINE of output.
+# Measured, not theorized. So every way the lookup can come back empty is now enumerated and each
+# one is handled on purpose:
+#
+#   no origin remote              -> PASS with a note. There is no owner to have an expectation.
+#   table file absent entirely    -> WARN loudly, shape check only.  (justified below)
+#   table present, row malformed  -> BLOCK. A row that is not owner|name|email is never intentional.
+#   table present, zero rows      -> BLOCK. A table that maps nothing is a disarmed gate.
+#   row found but unreadable      -> BLOCK. Never infer "no expectation" from a failed read.
+#   no row, but the committing identity is registered to a DIFFERENT owner
+#                                 -> BLOCK. This is the incident: committing to X's repo as the Y
+#                                    account. It fires whether X's row is missing, mangled, or fine.
+#   no row for this owner, strict -> BLOCK, naming the owner and the file to add the row to.
+#   no row for this owner, lenient-> shape check only, silently (see the policy note).
+#
+# WHY AN ABSENT TABLE WARNS INSTEAD OF BLOCKING. This hook is vendored into 18 PUBLIC repos. Any
+# contributor who clones one and arms the hooks as CONTRIBUTING says has no ~/.pii-guard at all, and
+# never will: it is the maintainer's private account map and must not be published. Blocking there
+# turns the guard into a wall in front of every outside contributor, and a wall gets deleted -- which
+# would also lose the address-shape check, the one part that needs no table and that catches the
+# id-less noreply form that produced 17 unattributable commits. An absent table is also not the
+# failure that has ever happened here; every real incident was on the maintainer's machine, where the
+# table exists. So: absent warns, present-but-broken blocks. The loud warning is what keeps the
+# degradation from being silent, which is the actual defect being fixed.
 #
 # NO ORIGIN -> NO EXPECTATION. A local-only repo has nothing to be checked against, so it passes
 # with a note. That is not a hole: with user.useConfigOnly set, a repo no config rule maps still
@@ -47,11 +75,11 @@
 #   git config guard.expectedName  <name>
 #
 # THE CASE-FOLDER IS PROBED, NOT ASSUMED (same reason as the interpreter probe below).
-# Every comparison in the strict branch runs BOTH sides through _lc. If `tr` is missing, each side
-# becomes the empty string, "" equals "", no mismatch is ever recorded, and the whole assertion
-# passes a wrong identity in silence -- measured, not theorized: with tr off PATH this hook exited 0
-# on the exact identity it otherwise blocks. A comparison whose failure mode is "everything matches"
-# has to be proven able to run before it is trusted, so probe it once and fail closed.
+# Every comparison here runs BOTH sides through the same fold. If `tr` is missing, each side becomes
+# the empty string, "" equals "", no mismatch is ever recorded, and the whole assertion passes a
+# wrong identity in silence -- measured, not theorized: with tr off PATH this hook exited 0 on the
+# exact identity it otherwise blocks. A comparison whose failure mode is "everything matches" has to
+# be proven able to run before it is trusted, so probe it once and fail closed.
 _lc() { printf '%s' "$1" | tr 'A-Z' 'a-z'; }
 if [ "$(_lc ABC)" != "abc" ]; then
   echo "BLOCKED: the identity assertion cannot case-fold (\`tr\` is missing or not working)."
@@ -59,8 +87,22 @@ if [ "$(_lc ABC)" != "abc" ]; then
   echo "Put a working coreutils \`tr\` on PATH (on Windows it ships with Git for Windows)."
   exit 1
 fi
+
+# POLICY for the one case the two hooks must answer differently: the table exists and names no row
+# for THIS repo's owner.
+#   strict  -- BLOCK. Set by the PER-REPO hook, which is only ever armed by someone who ran the
+#              installer, and which only reaches this branch when a table EXISTS, i.e. on the
+#              maintainer's machine. An outside contributor has no table and takes the absent path,
+#              so strict never bites them.
+#   lenient -- shape check only. Set by the MACHINE-WIDE hook, which also runs in ~50 clones of other
+#              people's projects. Blocking every commit in every upstream clone is not a stricter
+#              gate, it is a gate that gets switched off within a day. The cross-account rule above
+#              still applies there, and it is the rule that catches the real incident.
+_id_policy=strict
+
 _id_fail=0
 _id_msg=""
+_idfile="$HOME/.pii-guard/identities.conf"
 _id_url=$(git remote get-url origin 2>/dev/null)
 if [ -z "$_id_url" ]; then
   _id_msg="identity: no origin remote, so there is no owner to check against -- skipped."
@@ -78,26 +120,6 @@ else
     *)   _owner="" ;;
   esac
 
-  _exp_name=""
-  _exp_email=""
-  _idfile="$HOME/.pii-guard/identities.conf"
-  _idtable=0
-  [ -f "$_idfile" ] && _idtable=1
-  if [ -n "$_owner" ] && [ "$_idtable" -eq 1 ]; then
-    _want=$(_lc "$_owner")
-    while IFS='|' read -r _l _n _e; do
-      case "$_l" in ''|'#'*) continue ;; esac
-      [ "$(_lc "$_l")" = "$_want" ] || continue
-      _exp_name=$_n
-      _exp_email=$_e
-      break
-    done < "$_idfile"
-  fi
-  _o=$(git config --get guard.expectedEmail 2>/dev/null)
-  [ -n "$_o" ] && _exp_email=$_o
-  _o=$(git config --get guard.expectedName 2>/dev/null)
-  [ -n "$_o" ] && _exp_name=$_o
-
   _aid=$(git var GIT_AUTHOR_IDENT 2>/dev/null)
   _cid=$(git var GIT_COMMITTER_IDENT 2>/dev/null)
   if [ -z "$_aid" ] || [ -z "$_cid" ]; then
@@ -112,11 +134,87 @@ refusing to invent one from the OS. Set it explicitly:
   else
     _an=${_aid%% <*}; _t=${_aid#*<}; _ae=${_t%%>*}
     _cn=${_cid%% <*}; _t=${_cid#*<}; _ce=${_t%%>*}
+    _lae=$(_lc "$_ae")
+    _lce=$(_lc "$_ce")
 
-    if [ -n "$_exp_email" ]; then
+    # --- read the table ONCE, and record every way the read can go wrong -------------------------
+    # The whole file is folded and stripped of CR in one pipeline instead of per row: a hand edit on
+    # Windows turns this file CRLF, every field would then carry a trailing CR, every comparison
+    # would fail to match, and the layer would disarm itself exactly the way a deleted row does.
+    _exp_name=""; _exp_email=""
+    _tbl=0        # 1 = the table file exists
+    _rows=0       # rows that parse as owner|name|email
+    _badrows=""   # line numbers of rows that do not
+    _hitline=0    # line number of the row for THIS owner
+    _otherln=0    # line number of the row registering the committing address to a DIFFERENT owner
+    if [ -f "$_idfile" ]; then
+      _tbl=1
+      _want=$(_lc "$_owner")
+      _idlow=$(tr -d '\r' < "$_idfile" | tr 'A-Z' 'a-z')
+      _ln=0
+      while IFS='|' read -r _l _n _e _x; do
+        _ln=$((_ln + 1))
+        case "$_l" in ''|'#'*) continue ;; esac
+        if [ -z "$_n" ] || [ -z "$_e" ] || [ -n "$_x" ]; then
+          _badrows="${_badrows:+$_badrows, }$_ln"
+          continue
+        fi
+        _rows=$((_rows + 1))
+        if [ -n "$_want" ] && [ "$_l" = "$_want" ]; then
+          [ "$_hitline" -eq 0 ] && _hitline=$_ln
+        elif [ "$_e" = "$_lae" ] || [ "$_e" = "$_lce" ]; then
+          [ "$_otherln" -eq 0 ] && _otherln=$_ln
+        fi
+      done <<_IDTABLE_EOF
+$_idlow
+_IDTABLE_EOF
+      _other=""
+      if [ "$_otherln" -gt 0 ]; then
+        _other=$(sed -n "${_otherln}p" "$_idfile" 2>/dev/null | tr -d '\r')
+        _other=${_other%%|*}
+        # The rule below keys on _otherln, never on this string: a failed read must not be able to
+        # turn "registered to somebody else" back into "nothing to say".
+        [ -n "$_other" ] || _other="<the owner on line $_otherln>"
+      fi
+      if [ "$_hitline" -gt 0 ]; then
+        # Re-read the matched row from the ORIGINAL file: the folded copy would give lowercased
+        # advice ("git config user.name ..."), which is wrong to paste.
+        _row=$(sed -n "${_hitline}p" "$_idfile" 2>/dev/null | tr -d '\r')
+        _exp_name=${_row#*|}; _exp_name=${_exp_name%%|*}
+        _exp_email=${_row##*|}
+      fi
+    fi
+
+    _o=$(git config --get guard.expectedEmail 2>/dev/null)
+    [ -n "$_o" ] && _exp_email=$_o
+    _o=$(git config --get guard.expectedName 2>/dev/null)
+    [ -n "$_o" ] && _exp_name=$_o
+
+    if [ "$_tbl" -eq 1 ] && [ -n "$_badrows" ]; then
+      _id_fail=1
+      _id_msg="IDENTITY TABLE MALFORMED -- the owner-to-identity map cannot be trusted.
+  table            : $_idfile
+  bad line(s)      : $_badrows
+Every non-comment line must be exactly  owner|name|email  with all three fields filled. A line that
+is not is silently skipped by the lookup, which is how this gate got disarmed once already: with the
+row gone the expectation is empty, the weak address-shape branch runs instead, and a wrong-account
+commit exits 0 with no output. Repair the line, or comment it out with a leading #."
+    elif [ "$_tbl" -eq 1 ] && [ "$_rows" -eq 0 ]; then
+      _id_fail=1
+      _id_msg="IDENTITY TABLE EMPTY -- $_idfile exists but maps no owner to any identity.
+An empty table is not \"no expectation\", it is a gate with nothing in it. Add a row:
+  <github-owner>|<name>|<account id>+<login>@users.noreply.github.com
+or delete the file if this machine is genuinely not the maintainer's."
+    elif [ "$_hitline" -gt 0 ] && [ -z "$_exp_email" ]; then
+      _id_fail=1
+      _id_msg="IDENTITY ROW UNREADABLE -- line $_hitline of $_idfile matched owner '$_owner' during
+the scan but could not be read back (is \`sed\` on PATH?). Refusing to treat a failed read as
+\"this repo has no expected identity\": that is precisely the silent degradation this check exists
+to prevent."
+    elif [ -n "$_exp_email" ]; then
       _bad=""
-      [ "$(_lc "$_ae")" = "$(_lc "$_exp_email")" ] || _bad="author email"
-      [ "$(_lc "$_ce")" = "$(_lc "$_exp_email")" ] || _bad="${_bad:+$_bad, }committer email"
+      [ "$_lae" = "$(_lc "$_exp_email")" ] || _bad="author email"
+      [ "$_lce" = "$(_lc "$_exp_email")" ] || _bad="${_bad:+$_bad, }committer email"
       if [ -n "$_exp_name" ]; then
         [ "$(_lc "$_an")" = "$(_lc "$_exp_name")" ] || _bad="${_bad:+$_bad, }author name"
         [ "$(_lc "$_cn")" = "$(_lc "$_exp_name")" ] || _bad="${_bad:+$_bad, }committer name"
@@ -136,12 +234,50 @@ Fix it repo-locally, which wins over every global rule:
 If this repo commits under a different identity ON PURPOSE, declare that instead of loosening this:
   git config guard.expectedEmail <addr>   (and guard.expectedName)"
       fi
+    elif [ "$_otherln" -gt 0 ]; then
+      # No row for this owner, but the address about to sign IS one of the registered ones -- filed
+      # under somebody else. That is the cross-account commit this whole assertion was built for, and
+      # it is reachable ONLY because the row that would have caught it is missing or malformed. Never
+      # let it through on the strength of the lookup that came back empty.
+      #
+      # This blocks under BOTH policies, including in a clone of somebody else's project, and that is
+      # deliberate: the operator is committing AS THEMSELVES there, so "no expectation exists" is
+      # false -- one does, the table just cannot state it. Unlike the absent-table case there is a
+      # one-line fix and the message leads with it, so this is a gate that can be satisfied, not a
+      # wall. (The alternative, inferring "which owners are really ours", is circular: the only
+      # record of that is the row that went missing.)
+      _id_fail=1
+      _id_msg="IDENTITY CROSS-ACCOUNT -- committing to one owner's repo as another owner's account.
+Declare which it should be, once, then this never asks again:
+  add a row to $_idfile
+      ${_owner:-<owner>}|<name>|<account id>+<login>@users.noreply.github.com
+  or, for this clone only:
+      git config guard.expectedEmail <addr>   (and guard.expectedName)
+
+  origin           : $_id_url
+  owner (from URL) : ${_owner:-<could not parse>}
+  author           : $_an <$_ae>
+  committer        : $_cn <$_ce>
+  that address is registered on line $_otherln of the table, to owner: $_other
+  and there is NO row in that table for owner: ${_owner:-<could not parse>}"
+    elif [ "$_tbl" -eq 1 ] && [ -n "$_owner" ] && [ "$_id_policy" = strict ]; then
+      _id_fail=1
+      _id_msg="IDENTITY OWNER NOT IN TABLE -- no expected identity could be resolved for this repo.
+  origin           : $_id_url
+  owner (from URL) : $_owner
+  table            : $_idfile   ($_rows row(s) parsed, none for '$_owner')
+  author           : $_an <$_ae>
+  committer        : $_cn <$_ce>
+This hook is the STRICT per-repo gate, so an unresolvable expectation is a block, not a shrug: an
+empty lookup used to fall through to the address-shape check and pass a wrong-account commit in
+silence. Do one of these, on purpose:
+  add the row      -> $_owner|<name>|<account id>+<login>@users.noreply.github.com
+  or declare it    -> git config guard.expectedEmail <addr>   (and guard.expectedName)"
     else
-      # No expected identity for this owner: either a third party's repo, or this machine has no
-      # ~/.pii-guard/identities.conf. Fall back to the one invariant that needs no table: a GitHub
-      # noreply address must carry the numeric account id. The id-less <login>@users.noreply.github.com
-      # form is the shape that produced 17 unattributable commits, and it is indistinguishable from a
-      # correct address to anything that only checks the domain.
+      # Nothing in the table speaks to this commit. Fall back to the one invariant that needs no
+      # table: a GitHub noreply address must carry the numeric account id. The id-less
+      # <login>@users.noreply.github.com form is the shape that produced 17 unattributable commits,
+      # and it is indistinguishable from a correct address to anything that only checks the domain.
       _shape_bad=""
       for _pair in "author:$_ae" "committer:$_ce"; do
         _who=${_pair%%:*}
@@ -166,15 +302,22 @@ If this repo commits under a different identity ON PURPOSE, declare that instead
   malformed        : $_shape_bad
 <login>@users.noreply.github.com is attributed to NO account. The linkable form is
 <account id>+<login>@users.noreply.github.com (find the id with: gh api users/<login> --jq .id)."
-      elif [ "$_idtable" -eq 0 ]; then
-        # Say this out loud. A missing table means the gate silently dropped to its weak form, and
-        # silent degradation is the failure mode this whole guard exists to stop.
-        _id_msg="identity: no ~/.pii-guard/identities.conf on this machine, so only the address-shape
-check ran. Owner-to-identity matching is off until that table exists."
+      elif [ "$_tbl" -eq 0 ]; then
+        # Say this out loud. A missing table means the gate dropped to its weak form, and silent
+        # degradation is the failure mode this whole guard exists to stop.
+        _id_msg="identity: no $_idfile on this machine, so only the address-shape check ran.
+Owner-to-identity matching is OFF until that table exists. If this is the maintainer's machine, that
+is a disarmed gate, not a clean run."
+      elif [ -z "$_owner" ]; then
+        # Table present but the remote is a form with no owner segment (a filesystem remote, say).
+        # Legitimate, and not something to block on, but it must not look like a checked commit.
+        _id_msg="identity: origin '$_id_url' has no owner segment to look up, so only the
+address-shape check ran."
       fi
-      # Table present, owner simply is not one of ours (a third party's repo, an org): there is no
-      # expectation to state, so say nothing. One informational line per commit across ~50 upstream
-      # clones is exactly the nagging that gets a gate switched off.
+      # Table present, owner simply is not one of ours, and nothing in the table knows this address
+      # either: a third party's repo. There is genuinely no expectation to state, so say nothing.
+      # One informational line per commit across ~50 upstream clones is exactly the nagging that
+      # gets a gate switched off.
     fi
   fi
 fi
