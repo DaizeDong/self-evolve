@@ -40,9 +40,16 @@ jobs:
       # file no downstream scanner can compensate for. A resolver that silently answers None looks
       # exactly like a skill that has no data, and that ambiguity is how the out-of-band boundary
       # check reported a clean sheet over skills writing a live ledger every day.
+      #
+      # NOT wrapped in `if [ -f ... ]`. Both steps used to be, and that made THE AUTHORITY fail open:
+      # a repo whose vendored copy was missing (a stale default branch, a bad merge, a deletion) went
+      # green on a step that never ran. Every repo in this fleet is supposed to carry these files --
+      # install.py ships them -- so ABSENT is a failure, not a reason to skip. Verified 2026-07-31 by
+      # deleting each file and watching the step exit non-zero.
       - name: Resolver tests (does the data pipe still point outside this repo?)
         run: |
-          if [ -f tools/test_datadir.py ]; then python -m pytest tools/test_datadir.py -q; fi
+          test -f tools/test_datadir.py || { echo "::error::tools/test_datadir.py is MISSING -- re-vendor it (install.py); a guard that is not here is not a guard"; exit 1; }
+          python -m pytest tools/test_datadir.py -q
 
       # The DATA BOUNDARY -- the primary control. Runs FIRST, because it is the question that
       # actually matters: is this repo an uninitialized tool, or does it contain somebody's life?
@@ -55,11 +62,13 @@ jobs:
       # tracked, every declared DATA path ships only a schema, and every FIXTURE must be byte-
       # identical to what its generator emits -- because a real record cannot be regenerated.
       #
-      # A repo that has not declared .dataclass.json exits 0 here (no-op), so this is safe to ship
-      # everywhere and tightens as each repo declares its classes.
+      # A missing .dataclass.json is caught by install.py, which refuses to ship the scanner into a
+      # repo that cannot arm it. A missing SCANNER is caught here: see the note on the step above.
       - name: Data boundary (is this an uninitialized tool?)
         run: |
-          if [ -f tools/data_boundary.py ]; then python tools/data_boundary.py; fi
+          test -f tools/data_boundary.py || { echo "::error::tools/data_boundary.py is MISSING -- re-vendor it (install.py); the PRIMARY control cannot be optional"; exit 1; }
+          test -f .dataclass.json || { echo "::error::.dataclass.json is MISSING -- data_boundary would exit 0 on every run and leave the primary control inert"; exit 1; }
+          python tools/data_boundary.py
 
       - name: Scan working tree + full history
         run: python tools/pii_guard.py --tree --history
