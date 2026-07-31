@@ -101,6 +101,26 @@ python -m tools.sie.cli rollback --target <target> --run-id <run_id> --vid <vid>
 
 [`docs/philosophy.md`](docs/philosophy.md)（普适哲学）·
 [`docs/pipeline.md`](docs/pipeline.md)（10 态门控全景）·
-[`docs/modules/`](docs/modules/)（各模块方法，含 [`scenario-eval`](docs/modules/scenario-eval.md)）·
 [`reference/`](reference/)（acceptor 数学 / 锚契约 / 信号 provider）·
 [`docs/superpowers/`](docs/superpowers/)（设计规格与 52 任务计划）。
+
+### 模块文档 [`docs/modules/`](docs/modules/)
+
+一模块一篇，按 pipeline 顺序排列。
+
+| 模块 | 讲什么 |
+|---|---|
+| [`profile.md`](docs/modules/profile.md) | 探测目标能用什么信号衡量，装配 evaluator 组合，一次冻结进 `target.json` |
+| [`reflect.md`](docs/modules/reflect.md) | 从历史 trace 诊断出 findings，并行反思与跨路去重 |
+| [`check-reflection.md`](docs/modules/check-reflection.md) | 反思的 trace 证据门；全部不过则该轮直接 STATIC_REJECT，不进 propose |
+| [`propose.md`](docs/modules/propose.md) | findings 翻成整文件改动提议；proposer 只提议，永不参与裁决 |
+| [`patch.md`](docs/modules/patch.md) | 落盘前唯一一道静态准入门：import 白名单、AST 危险调用、IMMUTABLE 硬拒、沙箱 realpath 边界 |
+| [`evaluate.md`](docs/modules/evaluate.md) | 信号枢纽：选 provider，把异构证据收口成同构 `paired` + coverage |
+| [`judge.md`](docs/modules/judge.md) | 异质判官（Claude×Codex）出主观分，并给它套 pairwise_agreement 与 judge↔锚校准两道信任闸 |
+| [`scenario-eval.md`](docs/modules/scenario-eval.md) | **设计目标，尚未实现**：生成场景 + rubric，给纯 C 一个真 coverage 与 accept 端平权 |
+| [`accept.md`](docs/modules/accept.md) | 消费上游成对证据，汇总成统计决策：归档落地 / 丢弃 / 交人审 |
+| [`gates.md`](docs/modules/gates.md) | 人审队列契约、selfdeception 多闸接线、熔断阈值 |
+| [`archive.md`](docs/modules/archive.md) | 版本谱系、快照、回滚、Pareto 硬维门、库漂移冷藏 |
+| [`events.md`](docs/modules/events.md) | `events.jsonl` 唯一真相源，以及 replay 重建运行状态 |
+| [`agents.md`](docs/modules/agents.md) | 统一 agent 调用层：`invoke` / `cross_check`，任意阶段可跨家族交叉校验 |
+| [`self-boot.md`](docs/modules/self-boot.md) | `--self` 自举装配：IMMUTABLE 物化 + 启动哈希 fail-closed + supervisor 双进程裁决 |

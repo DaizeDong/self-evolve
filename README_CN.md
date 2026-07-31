@@ -4,7 +4,7 @@
 
 [![Claude Code Skill](https://img.shields.io/badge/Claude%20Code-Skill-orange?style=flat)](https://docs.anthropic.com/en/docs/claude-code)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-521%20passing-green?style=flat)](tests/)
+[![Tests](https://img.shields.io/badge/tests-555%20under%20tests%2F-green?style=flat)](tests/)
 [![Anti-self-deception](https://img.shields.io/badge/anti--self--deception-6%20paths%20closed-green?style=flat)](SKILL.md)
 [![语言](https://img.shields.io/badge/%E8%AF%AD%E8%A8%80-EN%20%2F%20CN-blue?style=flat)](#语言)
 [![Roadmap](https://img.shields.io/badge/Roadmap-v0.1.0-purple?style=flat)](ROADMAP.md)
@@ -75,7 +75,7 @@ python -m tools.sie.cli rollback --target <目标> --run-id <id> --vid <vid>
 python -m tools.sie.cli run --target <self-evolve 自身> --run-id <id> --self --enforce-immutable
 ```
 
-默认 `builtin` / `serial`（确定性，521 测试用，不调外部）。`--live`（= `--proposer llm --reflect-mode parallel`）开真 agent 闭环：proposer / reflector / 两个 judge 走本机 `cc` 网关（split-billing，fallback `claude`）+ `codex` CLI。
+默认 `builtin` / `serial`（确定性，不调外部）。harness 测试套跑的就是这个默认档：**`tests/` 下 555 个测试**，即仓库根目录执行 `pytest tests` 所收集的数量。注意在仓库根直接跑 `pytest` 会收到 **669** 个，因为它把 `tools/` 下的 114 个（vendored `pii_guard` 套件）也算进去了。引用数字时务必写明是哪一个。`--live`（= `--proposer llm --reflect-mode parallel`）开真 agent 闭环：proposer / reflector / 两个 judge 走本机 `cc` 网关（split-billing，fallback `claude`）+ `codex` CLI。
 
 ## 如何调用
 

@@ -48,8 +48,7 @@ Decision:
   e-value  < 1/α  →  REJECT  (insufficient evidence under H₀)
 ```
 
-**e-value = sup_t W_t（路径最大值），而非终值 W_n。** 这是有意对 brief 初稿的修正：
-brief 曾描述"取末值 W_n"，但正确选择是路径最大值 sup_t W_t。理由如下：
+**e-value = sup_t W_t（路径最大值），而非终值 W_n。** 理由如下：
 
 1. **Ville 不等式直接控制 sup_t W_t：** P(∃ t: W_t ≥ 1/α) ≤ α，即路径最大值超阈的概率
    在 H₀ 下 ≤ α。取 e-value = sup_t W_t 等价于"最优停时决策",只要财富任一时刻
@@ -59,7 +58,8 @@ brief 曾描述"取末值 W_n"，但正确选择是路径最大值 sup_t W_t。�
 3. **anytime-valid 一致性：** 选 sup_t W_t 与 anytime-valid（任何停时有效）精神一致，
    不依赖固定样本量，不受多重检验惩罚。
 
-代码已正确实现 `evalue = max(path)` (= sup_t W_t)，此文档与代码一致。
+代码实现为 `evalue = max(path)`（= sup_t W_t，见 `tools/sie/acceptor.py` 的
+`_ons_betting_wealth` / `_wealth_betting`），与本节一致。
 
 ## 4. No-Regression Hard Gate (Priority Override)
 
@@ -83,21 +83,24 @@ A-tier uses discrete 0/1 scores, making the test result unambiguous. There is no
 
 | Tier | Unit of pairing | Score type | Null m | Scaling |
 |------|----------------|------------|--------|---------|
-| A | per-task `task_passed` ∈ {0, 1} | Binary | 0.5 | None (discrete) |
-| B | per-rubric dimension score | Continuous [0,1] | 0.5 | variance-scaled |
-| C | aggregate subjective rating | Continuous [0,1] | 0.5 | variance-scaled + cap |
+| A | per-task `task_passed` ∈ {0, 1} | Binary | 0.5 | none (discrete) |
+| B | per-anchor marginal gain | Continuous [0,1] | 0.5 | none; de-correlation downweight + clip to [-1,1] + e-value total clamp |
+| C | aggregate subjective rating | Continuous [0,1] | 0.5 | variance-scaled + cap, then `c_tier_weight` |
 
-## 7. B/C Tier: Variance Scaling and Cap (placeholder, M2/M3)
+## 7. C Tier: Variance Scaling and Cap
 
-For subjective scores (B/C tiers), raw diffs are scaled before betting:
+Scaling applies to the **C tier only**. For C (aggregate subjective judge scores), raw diffs are scaled before betting, in `acceptor._scale_subjective`:
 
 ```
-d_scaled = clip(d / (σ_hist * evalue_max_step), -1, 1)
+d_scaled = clip(d / (σ * evalue_max_step), -1, 1)
 ```
 
-where `σ_hist` is the historical population standard deviation of diffs, and `evalue_max_step` is a per-round cap parameter (default 4.0). This prevents a single anomalous round from dominating wealth.
+where `σ` is the population standard deviation of the current round's diffs (`statistics.pstdev`, replaced by 1.0 when it comes out 0) and `evalue_max_step` is a cap parameter, default 4.0 **on this path**. This prevents a single anomalous round from dominating wealth. A round with fewer than two diffs is returned unscaled, since there is no dispersion to estimate from one point. The scaled diffs are then multiplied by `c_tier_weight` (default 0.05) before betting, which is why pure C essentially never clears the threshold on its own.
 
-A-tier skips this scaling step entirely (binary scores are already bounded).
+**A and B do not use this scaling:**
+
+- **A** bets on the raw binary diffs; they are already bounded to {-1, 0, +1}.
+- **B** bets on per-anchor marginal gain, which is an objective quantity, so it is deliberately left unscaled (the B branch is annotated `不走 _scale_subjective` in the code). B applies instead, in order: optional same-source de-correlation downweighting (`_decorrelate_downweight`), an input clip of each diff to [-1, 1], and finally a clamp of the **resulting e-value** to `evalue_max_step`, whose default on that path is `1e6`, i.e. effectively off unless set lower. Same parameter name as the C path, different default and different meaning; see §9.
 
 ## 8. confseq → ONS Fallback Strategy
 
@@ -131,14 +134,15 @@ e_value = max(W_1, ..., W_n)              # 路径最大值 = e-value
 
 The ONS strategy is **anytime-valid**: it is a proper betting strategy (λ_t is previsible, i.e., chosen before observing u_t), so the wealth process W_t remains a nonneg martingale under H₀. The false commit rate satisfies P(e-value ≥ 1/α | H₀) ≤ α by Ville's inequality.
 
-### λ 收紧到 ±(2−δ) 而非截断 factor（I2 修正）
+### 为什么收紧 λ 到 ±(2−δ)，而不是给 factor 兜底截断
 
-**旧做法的问题：** 原代码对 factor 做 `max(1e-10, 1+λ·payoff)` 截断。当 λ=±2、
-payoff=∓0.5 时 factor=0，截断到 1e-10。此时梯度 `g = payoff/factor` 爆炸（±5×10⁷），
-ONS 步长失控，wealth 永久趋零（过保守），且破坏鞅恒等式（财富乘子与梯度计算不一致）。
+**λ 的 clip 边界收紧到 ±(2−δ)，factor 一律不截断。** 另一条看似等价的路是让 factor
+兜底：`max(1e-10, 1+λ·payoff)`。那条路是错的,当 λ=±2、payoff=∓0.5 时 factor=0，被兜到
+1e-10，此时梯度 `g = payoff/factor` 爆炸（±5×10⁷），ONS 步长失控，wealth 永久趋零
+（过保守），且破坏鞅恒等式（财富乘子与梯度计算不一致）。
 
-**新做法：收紧 λ-clip 而非截断 factor。**
-- `LAM_MAX = 2 − 1e-6 = 1.999999`
+**本实现收紧 λ-clip，不截断 factor：**
+- `LAM_MAX = 2 − 1e-6 = 1.999999`（代码：`tools/sie/acceptor.py` 的 `_LAM_MAX`）
 - 最坏情况 payoff = ±0.5：factor = 1 ± LAM_MAX·0.5 = 1 ∓ 0.9999995
   - 最小值 = 0.0000005 = 5×10⁻⁷ > 0，恒正
 - 正常路径（λ 远离边界）factor 远大于此，梯度有界，鞅恒等式成立
@@ -153,5 +157,6 @@ ONS 步长失控，wealth 永久趋零（过保守），且破坏鞅恒等式（
 | `α` / `alpha` | 0.05 | Type I error bound; threshold = 1/α = 20 |
 | `n_min` | 8 | Minimum anchor count for B-tier |
 | `continue_count_cap` | 5 | Max CONTINUE rounds before forcing decision (B/C) |
-| `evalue_max_step` | 4.0 | Per-step wealth multiplier cap (B/C scaling) |
+| `evalue_max_step` | 4.0 on the C path, `1e6` on the B path | One key, two call sites. C: the divisor in the variance scaling of §7. B: a clamp on the total e-value returned by one `decide()` call. |
+| `c_tier_weight` | 0.05 | Weight applied to scaled C diffs; keeps pure C from clearing the threshold alone |
 | `effective_independent_anchor_min` | 12 | Min independent anchors for B/C |
