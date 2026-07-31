@@ -27,7 +27,20 @@ WHAT IT DELIBERATELY DOES NOT FLAG
 EXIT CODES
     0  within budget
     1  over budget (used by hooks / CI)
-    2  nothing to measure (no SKILL.md found) -- a state, not a failure
+    3  NOTHING WAS MEASURED. This is a failure, not a state.
+
+WHY "NOTHING TO MEASURE" IS A FAILURE (and used to be a quiet success)
+    This tool shipped knowing exactly one repo shape, skills/<name>/SKILL.md. Two repos in this
+    fleet keep their single SKILL.md at the repo ROOT instead, and those two happen to hold the
+    third and fifth largest always-loaded files on the machine. In both of them the tool printed
+    "no SKILL.md found, nothing to measure" and exited 2, which the docstring itself blessed as
+    "a state, not a failure". So the gate built to measure the always-loaded budget reported a
+    clean, deliberate-looking result on the files most over that budget.
+    That is the fleet's signature defect: a gate that reassures. Both halves are fixed here. The
+    root layout is now discovered (see skill_md_paths), and finding nothing to measure exits 3,
+    because a tool vendored into a skill repo that locates no skill has failed to do its job, no
+    matter how calmly it says so. Exit code 2 is retired rather than redefined: a caller that
+    special-cased 2 as benign must break loudly rather than keep quietly agreeing.
 """
 
 import argparse
@@ -84,6 +97,34 @@ def is_template(path):
     return "template" in n or "fixture" in n or "_example" in n or n.endswith(".example.md")
 
 
+def skill_md_paths(root):
+    """Every SKILL.md a repo ships, in BOTH layouts this fleet actually uses.
+
+    skills/<name>/SKILL.md is the multi-skill layout. A repo shipping exactly one skill puts its
+    SKILL.md at the repo ROOT instead. Knowing only the first shape is what made this tool silent on
+    the second, so the two are discovered together and nothing chooses between them.
+
+    Same resolution as check_conformance.skill_md_paths(). Kept deliberately identical: two gates
+    disagreeing about which files are always loaded is how a file ends up governed by neither.
+    """
+    out = sorted(glob.glob(os.path.join(root, "skills", "*", "SKILL.md")))
+    r = os.path.join(root, "SKILL.md")
+    if os.path.isfile(r):
+        out.append(r)
+    return out
+
+
+def ships_a_skill(root):
+    """Does this repo claim to be a skill repo at all?
+
+    Only used to word the exit-3 message. It never converts the failure into a pass: a repo that
+    ships no skill and still carries this tool is a vendoring mistake to correct, not a result to
+    accept, and either way nothing was measured.
+    """
+    return (os.path.isfile(os.path.join(root, ".claude-plugin", "plugin.json"))
+            or os.path.isdir(os.path.join(root, "skills")))
+
+
 def audit(skill_md):
     base = os.path.dirname(skill_md)
     refs = sorted(
@@ -136,12 +177,29 @@ def main():
     args = ap.parse_args()
 
     if args.scan_all:
-        targets = sorted(glob.glob(os.path.join(args.root, "*", "skills", "*", "SKILL.md")))
+        targets = []
+        kids = sorted(os.listdir(args.root)) if os.path.isdir(args.root) else []
+        for entry in kids:
+            child = os.path.join(args.root, entry)
+            if os.path.isdir(child):
+                targets += skill_md_paths(child)
     else:
-        targets = sorted(glob.glob(os.path.join(args.root, "skills", "*", "SKILL.md")))
+        targets = skill_md_paths(args.root)
     if not targets:
-        print("load_budget: no SKILL.md found, nothing to measure")
-        return 2
+        # Say what was looked for, where, and that the run FAILED. The old wording ("nothing to
+        # measure") described the tool's state; what the operator needs is the consequence.
+        root = os.path.abspath(args.root)
+        print("load_budget: FAIL, measured NOTHING under %s" % root)
+        print("  looked for: skills/*/SKILL.md and SKILL.md at the root%s"
+              % (" of every immediate subdirectory" if args.scan_all else ""))
+        if args.scan_all or ships_a_skill(args.root):
+            print("  This repo is a skill repo, so finding no SKILL.md is a defect in the repo or in")
+            print("  this resolution, not a clean result. Nothing was measured; nothing is cleared.")
+        else:
+            print("  This repo declares no skill (no .claude-plugin/plugin.json, no skills/, no root")
+            print("  SKILL.md), so load_budget has nothing here to guard. Drop tools/load_budget.py")
+            print("  from it rather than letting an inert gate report a result.")
+        return 3
 
     results = [audit(t) for t in targets]
     if args.json:
@@ -149,7 +207,9 @@ def main():
 
     failed = False
     for r in results:
-        name = os.path.basename(os.path.dirname(r["skill_md"]))
+        # abspath first: for the root layout dirname("./SKILL.md") is ".", and a report whose every
+        # row is named "." tells the reader nothing about which file was measured.
+        name = os.path.basename(os.path.abspath(os.path.dirname(r["skill_md"])))
         over = r["dup_pct"] > args.max_dup
         failed |= over
         flag = "BLOCK" if over else "ok"
