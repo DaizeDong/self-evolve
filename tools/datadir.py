@@ -16,10 +16,45 @@ point at the public repo in the first place.
 
 Discovery order (first existing wins):
   1. $<SKILL>_DATA_DIR                       explicit override / hot-swap
-  2. ~/.<skill>-config/data/                 reuse the private companion config repo it already has
-  3. ~/.<skill>-data/                        standalone fallback
-  4. None                                    -> the tool is UNINITIALIZED, which is exactly what a
+  2. $<SKILL>_CONFIG / $<SKILL>_CONFIG_DIR   the PRIVATE COMPANION REPO, wherever it is pinned:
+                                             <config>/data/ when that exists, else <config> itself
+  3. ~/.<skill>-config/data/                 the same companion repo at its default dotfile path
+  4. ~/.<skill>-data/                        standalone fallback
+  5. None                                    -> the tool is UNINITIALIZED, which is exactly what a
                                                 freshly cloned public skill SHOULD be
+
+WHY STEP 2 EXISTS (added 2026-07-31)
+------------------------------------
+Every skill in this fleet already resolves its private companion repo from `$<SKILL>_CONFIG`, and
+several of those repos have been pinned somewhere other than the dotfile path (`$MARKET_INTEL_CONFIG`
+and `$DAILY_HOTSPOTS_CONFIG` both point into ~/CodesClaude). This resolver did not know that, so it
+looked only at the dotfile path, found nothing, and answered None -- "uninitialized" -- for skills
+that were writing a real ledger every day. An out-of-band control then asked THIS function where the
+data was, got None, and reported the skill as nothing-to-check. A checker that is told nothing
+reports a clean sheet, which is the failure mode the whole data boundary exists to avoid. The
+resolver now follows the same pointer the skill itself follows.
+
+PRIVATE COMPANION REPO IS THE DESTINATION, NOT AN ACCIDENT
+----------------------------------------------------------
+Real-run output LIVES IN the private companion repo, versioned and backed up like everything else
+there. The rule was never "data must not be in git" -- it is "data must never be in a PUBLIC repo,
+and a public repo never has an in-repo fallback". Those are different predicates and conflating them
+condemns the correct shape: a private repo is exactly where a person's real data legitimately lives.
+
+WHY THIS FILE DOES NOT CHECK VISIBILITY ITSELF
+----------------------------------------------
+The tempting next step is to have this function refuse a data dir that sits in a PUBLIC repo. It
+cannot do that honestly. This file is vendored into every public skill repo, is stdlib-only by
+contract, and has to work on a fresh clone on a stranger's machine: no ~/.pii-guard/visibility.json,
+no `gh`, possibly no network. Fail-closed there bricks every fresh clone on a question that has no
+local answer; fail-open makes the assertion decorative precisely where it matters. So the visibility
+predicate stays OUT OF BAND, in the fleet checker that does have the map.
+
+What this file CAN assert with no map, no network and no git binary is strictly weaker and always
+true: a skill's data dir is never inside the skill's OWN repo. Public or private, the tool repo and
+the companion repo are two different repos, and a data dir that resolved into this one is either an
+in-repo fallback or a misconfigured pointer -- the exact shape that put a real SEC contact email in
+a public repo under the label "legacy fallback". That one is checked here, and it raises.
 
 `data_path()` raises a DataDirNotInitialized with instructions rather than silently falling back to a
 path inside the repo. A silent in-repo fallback is how this happened: `reference/config.json` was the
@@ -36,23 +71,94 @@ class DataDirNotInitialized(RuntimeError):
     pass
 
 
+class DataDirInsideOwnRepo(RuntimeError):
+    """The resolved data dir is inside the skill repo that ships this file. Always a defect."""
+
+
 def _env_var(skill):
     return skill.upper().replace("-", "_") + "_DATA_DIR"
 
 
-def resolve_data_dir(skill, create=False):
-    """Return the private data dir for `skill`, or None if the tool is uninitialized."""
+def _config_env_vars(skill):
+    stem = skill.upper().replace("-", "_")
+    return (stem + "_CONFIG", stem + "_CONFIG_DIR")
+
+
+def _own_repo_root():
+    """The git worktree containing THIS file, or None.
+
+    Walks parents looking for `.git`. Deliberately does not shell out: this runs inside live skills
+    on machines where git may be absent, and a probe that can fail open is not a check.
+    """
+    d = os.path.dirname(os.path.abspath(__file__))
+    while True:
+        if os.path.exists(os.path.join(d, ".git")):
+            return d
+        parent = os.path.dirname(d)
+        if parent == d:
+            return None
+        d = parent
+
+
+def _reject_if_inside_own_repo(p, skill):
+    root = _own_repo_root()
+    if root is None:
+        return                       # not deployed from a worktree; nothing to be inside of
+    try:
+        target, repo = os.path.realpath(str(p)), os.path.realpath(root)
+    except OSError:
+        return
+    # normcase for the COMPARISON only; the message keeps the real casing so it is greppable.
+    t, r = os.path.normcase(target), os.path.normcase(repo)
+    # The separator is load-bearing: `<root>-config` must NOT count as inside `<root>`, and the
+    # companion repo is named exactly that way in every skill in this fleet.
+    if t == r or t.startswith(r + os.sep):
+        raise DataDirInsideOwnRepo(
+            "%s resolved its data dir to %s, which is INSIDE its own repo %s.\n"
+            "Real-run output belongs in the PRIVATE COMPANION repo, never in the tool repo.\n"
+            "Repoint it:\n"
+            "    set %s to the companion repo (its data/ subdir is used when present)\n"
+            "    or set %s to an explicit private directory"
+            % (skill, target, repo, _config_env_vars(skill)[0], _env_var(skill)))
+
+
+def _candidates(skill):
+    """Discovery order, as Paths. See the module docstring."""
+    out = []
     d = os.environ.get(_env_var(skill))
-    candidates = []
     if d:
-        candidates.append(Path(os.path.expanduser(d)))
-    candidates.append(Path(os.path.expanduser("~/.%s-config" % skill)) / "data")
-    candidates.append(Path(os.path.expanduser("~/.%s-data" % skill)))
+        out.append(Path(os.path.expanduser(d)))
+    for ev in _config_env_vars(skill):
+        c = os.environ.get(ev)
+        if not c:
+            continue
+        root = Path(os.path.expanduser(c))
+        # A companion repo that keeps its output under data/ gets data/; one that files it directly
+        # at the repo root (daily-hotspots' archive/ is the fleet's other shape) gets the root.
+        # Either way the ANSWER to "where does real-run output live" is inside that private repo,
+        # which is what every consumer of this function is actually asking.
+        out.append(root / "data")
+        out.append(root)
+    out.append(Path(os.path.expanduser("~/.%s-config" % skill)) / "data")
+    out.append(Path(os.path.expanduser("~/.%s-data" % skill)))
+    return out
+
+
+def resolve_data_dir(skill, create=False):
+    """Return the private data dir for `skill`, or None if the tool is uninitialized.
+
+    Raises DataDirInsideOwnRepo if the resolved directory sits inside this skill's own repo.
+    """
+    candidates = _candidates(skill)
     for p in candidates:
         if p.is_dir():
+            _reject_if_inside_own_repo(p, skill)
             return p
     if create:
-        p = candidates[0] if d else candidates[1]
+        # Create the most specific place the operator actually pointed at: an explicit data-dir
+        # override first, then the companion repo's data/, then the dotfile default.
+        p = candidates[0]
+        _reject_if_inside_own_repo(p, skill)
         p.mkdir(parents=True, exist_ok=True)
         return p
     return None
@@ -65,12 +171,13 @@ def data_path(skill, relpath, create=False):
         raise DataDirNotInitialized(
             "%s has no private data directory, so it has nowhere to put real-run output.\n"
             "This is the correct state for a freshly cloned public skill: it ships as an\n"
-            "uninitialized tool. Point it at your own store:\n"
-            "    mkdir -p ~/.%s-config/data\n"
-            "    (or set %s)\n"
-            "Real-run output NEVER goes back into the repo -- the repo carries only the schema\n"
+            "uninitialized tool. Point it at your PRIVATE COMPANION repo:\n"
+            "    set %s to the companion repo (data/ under it is used when present)\n"
+            "    or mkdir -p ~/.%s-config/data\n"
+            "    or set %s to an explicit private directory\n"
+            "Real-run output NEVER goes back into THIS repo -- this repo carries only the schema\n"
             "(<file>.example) and a synthetic fixture set."
-            % (skill, skill, _env_var(skill)))
+            % (skill, _config_env_vars(skill)[0], skill, _env_var(skill)))
     p = base / relpath
     if create:
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -102,14 +209,20 @@ def _cli(argv=None):
     except DataDirNotInitialized as e:
         print(str(e), file=sys.stderr)
         return 3
+    except DataDirInsideOwnRepo as e:
+        # Exit 4, distinct from 3. "No data yet" is a state a caller may proceed through; "the data
+        # dir points into the tool repo" is a defect a caller must stop on.
+        print(str(e), file=sys.stderr)
+        return 4
     print(p)
     return 0
 
 
 def _raise(skill):
     raise DataDirNotInitialized(
-        "%s has no private data directory.\n    mkdir -p ~/.%s-config/data\n    (or set %s)"
-        % (skill, skill, _env_var(skill)))
+        "%s has no private data directory.\n    set %s to the private companion repo\n"
+        "    or mkdir -p ~/.%s-config/data\n    (or set %s)"
+        % (skill, _config_env_vars(skill)[0], skill, _env_var(skill)))
 
 
 if __name__ == "__main__":

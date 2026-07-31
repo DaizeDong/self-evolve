@@ -15,8 +15,15 @@
     "",
     "Enforced by tools/data_boundary.py in .githooks and in CI."
   ],
-  "_audited": "2026-07-13 -- swept for real-run output written back into this repo (every open(...,'a'), json.dump, write_text; every tracked *.jsonl / state / cache / report). This skill's writers all resolve OUTSIDE the repo, or it has no writers. No DATA-class path found. An empty list here is a CONCLUSION, not a default: it distinguishes 'audited, nothing to declare' from 'nobody has looked'.",
-  "data": [],
+  "_audited": "2026-07-31 RE-AUDIT (supersedes the 2026-07-13 sweep, which recorded an empty declaration for this repo). The earlier sweep asked only whether shipped code appends to a TRACKED file here. That question is too narrow: it clears every path that is gitignored, and .gitignore is advisory -- `git add -f` walks straight through it, which is the whole reason declarations exist. This pass asked instead whether shipped code or shipped docs can put REAL-RUN OUTPUT at a repo-relative path at all. ANSWER: YES. This skill writes its evolution runs -- proposals, diffs, judge verdicts, probe transcripts, per-round state -- into <target>/.sie/runs/, and one of the targets it is routinely pointed at is THIS repo. tools/sie/state.py, archive.py and profile.py all write under a run dir derived from the target path, and cli.py builds it as <target>/.sie/runs. This repo's .gitignore lists .sie/, runs/, logs/, _run/, .nightrun/ and examples/btarget/.sie/ for exactly that reason, and was the only thing standing between those transcripts and `git add -f`. All six are directory-form, so no .example is owed. NOTE for whoever reads this next: every other repo in the fleet gitignores .sie/ too, for the same reason, and none of them declares it. That is a real gap, and it is a per-repo audit rather than a blanket edit, so it is recorded here instead of being applied silently everywhere.",
+  "data": [
+    ".sie/",
+    "runs/",
+    "logs/",
+    "_run/",
+    ".nightrun/",
+    "examples/btarget/.sie/"
+  ],
   "data_sealed": [],
   "fixture": [],
   "_data_home": "~/.self-evolve-config/data/   (override with $SELF_EVOLVE_DATA_DIR). If this skill ever needs to record real-run output, it goes THERE -- never back into this repo."
