@@ -36,6 +36,14 @@ jobs:
           python -m pip install --quiet pytest
           python -m pytest tools/test_pii_guard.py -q
 
+      # The resolver's tests. datadir.py decides WHERE real-run output goes, which makes it the one
+      # file no downstream scanner can compensate for. A resolver that silently answers None looks
+      # exactly like a skill that has no data, and that ambiguity is how the out-of-band boundary
+      # check reported a clean sheet over skills writing a live ledger every day.
+      - name: Resolver tests (does the data pipe still point outside this repo?)
+        run: |
+          if [ -f tools/test_datadir.py ]; then python -m pytest tools/test_datadir.py -q; fi
+
       # The DATA BOUNDARY -- the primary control. Runs FIRST, because it is the question that
       # actually matters: is this repo an uninitialized tool, or does it contain somebody's life?
       #
