@@ -80,6 +80,15 @@
 # wrong identity in silence -- measured, not theorized: with tr off PATH this hook exited 0 on the
 # exact identity it otherwise blocks. A comparison whose failure mode is "everything matches" has to
 # be proven able to run before it is trusted, so probe it once and fail closed.
+#
+# AND IT IS PROBED ONCE, NOT CALLED PER VALUE. `_lc` in a $(...) is a subshell plus an external
+# `tr`, and on Windows a process spawn costs ~80 ms. The first version folded each value at its
+# point of use -- nineteen spawns -- and MEASURED 1.7 s of wall clock on EVERY commit in EVERY repo
+# on this machine, against 1.06 s for the whole hook before this block existed. A gate that taxes
+# each commit by seconds is a gate that gets switched off, which is the exact failure this design
+# keeps trying to avoid. So the probe stays and the folding is batched: one `tr` for all five
+# committing values, and the expected values are read back out of the ALREADY-FOLDED copy of the
+# table rather than folded a second time.
 _lc() { printf '%s' "$1" | tr 'A-Z' 'a-z'; }
 if [ "$(_lc ABC)" != "abc" ]; then
   echo "BLOCKED: the identity assertion cannot case-fold (\`tr\` is missing or not working)."
@@ -99,6 +108,26 @@ fi
 #              gate, it is a gate that gets switched off within a day. The cross-account rule above
 #              still applies there, and it is the rule that catches the real incident.
 _id_policy=strict
+
+# Line $2 of the multi-line text $1, into $_row_out. Replaces a `sed -n Np` (plus the `tr -d` that
+# had to re-strip its CRs), which is two process spawns for a job the shell can do with none. It
+# also reads the SAME in-memory copy the scan above walked, so the row that matched and the row that
+# gets read back can no longer come from two different reads of a file that changed in between.
+# Sets a variable instead of printing, because $(...) is itself a fork and forks are what this is
+# for. Returns nonzero when the line does not exist, and the caller must treat that as unreadable
+# rather than as "no expectation" -- see the IDENTITY ROW UNREADABLE branch.
+_row_out=""
+_row_at() {
+  _row_out=""
+  _rn=0
+  while IFS= read -r _rl; do
+    _rn=$((_rn + 1))
+    if [ "$_rn" -eq "$2" ]; then _row_out=$_rl; return 0; fi
+  done <<_ROW_EOF
+$1
+_ROW_EOF
+  return 1
+}
 
 _id_fail=0
 _id_msg=""
@@ -134,14 +163,27 @@ refusing to invent one from the OS. Set it explicitly:
   else
     _an=${_aid%% <*}; _t=${_aid#*<}; _ae=${_t%%>*}
     _cn=${_cid%% <*}; _t=${_cid#*<}; _ce=${_t%%>*}
-    _lae=$(_lc "$_ae")
-    _lce=$(_lc "$_ce")
+
+    # Every value this block compares, folded in ONE `tr` (see the note on `_lc`). Newline-separated
+    # is safe here because git refuses to build an ident containing a newline, so no value can spill
+    # into the next field; and if one ever did, the fields shift, the comparison MISMATCHES, and the
+    # commit is blocked -- the failure direction this whole assertion is built around.
+    _fold=$(printf '%s\n' "$_owner" "$_ae" "$_ce" "$_an" "$_cn" | tr 'A-Z' 'a-z')
+    { IFS= read -r _want
+      IFS= read -r _lae
+      IFS= read -r _lce
+      IFS= read -r _lan
+      IFS= read -r _lcn
+    } <<_FOLD_EOF
+$_fold
+_FOLD_EOF
 
     # --- read the table ONCE, and record every way the read can go wrong -------------------------
     # The whole file is folded and stripped of CR in one pipeline instead of per row: a hand edit on
     # Windows turns this file CRLF, every field would then carry a trailing CR, every comparison
     # would fail to match, and the layer would disarm itself exactly the way a deleted row does.
     _exp_name=""; _exp_email=""
+    _lexp_name=""; _lexp_email=""   # the same two, folded, for the comparison
     _tbl=0        # 1 = the table file exists
     _rows=0       # rows that parse as owner|name|email
     _badrows=""   # line numbers of rows that do not
@@ -149,8 +191,13 @@ refusing to invent one from the OS. Set it explicitly:
     _otherln=0    # line number of the row registering the committing address to a DIFFERENT owner
     if [ -f "$_idfile" ]; then
       _tbl=1
-      _want=$(_lc "$_owner")
-      _idlow=$(tr -d '\r' < "$_idfile" | tr 'A-Z' 'a-z')
+      # Kept in two forms of the SAME read: `_idraw` for anything quoted back to the operator (the
+      # folded copy would print lowercased `git config` advice, which is wrong to paste), `_idlow`
+      # for every comparison. Deriving `_idlow` from `_idraw` rather than re-reading the file also
+      # means the expected identity can be lifted straight out of `_idlow` already folded, instead
+      # of paying another `tr` to fold it back down.
+      _idraw=$(tr -d '\r' < "$_idfile")
+      _idlow=$(printf '%s\n' "$_idraw" | tr 'A-Z' 'a-z')
       _ln=0
       while IFS='|' read -r _l _n _e _x; do
         _ln=$((_ln + 1))
@@ -170,25 +217,40 @@ $_idlow
 _IDTABLE_EOF
       _other=""
       if [ "$_otherln" -gt 0 ]; then
-        _other=$(sed -n "${_otherln}p" "$_idfile" 2>/dev/null | tr -d '\r')
-        _other=${_other%%|*}
+        _row_at "$_idraw" "$_otherln"
+        _other=${_row_out%%|*}
         # The rule below keys on _otherln, never on this string: a failed read must not be able to
         # turn "registered to somebody else" back into "nothing to say".
         [ -n "$_other" ] || _other="<the owner on line $_otherln>"
       fi
       if [ "$_hitline" -gt 0 ]; then
-        # Re-read the matched row from the ORIGINAL file: the folded copy would give lowercased
-        # advice ("git config user.name ..."), which is wrong to paste.
-        _row=$(sed -n "${_hitline}p" "$_idfile" 2>/dev/null | tr -d '\r')
+        # The matched row in ORIGINAL case, for advice the operator can paste.
+        _row_at "$_idraw" "$_hitline"
+        _row=$_row_out
         _exp_name=${_row#*|}; _exp_name=${_exp_name%%|*}
         _exp_email=${_row##*|}
+        # ...and the same row already folded, so the comparison below needs no further `tr`.
+        _row_at "$_idlow" "$_hitline"
+        _lexp_name=${_row_out#*|}; _lexp_name=${_lexp_name%%|*}
+        _lexp_email=${_row_out##*|}
       fi
     fi
 
+    _ovr=0
     _o=$(git config --get guard.expectedEmail 2>/dev/null)
-    [ -n "$_o" ] && _exp_email=$_o
+    [ -n "$_o" ] && { _exp_email=$_o; _ovr=1; }
     _o=$(git config --get guard.expectedName 2>/dev/null)
-    [ -n "$_o" ] && _exp_name=$_o
+    [ -n "$_o" ] && { _exp_name=$_o; _ovr=1; }
+    # A per-repo override did not come out of the folded table, so it is the one case that still has
+    # to be folded here. One `tr` for both, and only on the rare path that declares an override.
+    if [ "$_ovr" -eq 1 ]; then
+      _fold=$(printf '%s\n' "$_exp_email" "$_exp_name" | tr 'A-Z' 'a-z')
+      { IFS= read -r _lexp_email
+        IFS= read -r _lexp_name
+      } <<_FOLD_EOF
+$_fold
+_FOLD_EOF
+    fi
 
     if [ "$_tbl" -eq 1 ] && [ -n "$_badrows" ]; then
       _id_fail=1
@@ -205,19 +267,20 @@ commit exits 0 with no output. Repair the line, or comment it out with a leading
 An empty table is not \"no expectation\", it is a gate with nothing in it. Add a row:
   <github-owner>|<name>|<account id>+<login>@users.noreply.github.com
 or delete the file if this machine is genuinely not the maintainer's."
-    elif [ "$_hitline" -gt 0 ] && [ -z "$_exp_email" ]; then
+    elif [ "$_hitline" -gt 0 ] && { [ -z "$_exp_email" ] || [ -z "$_lexp_email" ]; }; then
       _id_fail=1
       _id_msg="IDENTITY ROW UNREADABLE -- line $_hitline of $_idfile matched owner '$_owner' during
-the scan but could not be read back (is \`sed\` on PATH?). Refusing to treat a failed read as
-\"this repo has no expected identity\": that is precisely the silent degradation this check exists
-to prevent."
+the scan but could not be read back. Refusing to treat a failed read as \"this repo has no expected
+identity\": that is precisely the silent degradation this check exists to prevent.
+(Both the original-case and the folded copy of that line are read back; this fires if either is
+empty, so a comparison can never run against half a row.)"
     elif [ -n "$_exp_email" ]; then
       _bad=""
-      [ "$_lae" = "$(_lc "$_exp_email")" ] || _bad="author email"
-      [ "$_lce" = "$(_lc "$_exp_email")" ] || _bad="${_bad:+$_bad, }committer email"
+      [ "$_lae" = "$_lexp_email" ] || _bad="author email"
+      [ "$_lce" = "$_lexp_email" ] || _bad="${_bad:+$_bad, }committer email"
       if [ -n "$_exp_name" ]; then
-        [ "$(_lc "$_an")" = "$(_lc "$_exp_name")" ] || _bad="${_bad:+$_bad, }author name"
-        [ "$(_lc "$_cn")" = "$(_lc "$_exp_name")" ] || _bad="${_bad:+$_bad, }committer name"
+        [ "$_lan" = "$_lexp_name" ] || _bad="${_bad:+$_bad, }author name"
+        [ "$_lcn" = "$_lexp_name" ] || _bad="${_bad:+$_bad, }committer name"
       fi
       if [ -n "$_bad" ]; then
         _id_fail=1
