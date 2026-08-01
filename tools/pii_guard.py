@@ -193,8 +193,17 @@ def _run(args, cwd, allow_fail=False):
     succeeded and the output was genuinely empty" (an empty diff, a repo with no matching files).
     Callers must not blanket-convert: see the note on each one.
     """
+    # encoding="utf-8" is NOT decoration. Without it text=True decodes with the locale codepage,
+    # which on Windows is cp1252/cp936 while git emits UTF-8, and errors="replace" then turns every
+    # non-ASCII byte into U+FFFD in SILENCE. The visible damage was `git rev-parse --show-toplevel`
+    # in a repo whose path contains non-ASCII: the toplevel came back mojibake, the `git ls-files`
+    # that followed got cwd=<a path that does not exist>, and the scan died. Before this function
+    # was made to fail closed that same mojibake produced a clean report over zero files, which is
+    # the fail-open it was hardened against -- so the decoding, not just the exit code, is load
+    # bearing. dash_guard's runner already did this; this one was the outlier.
     try:
-        p = subprocess.run(args, cwd=cwd, capture_output=True, text=True, errors="replace")
+        p = subprocess.run(args, cwd=cwd, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
     except (OSError, ValueError) as e:
         if allow_fail:
             return None
