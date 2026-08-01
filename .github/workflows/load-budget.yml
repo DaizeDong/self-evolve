@@ -1,0 +1,46 @@
+# load-budget in CI: PHILOSOPHY P7, the always-loaded budget and the no-second-copy rule.
+#
+# WHY THIS FILE EXISTS AT ALL
+# ---------------------------
+# tools/load_budget.py was vendored into 18 repos and wired into nothing. It ran on no push, no
+# hook, no schedule. A control that executes nowhere is not a weak control, it is the absence of one
+# wearing the costume of a control: a reader greps the repo, sees a P7 gate sitting next to the
+# guards that do run, and reasonably concludes P7 is enforced. That is the exact failure the guard
+# effort was chartered to eliminate, so shipping it inert reintroduced the disease in 18 places.
+# Either it runs or it stops being carried. This is it running.
+#
+# It is a STYLE/ARCHITECTURE gate, not a security one, so like dash-guard it scans the current tree
+# only. There is nothing to rewrite in history: a paragraph that was duplicated last year and has
+# since been cut is not a live defect.
+name: load-budget
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  budget:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      # NOT wrapped in `if [ -f ... ]`, for the reason the pii-guard workflow spells out at length:
+      # a step that skips itself when its own subject is missing reports success for a run that
+      # examined nothing. install.py ships this file, so ABSENT is a failure, not a reason to skip.
+      #
+      # The `exit 3` case is the one this step exists to make load: load_budget exits 3 when it
+      # located no SKILL.md and therefore MEASURED NOTHING. That used to be exit 2 and was blessed
+      # in the docstring as "a state, not a failure", which let the tool report a calm clean result
+      # on the two repos holding the largest always-loaded files in the fleet. GitHub fails a step
+      # on any nonzero status, so 3 fails here with no special handling -- but it is named
+      # explicitly below so that nobody later "helpfully" adds a `|| true` or an exit-code filter
+      # and restores the silence. Verified by running a repo in that state and observing rc=3.
+      - name: Always-loaded budget + SKILL.md-vs-reference duplication (P7)
+        run: |
+          test -f tools/load_budget.py || { echo "::error::tools/load_budget.py is MISSING -- re-vendor it (install.py); an absent gate is not a passing gate"; exit 1; }
+          python tools/load_budget.py .
+          # (no `|| true`, and no exit-code filtering: 1 = over budget, 3 = measured nothing.
+          #  Both are failures. A run that measured nothing has cleared nothing.)
