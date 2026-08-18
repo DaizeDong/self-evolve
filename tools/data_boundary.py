@@ -109,14 +109,63 @@ RUN_SHAPES = (
 )
 
 
+class GitError(RuntimeError):
+    """A git invocation this check depends on did not succeed.
+
+    Raised, never swallowed. See _run for why an exception and not an empty string.
+    """
+
+
 def _run(args, cwd):
-    p = subprocess.run(args, cwd=cwd, capture_output=True, text=True,
-                       encoding="utf-8", errors="replace")
-    return p.stdout if p.returncode == 0 else ""
+    """Run a git command and return its stdout.
+
+    THIS USED TO FAIL OPEN, and on the PRIMARY control that is worse than on the backstop.
+    The old body was `return p.stdout if p.returncode == 0 else ""`. `tracked()` read that
+    empty string as an ANSWER (no tracked files), every per-file check then iterated zero
+    times, and main() printed "data_boundary: clean (... 0 tracked files ...)" and exited 0
+    having examined nothing. Anything that breaks git produced that: a shell .git directory
+    (a shape that has actually occurred on this machine), a directory that is not a repo,
+    git missing from PATH, an index.lock, a dubious-ownership refusal.
+
+    pii_guard and dash_guard were hardened against exactly this and this file was the
+    outlier, which meant the two scanners disagreed about the same broken environment:
+    pii_guard --tree exited 2 saying NOTHING was examined while data_boundary next to it
+    printed clean and exited 0. install.py:86 calls this file the PRIMARY control, so the
+    control was the one lying.
+
+    A nonzero exit now RAISES, carrying git's own stderr. A clean report requires that the
+    scan actually happened.
+
+    encoding="utf-8" is load bearing, not decoration: without it text=True decodes with the
+    locale codepage (cp936 here) while git emits UTF-8, and errors="replace" silently turns
+    a repo path containing non-ASCII into mojibake. The `git ls-files` that follows then
+    runs in a directory that does not exist.
+    """
+    try:
+        p = subprocess.run(args, cwd=cwd, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
+    except (OSError, ValueError) as e:
+        raise GitError("cannot execute `%s` in %s: %s\n"
+                       "  git must be runnable for this check to mean anything."
+                       % (" ".join(args), cwd, e)) from e
+    if p.returncode != 0:
+        raise GitError("`%s` exited %d in %s\n  %s"
+                       % (" ".join(args), p.returncode, cwd,
+                          (p.stderr or "").strip() or "(no stderr)"))
+    return p.stdout
 
 
 def _repo_root(start):
-    return _run(["git", "rev-parse", "--show-toplevel"], start).strip() or start
+    """Resolve the work tree root, or raise.
+
+    The old body ended in `or start`, so a directory that is not a work tree quietly became
+    its own "repo root". Everything downstream then scanned a non-repo and reported clean.
+    That is the same defect pii_guard was fixed for; refusing here is the whole point.
+    """
+    root = _run(["git", "rev-parse", "--show-toplevel"], start).strip()
+    if not root:
+        raise GitError("git named no toplevel for %s (is it a work tree?)" % start)
+    return root
 
 
 def load_manifest(root):
@@ -242,14 +291,22 @@ def main():
     ap = argparse.ArgumentParser(description="Enforce the TOOL / FIXTURE / DATA boundary.")
     ap.add_argument("--repo", default=".")
     a = ap.parse_args()
-    root = _repo_root(os.path.abspath(a.repo))
+    try:
+        root = _repo_root(os.path.abspath(a.repo))
+        files = tracked(root)
+    except GitError as e:
+        # Exit 2, distinct from 0 (clean) and 1 (violations), mirroring pii_guard. "clean" and
+        # "never ran" must not be the same output on the primary control.
+        print("data_boundary: SCAN FAILED, git could not be used, so NOTHING was examined.\n  %s"
+              % e, file=sys.stderr)
+        return 2
 
     m = load_manifest(root)
     if m is None:
         print("data_boundary: no %s in this repo (nothing declared, nothing enforced)" % MANIFEST)
         return 0
 
-    out, files = [], tracked(root)
+    out = []
     check_data_not_tracked(root, m, files, out)
     check_data_has_schema(root, m, out)
     check_fixtures_are_generated(root, m, out)
