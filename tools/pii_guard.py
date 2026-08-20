@@ -843,6 +843,27 @@ def load_private_denylist(root=None):
 
 VISIBILITY_STATES = ("PUBLIC", "PRIVATE", "UNKNOWN")
 
+# HOW OLD MAY THE MAP BE BEFORE IT STOPS VOTING ON DERIVABILITY
+#
+# `derived` is the one verdict in this guard that RELAXES something, and its entire justification is
+# a claim about the outside world: "the parent repo is public, so this name discloses nothing". That
+# claim comes from the visibility map, and a claim has an age. Measured 2026-08-20 while reviewing
+# this design: a map stamped five years ago still granted the downgrade, and the output said nothing
+# about the map at all. A blocking linkage finding silently became a non-blocking WARN because of a
+# file nobody had looked at. That is the same shape as every defect this redesign removed, pointing
+# the permissive way, introduced by the redesign itself.
+#
+# Two thresholds, because the two failures are different sizes:
+#   NOTE   the refresher runs every 4 hours, so a day-old map means it has missed about six runs.
+#          Worth saying, not worth gating: nothing is wrong with the verdicts yet.
+#   MAX    30 days, deliberately the same number visibility_of.py uses for MAX_MAP_AGE_S and for the
+#          same reason recorded there: seven days is shorter than a holiday, and a window nothing
+#          renews is a time bomb with a documented fuse. Past it the map is not evidence any more,
+#          so every name that WOULD have been `derived` stays `linkage` and keeps gating. Strict is
+#          the safe direction here, and it is also what this guard did before derivability existed.
+VIS_STALE_NOTE_S = 24 * 3600
+VIS_MAX_AGE_S = 30 * 24 * 3600
+
 
 def _load_visibility(vis_path=None, notes=None):
     """(public_names_by_owner, private_keys) from the visibility cache, or None if absent.
@@ -888,7 +909,34 @@ def _load_visibility(vis_path=None, notes=None):
         notes.append("pii_guard: WARNING %s uses visibility state(s) this guard does not know "
                      "(%s); those entries were skipped. Expected one of %s."
                      % (path, ", ".join(sorted(unknown)), "/".join(VISIBILITY_STATES)))
-    return public, private
+    return public, private, _map_age_s(vis, path, notes)
+
+
+def _map_age_s(vis, path, notes):
+    """Seconds since the map was last REBUILT, or None if that cannot be established.
+
+    From the `_refreshed` stamp and NEVER from the file's mtime. visibility_of.py writes single
+    keys back into this map on a cache miss, which bumps the mtime without re-verifying one single
+    answer, so mtime says "recently touched" for a map whose verdicts are months old. That is
+    documented at length in visibility_of.py and it is the kind of thing you only get wrong once.
+    """
+    stamp = vis.get("_refreshed") if isinstance(vis, dict) else None
+    if not isinstance(stamp, str) or not stamp.strip():
+        if notes is not None:
+            notes.append("pii_guard: WARNING %s carries no _refreshed stamp, so there is no way to "
+                         "tell how old its verdicts are. Derivability will not rely on it." % path)
+        return None
+    import datetime
+    try:
+        when = datetime.datetime.fromisoformat(stamp.strip().replace("Z", "+00:00"))
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=datetime.timezone.utc)
+    except ValueError:
+        if notes is not None:
+            notes.append("pii_guard: WARNING %s has an unparseable _refreshed stamp (%r), so its "
+                         "age is unknown. Derivability will not rely on it." % (path, stamp))
+        return None
+    return (datetime.datetime.now(datetime.timezone.utc) - when).total_seconds()
 
 
 def derivation_witness(owner, name, public_by_owner):
@@ -939,7 +987,23 @@ def _cross_repo_tokens_typed(root, vis_path=None, notes=None):
     loaded = _load_visibility(vis_path, notes)
     if loaded is None:
         return []
-    public_by_owner, private = loaded
+    public_by_owner, private, age_s = loaded
+    # Only the DERIVED downgrade depends on the map's freshness. The linkage verdicts do not: they
+    # come from a repo being listed PRIVATE, and a stale map that still calls something private is
+    # erring toward gating, which is the direction that costs an edit rather than a disclosure.
+    trust_map = age_s is not None and age_s <= VIS_MAX_AGE_S
+    if notes is not None and age_s is not None:
+        if not trust_map:
+            notes.append(
+                "pii_guard: WARNING the visibility map is %.0f days old (limit %d). Derivability "
+                "rests on a claim that a parent repo is PUBLIC, and a claim that old is not "
+                "evidence, so every companion name is being treated as linkage and will gate. "
+                "Refresh it: python ~/.claude/scripts/pii-guard/refresh_visibility.py"
+                % (age_s / 86400.0, VIS_MAX_AGE_S // 86400))
+        elif age_s > VIS_STALE_NOTE_S:
+            notes.append("pii_guard: NOTE the visibility map is %.1f h old; the refresher runs "
+                         "every 4 h, so it has missed several runs. Derivability still applies."
+                         % (age_s / 3600.0))
     _, self_name = _repo_slug(root)
     out, seen = [], set()
     for owner, name in private:
@@ -967,7 +1031,7 @@ def _cross_repo_tokens_typed(root, vis_path=None, notes=None):
         if name in seen:
             continue
         seen.add(name)
-        parent = derivation_witness(owner, name, public_by_owner)
+        parent = derivation_witness(owner, name, public_by_owner) if trust_map else None
         kind = "derived" if parent else "linkage"
         out.append(Token(name, kind, source="cross-repo",
                          witness=("%s/%s is PUBLIC" % (owner, parent)) if parent else None))

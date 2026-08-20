@@ -50,6 +50,23 @@ def write_denylist(tmp_path, tokens, fmt=2, count=None, canary=g.CANARY_TOKEN, e
     return str(p)
 
 
+def _now_iso():
+    import datetime
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def write_vis(path, mapping, refreshed=None):
+    """A visibility map fixture that models a HEALTHY machine unless told otherwise.
+
+    The `_refreshed` stamp is not decoration: derivability only applies while the map is recent
+    enough to be evidence, so a fixture without a stamp is a fixture of a broken machine. Tests
+    that want the stale path say so explicitly by passing `refreshed`.
+    """
+    d = dict(mapping)
+    d.setdefault("_refreshed", refreshed or _now_iso())
+    path.write_text(json.dumps(d), encoding="utf-8")
+
+
 def load(path, monkeypatch, root=None):
     monkeypatch.setenv("PII_DENYLIST", path)
     return g.load_policy(root)
@@ -67,10 +84,10 @@ def test_a_companion_of_a_PUBLIC_repo_is_derived_and_does_not_gate(tmp_path, mon
     this fleet documents the `<skill>-config` convention, so the companion name is something
     any reader can write down unaided. Enforcing it costs history rewrites and buys nothing."""
     vis = tmp_path / "vis.json"
-    vis.write_text(json.dumps({
+    write_vis(vis, {
         "owner/example-skill": "PUBLIC",
         "owner/example-skill-config": "PRIVATE",
-    }), encoding="utf-8")
+    })
     monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/other-repo.git\n")
     toks = g._cross_repo_tokens_typed(".", vis_path=str(vis))
     assert [t.value for t in toks] == ["example-skill-config"]
@@ -81,10 +98,10 @@ def test_a_companion_of_a_PRIVATE_repo_is_linkage_and_still_gates(tmp_path, monk
     """The twin. Direction is load-bearing: if the parent is not public, nothing published
     points at this name, so it is not derivable from anything and keeps full force."""
     vis = tmp_path / "vis.json"
-    vis.write_text(json.dumps({
+    write_vis(vis, {
         "owner/hidden-venture": "PRIVATE",
         "owner/hidden-venture-config": "PRIVATE",
-    }), encoding="utf-8")
+    })
     monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/other-repo.git\n")
     toks = g._cross_repo_tokens_typed(".", vis_path=str(vis))
     assert [(t.value, t.kind) for t in toks] == [("hidden-venture-config", "linkage")]
@@ -94,10 +111,10 @@ def test_derivability_is_scoped_to_the_SAME_owner(tmp_path, monkeypatch):
     """A public repo under a different owner does not license our private name. The convention
     is per-account; borrowing another account's public name to excuse ours would be a hole."""
     vis = tmp_path / "vis.json"
-    vis.write_text(json.dumps({
+    write_vis(vis, {
         "someone-else/example-skill": "PUBLIC",
         "owner/example-skill-config": "PRIVATE",
-    }), encoding="utf-8")
+    })
     monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/other-repo.git\n")
     toks = g._cross_repo_tokens_typed(".", vis_path=str(vis))
     assert [(t.value, t.kind) for t in toks] == [("example-skill-config", "linkage")]
@@ -105,7 +122,7 @@ def test_derivability_is_scoped_to_the_SAME_owner(tmp_path, monkeypatch):
 
 def test_a_private_repo_with_no_parent_at_all_is_linkage(tmp_path, monkeypatch):
     vis = tmp_path / "vis.json"
-    vis.write_text(json.dumps({"owner/quiet-ledger-service": "PRIVATE"}), encoding="utf-8")
+    write_vis(vis, {"owner/quiet-ledger-service": "PRIVATE"})
     monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/other-repo.git\n")
     toks = g._cross_repo_tokens_typed(".", vis_path=str(vis))
     assert [(t.value, t.kind) for t in toks] == [("quiet-ledger-service", "linkage")]
@@ -114,10 +131,10 @@ def test_a_private_repo_with_no_parent_at_all_is_linkage(tmp_path, monkeypatch):
 @pytest.mark.parametrize("suffix", list(g.CONVENTION_SUFFIXES))
 def test_every_documented_suffix_derives(suffix, tmp_path, monkeypatch):
     vis = tmp_path / "vis.json"
-    vis.write_text(json.dumps({
+    write_vis(vis, {
         "owner/example-skill": "PUBLIC",
         "owner/example-skill%s" % suffix: "PRIVATE",
-    }), encoding="utf-8")
+    })
     monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/other-repo.git\n")
     toks = g._cross_repo_tokens_typed(".", vis_path=str(vis))
     # some suffixes do not clear the distinctiveness filter on their own; when they are admitted
@@ -130,10 +147,10 @@ def test_an_undocumented_suffix_does_not_derive(tmp_path, monkeypatch):
     """Only the conventions we actually publish make a name derivable. `-backup` is not one of
     them, so nothing published points from the public name to this one."""
     vis = tmp_path / "vis.json"
-    vis.write_text(json.dumps({
+    write_vis(vis, {
         "owner/example-skill": "PUBLIC",
         "owner/example-skill-backup-store": "PRIVATE",
-    }), encoding="utf-8")
+    })
     monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/other-repo.git\n")
     toks = g._cross_repo_tokens_typed(".", vis_path=str(vis))
     assert [(t.value, t.kind) for t in toks] == [("example-skill-backup-store", "linkage")]
@@ -637,8 +654,8 @@ def test_a_derived_verdict_exhibits_its_witness(tmp_path, monkeypatch):
     """A declassification that cannot show its own derivation is an assertion. The witness names
     the public parent, so a reader can check the claim instead of trusting it."""
     vis = tmp_path / "vis.json"
-    vis.write_text(json.dumps({"owner/example-skill": "PUBLIC",
-                               "owner/example-skill-config": "PRIVATE"}), encoding="utf-8")
+    write_vis(vis, {"owner/example-skill": "PUBLIC",
+                               "owner/example-skill-config": "PRIVATE"})
     monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/other.git\n")
     tok = g._cross_repo_tokens_typed(".", vis_path=str(vis))[0]
     assert tok.kind == "derived"
@@ -881,8 +898,8 @@ def test_a_derived_finding_prints_its_witness():
 
 def test_a_short_repo_name_does_not_exempt_its_unrelated_siblings(tmp_path, monkeypatch):
     vis = tmp_path / "vis2.json"
-    vis.write_text(json.dumps({"owner/ab": "PUBLIC", "owner/ab-config": "PRIVATE",
-                               "owner/ab-hidden-thing": "PRIVATE"}), encoding="utf-8")
+    write_vis(vis, {"owner/ab": "PUBLIC", "owner/ab-config": "PRIVATE",
+                               "owner/ab-hidden-thing": "PRIVATE"})
     monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/ab.git\n")
     vals = [t.value for t in g._cross_repo_tokens_typed(".", vis_path=str(vis))]
     assert "ab-hidden-thing" in vals          # an unrelated private sibling
@@ -891,8 +908,7 @@ def test_a_short_repo_name_does_not_exempt_its_unrelated_siblings(tmp_path, monk
 
 def test_a_single_hyphen_data_companion_is_admitted(tmp_path, monkeypatch):
     vis = tmp_path / "vis3.json"
-    vis.write_text(json.dumps({"owner/pubtool": "PUBLIC", "owner/pubtool-data": "PRIVATE"}),
-                   encoding="utf-8")
+    write_vis(vis, {"owner/pubtool": "PUBLIC", "owner/pubtool-data": "PRIVATE"})
     monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/other.git\n")
     toks = g._cross_repo_tokens_typed(".", vis_path=str(vis))
     assert [(t.value, t.kind) for t in toks] == [("pubtool-data", "derived")]
@@ -900,7 +916,7 @@ def test_a_single_hyphen_data_companion_is_admitted(tmp_path, monkeypatch):
 
 def test_an_unknown_visibility_state_is_reported(tmp_path, monkeypatch):
     vis = tmp_path / "vis4.json"
-    vis.write_text(json.dumps({"owner/x-y-z": "ARCHIVED"}), encoding="utf-8")
+    write_vis(vis, {"owner/x-y-z": "ARCHIVED"})
     monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/other.git\n")
     notes = []
     g._cross_repo_tokens_typed(".", vis_path=str(vis), notes=notes)
@@ -1005,3 +1021,93 @@ def test_the_public_dotpath_convention_needs_a_word_boundary(path, expect_findin
     as the public manifest convention. Proposed by the self-evolve proposer."""
     got = "PRIVATE-PATH" in {k for k, _ in _hits('P = "%s"' % path)}
     assert got is expect_finding, (path, got)
+
+
+# ================================================================== the map has an age
+# `derived` is the one verdict here that RELAXES something, and its whole justification is a claim
+# about the outside world: the parent repo is public, so this name discloses nothing. A claim has an
+# age, and until 2026-08-20 nothing read the `_refreshed` stamp that sits in the map. A five-year-old
+# map still granted the downgrade, silently. Same shape as everything this redesign removed, pointing
+# the permissive way, introduced by the redesign.
+
+def _aged(days):
+    import datetime
+    return (datetime.datetime.now(datetime.timezone.utc)
+            - datetime.timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _typed(tmp_path, monkeypatch, refreshed, name="vis-age.json"):
+    vis = tmp_path / name
+    write_vis(vis, {"owner/example-skill": "PUBLIC",
+                    "owner/example-skill-config": "PRIVATE"}, refreshed=refreshed)
+    monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/other.git\n")
+    notes = []
+    toks = g._cross_repo_tokens_typed(".", vis_path=str(vis), notes=notes)
+    return toks, notes
+
+
+def test_a_fresh_map_grants_the_derived_downgrade(tmp_path, monkeypatch):
+    """The control. Everything below is worthless if the healthy path stops working."""
+    toks, notes = _typed(tmp_path, monkeypatch, _aged(0))
+    assert [(t.value, t.kind) for t in toks] == [("example-skill-config", "derived")]
+    assert not [n for n in notes if "old" in n]
+
+
+def test_a_map_past_the_maximum_age_stops_voting_on_derivability(tmp_path, monkeypatch):
+    """Strict is the safe direction, and it is also what this guard did before derivability
+    existed: the name goes back to gating."""
+    toks, notes = _typed(tmp_path, monkeypatch, _aged(45))
+    assert [(t.value, t.kind) for t in toks] == [("example-skill-config", "linkage")]
+    assert toks[0].witness is None          # no witness, because there is no claim to stand behind
+    assert any("days old" in n for n in notes), notes
+
+
+def test_a_map_with_no_refreshed_stamp_is_not_evidence(tmp_path, monkeypatch):
+    """A map whose age cannot be established is treated as one that is too old. There is no third
+    answer: `derived` needs a claim you can date."""
+    vis = tmp_path / "vis-nostamp.json"
+    vis.write_text(json.dumps({"owner/example-skill": "PUBLIC",
+                               "owner/example-skill-config": "PRIVATE"}), encoding="utf-8")
+    monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/other.git\n")
+    notes = []
+    toks = g._cross_repo_tokens_typed(".", vis_path=str(vis), notes=notes)
+    assert [(t.value, t.kind) for t in toks] == [("example-skill-config", "linkage")]
+    assert any("no _refreshed stamp" in n for n in notes), notes
+
+
+def test_an_unparseable_stamp_is_treated_the_same_way(tmp_path, monkeypatch):
+    toks, notes = _typed(tmp_path, monkeypatch, "last tuesday")
+    assert [(t.value, t.kind) for t in toks] == [("example-skill-config", "linkage")]
+    assert any("unparseable" in n for n in notes), notes
+
+
+def test_a_day_old_map_is_MENTIONED_but_still_votes(tmp_path, monkeypatch):
+    """The twin that stops this from becoming a gate that cries wolf. The refresher runs every four
+    hours; a day-old map has missed several runs and that is worth saying, not worth gating."""
+    toks, notes = _typed(tmp_path, monkeypatch, _aged(2))
+    assert [(t.value, t.kind) for t in toks] == [("example-skill-config", "derived")]
+    assert any("h old" in n for n in notes), notes
+
+
+def test_staleness_does_not_touch_the_LINKAGE_verdicts(tmp_path, monkeypatch):
+    """Only the downgrade depends on freshness. A stale map that still calls something private is
+    erring toward gating, which costs an edit rather than a disclosure."""
+    vis = tmp_path / "vis-linkage.json"
+    write_vis(vis, {"owner/hidden-venture": "PRIVATE",
+                    "owner/hidden-venture-config": "PRIVATE"}, refreshed=_aged(45))
+    monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/other.git\n")
+    toks = g._cross_repo_tokens_typed(".", vis_path=str(vis))
+    assert [(t.value, t.kind) for t in toks] == [("hidden-venture-config", "linkage")]
+
+
+def test_freshness_comes_from_the_STAMP_and_never_from_the_file_mtime(tmp_path, monkeypatch):
+    """visibility_of.py writes single keys back into this map on a cache miss, which bumps the
+    mtime without re-verifying one single answer. A freshly touched file with an ancient stamp is
+    exactly the case mtime gets wrong, and it is documented at length over there."""
+    vis = tmp_path / "vis-mtime.json"
+    write_vis(vis, {"owner/example-skill": "PUBLIC",
+                    "owner/example-skill-config": "PRIVATE"}, refreshed=_aged(45))
+    os.utime(str(vis), None)                       # touched just now, verdicts still 45 days old
+    monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/other.git\n")
+    toks = g._cross_repo_tokens_typed(".", vis_path=str(vis))
+    assert [(t.value, t.kind) for t in toks] == [("example-skill-config", "linkage")]
