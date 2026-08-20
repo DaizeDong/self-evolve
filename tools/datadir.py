@@ -122,6 +122,34 @@ def _reject_if_inside_own_repo(p, skill):
             % (skill, target, repo, _config_env_vars(skill)[0], _env_var(skill)))
 
 
+def _convention_roots(skill):
+    """The fleet convention: a skill's companion repo is its SIBLING, named `<skill>-config`.
+
+    Every companion repo in this fleet already follows this. Nothing looked for it, and that
+    was the whole defect. Discovery depended entirely on a per-skill environment variable, so
+    the answer to "where is this skill's data" depended on whether someone had remembered to
+    export a variable on this particular machine.
+
+    Measured 2026-08-20 across eight skills that have real data:
+      resolved to the companion repo   3   (their env var happened to be set)
+      resolved to a $HOME dotfile      3   (one of them WHILE its companion repo sat beside it)
+      answered "uninitialized"         3   (one of those had 153 tracked files in its companion)
+    The last group is the bad one: `datadir.py` returned None, callers correctly reported the
+    skill as having no data, and an out-of-band coverage check counted them as SKIP. Three real
+    private repos were invisible to the boundary tooling, and the report was green.
+
+    Derived from this file's own worktree rather than a hardcoded path, deliberately. The
+    absolute location differs per machine, and a home-anchored literal in a public repo is
+    exactly what pii_guard blocks. When this file is NOT inside a worktree (the canonical copy
+    under the scripts directory), there is no sibling to infer and this contributes nothing;
+    resolution then falls back to the env vars and dotfiles as before.
+    """
+    root = _own_repo_root()
+    if root is None:
+        return []
+    return [Path(root).parent / ("%s-config" % skill)]
+
+
 def _candidates(skill):
     """Discovery order, as Paths. See the module docstring."""
     out = []
@@ -139,7 +167,20 @@ def _candidates(skill):
         # which is what every consumer of this function is actually asking.
         out.append(root / "data")
         out.append(root)
-    out.append(Path(os.path.expanduser("~/.%s-config" % skill)) / "data")
+    # The convention comes BEFORE the dotfiles: when a skill has a real companion repo beside it,
+    # that repo is the answer, and a leftover dotfile must not shadow it. It comes AFTER the env
+    # vars so an explicit override still wins.
+    for root in _convention_roots(skill):
+        out.append(root / "data")
+        out.append(root)
+    dot = Path(os.path.expanduser("~/.%s-config" % skill))
+    out.append(dot / "data")
+    # The dotfile ROOT, not just its data/ subdir. Companion repos are already probed both ways
+    # a few lines up; the dotfile shape was only probed one way, so a skill that files output
+    # directly at the root answered "uninitialized" while its files sat right there. email-monitor
+    # is that shape (153 tracked files, its own private remote, and its CONFIG.md documents this
+    # exact path as the third discovery step) and it read as having no data at all until 2026-08-20.
+    out.append(dot)
     out.append(Path(os.path.expanduser("~/.%s-data" % skill)))
     return out
 
