@@ -36,6 +36,22 @@ jobs:
           python -m pip install --quiet pytest
           python -m pytest tools/test_pii_guard.py -q
 
+      # The v2 policy-layer suite. Not optional and not wrapped in a file test, for the same reason
+      # as the steps below: a repo whose vendored copy went missing would otherwise go green on a
+      # step that never ran.
+      #
+      # These tests are about a layer that DOES NOT EXIST ON THIS RUNNER. There is no private
+      # denylist in CI and there never will be, so what is verified here is the SHAPE of the policy
+      # machinery: that an unknown format raises instead of guessing, that a missing canary or a
+      # wrong count is refused rather than half-loaded, that a derivable companion name is admitted
+      # as reportable rather than blocking, and that a history-only exemption does not reach live
+      # content. Every one of those is a property of the code, checkable with synthetic fixtures,
+      # and every one of them is a property whose violation used to be silent.
+      - name: Policy-layer tests (can the private layer still prove it loaded?)
+        run: |
+          test -f tools/test_pii_guard_v2.py || { echo "::error::tools/test_pii_guard_v2.py is MISSING -- re-vendor it (install.py)"; exit 1; }
+          python -m pytest tools/test_pii_guard_v2.py -q
+
       # The resolver's tests. datadir.py decides WHERE real-run output goes, which makes it the one
       # file no downstream scanner can compensate for. A resolver that silently answers None looks
       # exactly like a skill that has no data, and that ambiguity is how the out-of-band boundary

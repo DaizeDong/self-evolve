@@ -425,10 +425,13 @@ if [ -z "$PY" ]; then
   exit 1
 fi
 
+# The guard's output is printed on EVERY run, not only on failure. See the same note in
+# global-hooks/pre-commit: HISTORY-DEBT lines, WARN lines and the exemption receipt are all
+# things the guard says while exiting 0, and a hook that speaks only on nonzero deletes them.
 out=$("$PY" "$GUARD" --tree 2>&1)
 rc=$?
+[ -n "$out" ] && printf '%s\n' "$out"
 if [ "$rc" -ne 0 ]; then
-  printf '%s\n' "$out"
   echo ""
   echo "pre-commit BLOCKED by pii_guard. Do not reach for --no-verify:"
   echo "right now the fix is an edit; after this commit it is a history rewrite."

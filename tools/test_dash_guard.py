@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# dash-guard:scanner-file -- this file carries the dash set by design; see _self_marker
 """Tests for dash_guard.
 
 The reason this file exists: on 2026-07-17 the guard's --fix pass rewrote every markdown table cell

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# dash-guard:scanner-file -- this file carries the dash set by design; see _self_marker
 """dash_guard: flag / fix en-dash and em-dash used as prose in a public repo.
 
 House rule (user global): published prose carries NO en/em dash. The ASCII hyphen `-` is left
@@ -323,21 +324,34 @@ def main() -> int:
     #                only this one affects an exit code.
     excluded = []                     # (path, reason)
     unexamined = []                   # (path, reason)
-    _self = {"dash_guard.py", "test_dash_guard.py"}   # the guard's own source carries the dash set
+    # The guard's own source carries the dash set by design, so it is exempt -- but keyed on the
+    # vendored PATH, not on the basename. A basename rule means `git mv prose.md tools/../
+    # dash_guard.py`, or simply any file called dash_guard.py in any directory, is exempt from the
+    # check. pii_guard had the identical hole and it was worth more there; the shape is the same
+    # and so is the fix. A legitimate copy at a non-standard path proves what it is by carrying
+    # the marker, rather than by being on a list of blessed locations.
+    _self_paths = {"tools/dash_guard.py", "tools/test_dash_guard.py",
+                   "dash_guard.py", "test_dash_guard.py"}
+    _self_marker = "dash-guard:scanner-file"
     for rel in files:
         path = rel if os.path.isabs(rel) else os.path.join(repo, rel)
         if not os.path.isfile(path):
             excluded.append((rel, "not a file on disk (sparse checkout, or removed)"))
             continue
-        if os.path.basename(path) in _self:
-            excluded.append((rel, "the guard's own source (contains the dash set by design)"))
-            continue
+        _rel = rel.replace(chr(92), "/")
+        while _rel.startswith("./"):
+            _rel = _rel[2:]
         try:
             text = open(path, encoding="utf-8").read()
         except (UnicodeDecodeError, OSError) as e:
             # Unchanged behaviour: an undecodable or unreadable file is skipped. It is now RECORDED,
             # because "skipped" reported as "clean" is the same class of lie as the git fail-open.
             unexamined.append((rel, "unreadable (%s)" % type(e).__name__))
+            continue
+        if _rel in _self_paths or (os.path.basename(_rel) in
+                                   {"dash_guard.py", "test_dash_guard.py"}
+                                   and _self_marker in text):
+            excluded.append((rel, "the guard's own source (contains the dash set by design)"))
             continue
         kind = _KIND.get(os.path.splitext(path)[1].lower())
         if kind is None:
