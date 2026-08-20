@@ -201,9 +201,12 @@ PRIVATE_PATH_RE = re.compile(
 # DEEPER path -- `~/.claude/skills/<name>/scripts/<file>` -- is a hardcoded path into a tool's
 # internals (exactly how llmcall leaked another tool's relay.py) and stays a finding; a legitimate
 # self-reference goes in .pii-allow with a reason.
+# `-plugin\b`, not a bare `-plugin`: without the boundary ANY dotdir whose name STARTS with
+# `.claude-plugin` counted as the public manifest convention, so a home-anchored
+# `~/.claude-plugins-private/keys.json` was waved through as if it were `.claude-plugin/plugin.json`.
+# Proposed by the self-evolve proposer; both spellings were checked before this was applied.
 PUBLIC_DOTPATH_RE = re.compile(
-    r"^\.claude(?:\.json\b|-plugin\b(?:[\\/][\w.\-]+)?[\\/]?$"
-    r"|[\\/](?:skills|plugins|agents|commands)(?:[\\/][\w.\-]+)?[\\/]?$)",
+    r"^\.claude(?:\.json\b|-plugin\b|[\\/](?:skills|plugins|agents|commands)(?:[\\/][\w.\-]+)?[\\/]?$)",
     re.I)
 
 # Python decorators read as emails to the regex: a diff line `+@pytest.mark.xfail` scans as
@@ -268,9 +271,23 @@ def is_scanner_content(rel, text):
     if text is None or os.path.basename(_norm_rel(rel)) not in SCANNER_FILES:
         return False
     return any(sig in text for sig in SCANNER_SIGNATURES)
-# Same reason, for the history pass: exclude the scanner blobs from the diff scan. Commit MESSAGES
-# are scanned separately and unconditionally -- they are not covered by a pathspec.
-HISTORY_EXCLUDE = [":(exclude)*pii_guard.py", ":(exclude)*test_pii_guard.py", ":(exclude)*.pii-allow"]
+# The same exemption for the DIFF domains, DERIVED from SCANNER_PATHS so the two cannot drift.
+# They already had: `test_pii_guard_v2.py` went into SCANNER_FILES and not into this list, and
+# staging an edit to the vendored copy of that test was then blocked by the test's own synthetic
+# mailbox. Measured 2026-08-20 with a matched control: editing tools/test_pii_guard_v2.py blocked,
+# editing tools/test_pii_guard.py clean. Found by the self-evolve proposer.
+#
+# EXACT paths, not the `*basename` globs this used to use. A glob meant any file called
+# pii_guard.py anywhere was dropped from the staged and range scans, which is the same shadow the
+# tree domain had and the same reason it was closed there.
+#
+# Note the asymmetry with the tree and history domains, which additionally accept a copy at a
+# non-standard path that proves its identity by content. A diff does not carry a file's full
+# content, so identity-by-content is not available here; the diff domains use the vendored path
+# alone, which is the stricter of the two.
+#
+# Commit MESSAGES are scanned separately and unconditionally: no pathspec covers them.
+HISTORY_EXCLUDE = [":(exclude)" + p for p in sorted(SCANNER_PATHS)]
 BINARY_EXT = {".png", ".jpg", ".jpeg", ".gif", ".pdf", ".zip", ".ico", ".woff", ".woff2",
               ".sqlite3", ".db", ".bundle", ".pack", ".webp", ".mp4", ".xlsx"}
 
@@ -859,14 +876,7 @@ def _load_visibility(vis_path=None, notes=None):
         owner, name = owner.strip().lower(), name.strip().lower()
         if state == "PUBLIC":
             public.setdefault(owner, set()).add(name)
-        elif state == "PRIVATE" or state == "UNKNOWN":
-            # UNKNOWN is fail-closed here for the same reason every other unproven-visibility case
-            # in this fleet is: a repo whose visibility could not be confirmed is treated as if it
-            # were PRIVATE, so its name still becomes linkage material this layer can catch. The
-            # alternative -- falling through because it is neither proven PUBLIC nor PRIVATE -- used
-            # to drop it with no note at all, since "UNKNOWN" is a recognised state and never hit
-            # the `state not in VISIBILITY_STATES` branch below. A leak of exactly that name would
-            # then go uncaught, which is a silent hole in a layer whose whole point is to have none.
+        elif state == "PRIVATE":
             private.append((owner, name))
         elif state not in VISIBILITY_STATES:
             # An unrecognised state is dropped, and a silently dropped PRIVATE repo is a token
@@ -1338,7 +1348,17 @@ def scan_tree(root, allow, pol, files=None, stats=None):
     counts = {"enumerated": 0, "scanned": 0, "skipped_dir": 0, "skipped_binary_ext": 0,
               "unreadable": [], "recoded": []}
     for rel in (tracked_files(root) if files is None else files):
-        rel = rel.strip()
+        # NOT rel.strip(). `tracked_files` uses `git ls-files -z`, whose separator is unambiguous,
+        # and its own docstring says so -- but this loop kept trimming anyway, which is the same
+        # inconsistency wearing a different hat. A tracked path with a leading or trailing space
+        # came back mangled, open() raised FileNotFoundError, and the file was recorded as
+        # unreadable and never scanned. Measured 2026-08-20 on a fixture named " leading
+        # space.md" holding a consumer mailbox: the run exited 0.
+        #
+        # It exited 0 while SAYING it had not examined the file, which is the honest half working
+        # as designed, but a miss is a miss. Found by the self-evolve proposer, which is exactly
+        # the class of thing an automated reader is good at: a comment and the code beneath it
+        # disagreeing.
         if not rel:
             continue
         counts["enumerated"] += 1
