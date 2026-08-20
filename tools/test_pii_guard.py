@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pii-guard:scanner-file -- this file must contain the shapes it detects; see SCANNER_MARKER
 """Tests for pii_guard.
 
 The acceptance criterion is not "does it pass on clean input". It is: **would it have caught every
@@ -29,9 +30,15 @@ import pii_guard as g  # noqa: E402
 
 
 def scan(text, allow=(), deny=(), strict=True):
+    """Findings as (label, value).
+
+    Findings gained a fourth element, the SEVERITY, when the jurisdiction matrix landed. These
+    tests are about detection -- does the guard SEE the thing -- so they drop it here, and the
+    severity itself is covered by its own tests below and by the scenario corpus in bench/.
+    """
     out = []
     g.scan_text(text, "x", set(allow), list(deny), out, strict=strict)
-    return [(k, v) for _, k, v in out]
+    return [(k, v) for _, k, v, _sev in out]
 
 
 def kinds(text, **kw):
@@ -237,7 +244,7 @@ def test_the_scanner_file_exemption_is_deny_only_not_skip_all():
     out = []
     g.scan_text("call 212-867-5309 about jane roe", "tools/test_pii_guard.py",
                 set(), ["jane roe"], out, deny_only=True)
-    found = {k for _, k, _ in out}
+    found = {k for _, k, _, _sev in out}
     assert found == {"PRIVATE-DENYLIST"}, found     # denylist fires; structural checks do not
 
 
@@ -245,7 +252,7 @@ def test_structural_checks_still_run_without_the_private_denylist():
     """CI and other contributors have no such file. The guard must not quietly become a no-op."""
     out = []
     g.scan_text("ship to NJ 07030", "x", set(), [], out)      # empty denylist
-    assert ("x", "ZIP", "07030") in out
+    assert ("x", "ZIP", "07030", "BLOCK") in out
 
 
 # ---------------------------------------------------------------- machine paths (the 2026-07 gap)

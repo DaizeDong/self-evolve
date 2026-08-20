@@ -43,10 +43,13 @@ if [ -z "$PY" ]; then
   exit 1
 fi
 
+# Printed on every run. This hook is the one that runs --history, so it is the ONLY place the
+# HISTORY-DEBT lines can ever be seen. Swallowing a passing run here would make the entire debt
+# ledger invisible, which is exactly how debt stops being debt and becomes furniture.
 out=$("$PY" "$GUARD" --tree --history 2>&1)
 rc=$?
+[ -n "$out" ] && printf '%s\n' "$out"
 if [ "$rc" -ne 0 ]; then
-  printf '%s\n' "$out"
   echo ""
   echo "push BLOCKED by pii_guard: real private data would become public and permanent."
   echo "A file edit is NOT a fix once it is in a commit -- rewrite the history (git filter-repo)."
