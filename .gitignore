@@ -44,3 +44,14 @@ examples/*/_run/
 .nightrun/
 _run/
 .btarget_strong/
+
+# Run artifacts written into the repo root by a live proposer round. `proposal_tmp.json` holds a
+# FULL COPY of the candidate file the proposer rewrote, which for a large target is a hundred
+# kilobytes of somebody else's source sitting untracked in this repo. It was not ignored, and the
+# only reason it never got committed by a `git add -A` is that pii_guard blocked the commit --
+# which is a guard doing its job, not a design.
+proposal_*.json
+proposal_*.txt
+_tmp_*
+*_tmp.json
+.coverage
