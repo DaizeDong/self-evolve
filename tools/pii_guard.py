@@ -202,7 +202,8 @@ PRIVATE_PATH_RE = re.compile(
 # internals (exactly how llmcall leaked another tool's relay.py) and stays a finding; a legitimate
 # self-reference goes in .pii-allow with a reason.
 PUBLIC_DOTPATH_RE = re.compile(
-    r"^\.claude(?:\.json\b|-plugin|[\\/](?:skills|plugins|agents|commands)(?:[\\/][\w.\-]+)?[\\/]?$)",
+    r"^\.claude(?:\.json\b|-plugin\b(?:[\\/][\w.\-]+)?[\\/]?$"
+    r"|[\\/](?:skills|plugins|agents|commands)(?:[\\/][\w.\-]+)?[\\/]?$)",
     re.I)
 
 # Python decorators read as emails to the regex: a diff line `+@pytest.mark.xfail` scans as
@@ -858,7 +859,14 @@ def _load_visibility(vis_path=None, notes=None):
         owner, name = owner.strip().lower(), name.strip().lower()
         if state == "PUBLIC":
             public.setdefault(owner, set()).add(name)
-        elif state == "PRIVATE":
+        elif state == "PRIVATE" or state == "UNKNOWN":
+            # UNKNOWN is fail-closed here for the same reason every other unproven-visibility case
+            # in this fleet is: a repo whose visibility could not be confirmed is treated as if it
+            # were PRIVATE, so its name still becomes linkage material this layer can catch. The
+            # alternative -- falling through because it is neither proven PUBLIC nor PRIVATE -- used
+            # to drop it with no note at all, since "UNKNOWN" is a recognised state and never hit
+            # the `state not in VISIBILITY_STATES` branch below. A leak of exactly that name would
+            # then go uncaught, which is a silent hole in a layer whose whole point is to have none.
             private.append((owner, name))
         elif state not in VISIBILITY_STATES:
             # An unrecognised state is dropped, and a silently dropped PRIVATE repo is a token
