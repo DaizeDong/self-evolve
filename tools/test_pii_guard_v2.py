@@ -939,3 +939,69 @@ def test_a_legacy_BARE_ARRAY_policy_file_is_also_announced(tmp_path, monkeypatch
     monkeypatch.setenv("PII_DENYLIST", p)
     pol = g.load_policy(None)
     assert any("legacy format" in n for n in pol.notes), pol.notes
+
+
+def test_a_tracked_path_with_a_leading_space_is_still_scanned(repo):
+    """`git ls-files -z` makes the separator unambiguous, so trimming each entry is not just
+    unnecessary, it corrupts paths that legitimately begin or end with whitespace. The file then
+    fails to open and is recorded as unreadable -- honest, and still a miss.
+
+    Found by the self-evolve proposer: `tracked_files` documented that stripping was wrong while
+    `scan_tree` still stripped. A comment disagreeing with the code under it is precisely what an
+    automated reader is good at noticing."""
+    repo.write(" leading space.md", "contact jane.doe@gmail.com\n")
+    repo.commit()
+    stats = {}
+    out = g.scan_tree(repo.root, set(), g.Policy.of([]), stats=stats)
+    assert stats.get("scanned") == 1, stats
+    assert not stats.get("unreadable"), stats
+    assert "PERSONAL-MAILBOX" in _labels(out)
+
+
+def _stage_edit(repo, rel):
+    repo.write("seed.md", "seed\n")
+    repo.commit("seed")
+    repo.write(rel, "# fixture line mentioning jane.doe@gmail.com\n")
+    repo.git("add", "-A")
+    return g.scan_staged(repo.root, set(), g.Policy.of([]))
+
+
+def test_editing_the_vendored_v2_test_file_is_not_blocked_by_its_own_fixtures(repo):
+    """`test_pii_guard_v2.py` went into SCANNER_FILES and not into the diff-domain exclusion, so
+    staging an edit to the vendored copy was blocked by the test's own synthetic mailbox. Verified
+    2026-08-20 with a matched control. Found by the self-evolve proposer.
+
+    The exclusion is now DERIVED from SCANNER_PATHS, so the two lists cannot drift again."""
+    assert _stage_edit(repo, "tools/test_pii_guard_v2.py") == []
+
+
+def test_the_other_two_scanner_files_are_still_exempt_in_the_diff_domains(repo):
+    assert _stage_edit(repo, "tools/pii_guard.py") == []
+
+
+def test_a_scanner_BASENAME_elsewhere_is_NOT_exempt_in_the_diff_domains(repo):
+    """The exclusion used to be a `*basename` glob, so any file called pii_guard.py anywhere was
+    dropped from the staged and range scans. Same shadow the tree domain had, same fix."""
+    out = _stage_edit(repo, "docs/pii_guard.py")
+    assert out and any(lab == "PERSONAL-MAILBOX" for _w, lab, _v, _s in out), out
+
+
+def test_the_exclusion_covers_every_scanner_path():
+    """Derived, not maintained by hand. A list that has to be kept in step with another list is a
+    list that will fall out of step with it, which is exactly what happened."""
+    for p in g.SCANNER_PATHS:
+        assert (":(exclude)" + p) in g.HISTORY_EXCLUDE
+
+
+@pytest.mark.parametrize("path,expect_finding", [
+    ("~/.claude-plugin/plugin.json", False),        # the public manifest convention
+    ("~/.claude-plugin", False),
+    ("~/.claude-plugins-private/keys.json", True),  # NOT the convention, merely starts like it
+    ("~/.claude/skills/example-skill", False),      # a shallow install dir, also a convention
+    ("~/.claude/scripts/relay.py", True),           # a deep path into a private tool
+])
+def test_the_public_dotpath_convention_needs_a_word_boundary(path, expect_finding):
+    """Without `\b` after `-plugin`, any dotdir whose name STARTS with `.claude-plugin` counted
+    as the public manifest convention. Proposed by the self-evolve proposer."""
+    got = "PRIVATE-PATH" in {k for k, _ in _hits('P = "%s"' % path)}
+    assert got is expect_finding, (path, got)
