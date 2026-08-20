@@ -539,7 +539,22 @@ def scan_range(root, allow, deny, rev_range):
             out.append(("<commit author (being pushed)>", "AUTHOR-EMAIL", ident))
     diff = _run(["git", "log", "-p", "--format=%n"] + args + ["--"] + HISTORY_EXCLUDE, root)
     if diff:
-        scan_text(diff, "<diff (being pushed)>", allow, deny, out, strict=False)
+        # ADDED lines only, matching scan_staged. Scanning the whole diff text also reads the
+        # REMOVED lines, and a removed line is the opposite of a leak: it is the fix.
+        #
+        # That made a deadlock, hit for real on 2026-08-20. A public repo contained an identifier
+        # that had become a denylist token after the fact. Deleting the line was the correct fix,
+        # and the commit that deleted it could not be pushed, because its own diff still contained
+        # the string on a "-" line. Leaving it was also blocked, since the pre-commit tree scan saw
+        # it in the working tree. Every route was closed and the only remaining doors were
+        # --no-verify or rewriting history over a one-line edit.
+        #
+        # History is still scanned in full by scan_history, which is the right place to ask "does
+        # this string exist anywhere in the past". This function asks a narrower question: is there
+        # private data in what you are ADDING.
+        for line in diff.splitlines():
+            if line.startswith("+") and not line.startswith("+++"):
+                scan_text(line[1:], "<diff (being pushed)>", allow, deny, out, strict=False)
     return out
 
 
