@@ -9,18 +9,69 @@ import glob
 import json
 import os
 import subprocess
+import sys
 
 # proposer 输入的源码上限（防 prompt 过大 / 控成本）
+#
+# 2026-08-20: _MAX_FILE_BYTES 原为 20_000，而它是**静默**跳过的。指向一个唯一源文件 106 KB 的
+# 目标时，收集结果是 0 个文件 → generate() 第一行 return [] → propose 回退 builtin（无 fix_content）
+# → props 为空 → STATIC_REJECT。连跑四轮，退出码 0，accepted_versions 为空，输出与「真的没有可改进
+# 之处」逐字相同。proposer 一次都没被调用过。
+#
+# 单文件上限提到 160 KB（约 40K token，远在现代上下文窗口内），真正的预算继续由
+# _MAX_TOTAL_BYTES 承担。跳过的文件现在**记录下来**，因为一个只会静默变空的输入，跟一个「没有
+# 提议」的模型是同一个可观测结果，而它们完全不是一回事。
 _MAX_FILES = 12
-_MAX_FILE_BYTES = 20_000
-_MAX_TOTAL_BYTES = 120_000
+_MAX_FILE_BYTES = 160_000
+_MAX_TOTAL_BYTES = 400_000
 
 # artifact proposer 的产物大小上限（防 prompt 过大）
 _MAX_ARTIFACT_BYTES = 200_000
 
 
-def _gather_sources(sandbox_root: str) -> dict[str, str]:
-    """收集 candidate 的非测试 .py 源码（相对路径 → 内容），受规模上限约束。"""
+# The workflow scripts, resolved from THIS file rather than from the process working directory.
+_PKG_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))))
+
+
+def _script(name: str) -> str:
+    return os.path.join(_PKG_ROOT, "workflows", name)
+
+
+def _scratch_cwd() -> str:
+    """A throwaway working directory for the proposer subprocess.
+
+    The proposer is a Claude Code agent with file-writing tools, and it was inheriting this
+    repository as its working directory. Over four rounds on 2026-08-20 it left
+    `proposal_tmp.json`, `proposal_folded.txt`, `proposal_output.json`, `.proposer_out.json`,
+    `tools/_tmp_head_pii_guard.py` and `tools/_tmp_output.json` in the repo -- each one a full or
+    partial copy of the target's source -- and it also EDITED a real vendored file in place. None
+    of that is in the contract; the contract is a JSON object on stdout.
+
+    Adding each new name to .gitignore is chasing it. Giving the subprocess a working directory
+    that is not a repository is the fix, and it costs one temp dir per call.
+    """
+    import tempfile
+    return tempfile.mkdtemp(prefix="sie-proposer-")
+
+
+def _empty(why: str) -> list:
+    """Return [] and SAY WHY on stderr.
+
+    Every one of the callers of this used to be a bare `return []`, and `[]` is also what the
+    function returns when the model genuinely had no suggestion. One value, two meanings, and only
+    the innocent one appears in the run report.
+    """
+    print("sie: proposer produced nothing -- %s" % why, file=sys.stderr)
+    return []
+
+
+def _gather_sources(sandbox_root: str, skipped: list | None = None) -> dict[str, str]:
+    """收集 candidate 的非测试 .py 源码（相对路径 → 内容），受规模上限约束。
+
+    `skipped` 若给出，会被填成 [(rel, 原因)]。调用方必须能分辨「收集到 0 个文件」与「收集到文件
+    但模型没有提议」——这两者在此之前是同一个返回值。
+    """
     files: dict[str, str] = {}
     total = 0
     for dirpath, dirnames, filenames in os.walk(sandbox_root):
@@ -33,6 +84,10 @@ def _gather_sources(sandbox_root: str) -> dict[str, str]:
             ap = os.path.join(dirpath, fn)
             try:
                 if os.path.getsize(ap) > _MAX_FILE_BYTES:
+                    if skipped is not None:
+                        skipped.append((os.path.relpath(ap, sandbox_root).replace("\\", "/"),
+                                        "larger than _MAX_FILE_BYTES (%d bytes)"
+                                        % os.path.getsize(ap)))
                     continue
                 content = open(ap, encoding="utf-8").read()
             except (OSError, UnicodeDecodeError):
@@ -73,31 +128,53 @@ def generate(sandbox_root: str, reflections: list[dict], timeout_s: int = 600) -
 
     Returns [] on any failure (launch/timeout/non-zero/empty/parse) — never raises.
     """
-    files = _gather_sources(sandbox_root)
+    skipped: list = []
+    files = _gather_sources(sandbox_root, skipped)
     if not files:
+        # 空输入不是空提议。静默返回 [] 会让上游把「proposer 没东西可看」记成「proposer 看过了没
+        # 想法」，而这个 run 的最终报告只有后者。说出来，再返回。
+        print("sie: proposer gathered 0 source files from %s%s"
+              % (sandbox_root,
+                 (" -- skipped: " + "; ".join("%s (%s)" % t for t in skipped[:5]))
+                 if skipped else ""),
+              file=sys.stderr)
         return []
     payload = json.dumps({"findings": _extract_findings(reflections), "files": files})
     try:
         proc = subprocess.run(
-            ["node", "workflows/claude-propose.js"],
+            ["node", _script("claude-propose.js")],
             input=payload,
             capture_output=True,
             text=True,
             encoding="utf-8",      # 勿用 locale(GBK)解码 UTF-8 输出
             errors="replace",
             timeout=timeout_s,
+            cwd=_scratch_cwd(),    # not this repo: see _scratch_cwd
         )
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        return []
-    if proc.returncode != 0 or not proc.stdout.strip():
-        return []
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+        return _empty("proposer subprocess failed: %s" % type(e).__name__)
+    if proc.returncode != 0:
+        return _empty("proposer exited %d: %s"
+                      % (proc.returncode, (proc.stderr or "").strip()[:300]))
+    if not proc.stdout.strip():
+        return _empty("proposer produced no stdout at all")
     try:
         obj = json.loads(proc.stdout)
     except (ValueError, json.JSONDecodeError):
-        return []
+        # This is NOT "no proposal". Observed 2026-08-20 on a 106 KB target: the agent decided a
+        # hundred kilobytes of new_content was too much to emit inline, wrote it to a file in the
+        # working directory instead, and printed prose. The contract only reads stdout, so the
+        # loop recorded STATIC_REJECT while a complete, usable proposal sat on disk.
+        return _empty("proposer stdout was not JSON (first 200 chars: %r). If the target file is "
+                      "large the agent may have written the content to a file instead of "
+                      "returning it inline; the contract only reads stdout."
+                      % proc.stdout.strip()[:200])
     fr, nc = obj.get("file_rel"), obj.get("new_content")
-    if not isinstance(fr, str) or not isinstance(nc, str) or fr not in files:
-        return []
+    if not isinstance(fr, str) or not isinstance(nc, str):
+        return _empty("proposer JSON lacked file_rel/new_content strings (keys: %s)"
+                      % sorted(obj) if isinstance(obj, dict) else "not an object")
+    if fr not in files:
+        return _empty("proposer named %r, which was not one of the files it was given" % fr)
     return [{"file_rel": fr, "new_content": nc, "fixes": "llm-proposer"}]
 
 
@@ -165,16 +242,17 @@ def generate_artifact(sandbox_root: str, reflections: list[dict],
     })
     try:
         proc = subprocess.run(
-            ["node", "workflows/claude-propose-artifact.js"],
+            ["node", _script("claude-propose-artifact.js")],
             input=payload,
             capture_output=True,
             text=True,
             encoding="utf-8",      # 勿用 locale(GBK)解码 UTF-8 输出
             errors="replace",
             timeout=timeout_s,
+            cwd=_scratch_cwd(),    # not this repo: see _scratch_cwd
         )
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        return []
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+        return _empty("artifact proposer subprocess failed: %s" % type(e).__name__)
     if proc.returncode != 0 or not proc.stdout.strip():
         return []
     try:
