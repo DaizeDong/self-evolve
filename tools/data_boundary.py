@@ -177,7 +177,18 @@ def load_manifest(root):
 
 
 def tracked(root):
-    return set(_run(["git", "ls-files"], root).splitlines())
+    """Every git-tracked path, NUL-separated so non-ASCII names survive.
+
+    Why -z: `git ls-files` without it renders any path containing a non-ASCII byte as a
+    C-quoted escape string (quotes included, e.g. "ä¸­...md"). Those strings are
+    not paths. They do not open, and every regex anchored on a real suffix misses them.
+    Callers read this list as an ANSWER, so such a file got counted in the tracked total and
+    then silently excluded from every per-file match. Measured 2026-08-19: a tracked
+    metrics/<CJK>-live-runs.jsonl produced "clean (... 3 tracked files carry no real-run
+    shape)" with rc=0, while byte-identical content under an ASCII name produced rc=1.
+    -z makes git emit raw bytes with NUL separators, so the name round-trips.
+    """
+    return {p for p in _run(["git", "ls-files", "-z"], root).split("\0") if p}
 
 
 def _covered(rel, pats):

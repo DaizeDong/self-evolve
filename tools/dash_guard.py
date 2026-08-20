@@ -266,7 +266,10 @@ def _eligible(paths):
 def _tracked(repo):
     """(all tracked paths, the ones with a de-dashable extension). Both are returned so main can
     tell 'this repo tracks nothing' from 'this repo tracks no markdown/text/python'."""
-    all_paths = [f for f in _git(repo, "ls-files").splitlines() if f.strip()]
+    # -z: see the note in pii_guard.tracked_files. Without it a non-ASCII path arrives as a
+    # C-quoted escape string that opens nothing, and it vanishes from BOTH the examined and the
+    # skipped tally, so the clean line does not even admit something went unread.
+    all_paths = [p for p in _git(repo, "ls-files", "-z").split("\0") if p]
     return all_paths, _eligible(all_paths)
 
 
