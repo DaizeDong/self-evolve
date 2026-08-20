@@ -275,6 +275,35 @@ def check_fixtures_are_generated(root, m, out):
                             "Change the SCHEMA, then run: python tools/make_fixtures.py"))
 
 
+def check_empty_data_is_audited(root, m, out):
+    """An empty `data` list has to be a conclusion someone reached, not a default.
+
+    THIS IS THE CHECK THAT MAKES `_audited` MEAN ANYTHING. The convention of recording an
+    `_audited` (or `_armed`) note next to an empty data list has been followed for a long time:
+    measured 2026-08-20, ten of the eleven manifests with an empty list carried one. And until
+    that date NOTHING READ THEM. `grep -rn "_armed|_audited"` over the guard sources returned
+    zero hits, so the entire evidence that "this skill genuinely produces no in-repo data" was a
+    sentence no program had ever looked at. data_boundary is the primary control, and its own
+    docstring says PROSE IS NOT A CONTROL; this was prose.
+
+    An empty list is the single most consequential value in this file, because every per-file
+    check below iterates it. Empty means "assert nothing", and it is also exactly what a fresh
+    manifest looks like. Requiring a human-written reason is what separates the two.
+
+    Deliberately NOT satisfied by any non-empty string of whitespace, and deliberately naming
+    both keys: `_armed` is the older spelling and several manifests still use it.
+    """
+    if m.get("data"):
+        return
+    note = m.get("_audited") or m.get("_armed")
+    if note is None or not str(note).strip():
+        out.append(("UNAUDITED", MANIFEST,
+                    "an empty \"data\" list asserts nothing, and nothing here says that was a "
+                    "finding rather than a default. Add \"_audited\" naming where this skill's "
+                    "real output actually goes (usually its private companion repo) and how that "
+                    "was verified."))
+
+
 def check_no_undeclared_run_shapes(root, m, files, out):
     """The check that survives an EMPTY manifest -- see "WHY CHECK 4 EXISTS" at the top of this file.
 
@@ -322,6 +351,7 @@ def main():
     check_data_has_schema(root, m, out)
     check_fixtures_are_generated(root, m, out)
     check_no_undeclared_run_shapes(root, m, files, out)
+    check_empty_data_is_audited(root, m, out)
 
     if not out:
         print("data_boundary: clean (%d DATA + %d sealed paths absent, %d FIXTUREs "
