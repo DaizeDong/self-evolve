@@ -226,7 +226,8 @@ def test_the_guard_and_its_tests_contain_no_private_data():
     """The whole argument for allowlist-over-denylist: a denylist of real identifiers IS a PII
     document, so vendoring it into a public repo is itself the leak. Checked against the operator's
     real list at runtime -- which lives outside every repo, so this test hardcodes nothing."""
-    deny = g.load_private_denylist()
+    # load_policy is the API now; the flat-list shim it replaced had no production caller.
+    deny = [t.value for t in g.load_policy().tokens]
     if not deny:
         pytest.skip("no private denylist on this machine (expected in CI / for contributors)")
     here = os.path.dirname(os.path.abspath(__file__))

@@ -89,7 +89,7 @@ def test_a_companion_of_a_PUBLIC_repo_is_derived_and_does_not_gate(tmp_path, mon
         "owner/example-skill-config": "PRIVATE",
     })
     monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/other-repo.git\n")
-    toks = g._cross_repo_tokens_typed(".", vis_path=str(vis))
+    toks = g.load_cross_repo_tokens(".", vis_path=str(vis))
     assert [t.value for t in toks] == ["example-skill-config"]
     assert toks[0].kind == "derived"
 
@@ -103,7 +103,7 @@ def test_a_companion_of_a_PRIVATE_repo_is_linkage_and_still_gates(tmp_path, monk
         "owner/hidden-venture-config": "PRIVATE",
     })
     monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/other-repo.git\n")
-    toks = g._cross_repo_tokens_typed(".", vis_path=str(vis))
+    toks = g.load_cross_repo_tokens(".", vis_path=str(vis))
     assert [(t.value, t.kind) for t in toks] == [("hidden-venture-config", "linkage")]
 
 
@@ -116,7 +116,7 @@ def test_derivability_is_scoped_to_the_SAME_owner(tmp_path, monkeypatch):
         "owner/example-skill-config": "PRIVATE",
     })
     monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/other-repo.git\n")
-    toks = g._cross_repo_tokens_typed(".", vis_path=str(vis))
+    toks = g.load_cross_repo_tokens(".", vis_path=str(vis))
     assert [(t.value, t.kind) for t in toks] == [("example-skill-config", "linkage")]
 
 
@@ -124,7 +124,7 @@ def test_a_private_repo_with_no_parent_at_all_is_linkage(tmp_path, monkeypatch):
     vis = tmp_path / "vis.json"
     write_vis(vis, {"owner/quiet-ledger-service": "PRIVATE"})
     monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/other-repo.git\n")
-    toks = g._cross_repo_tokens_typed(".", vis_path=str(vis))
+    toks = g.load_cross_repo_tokens(".", vis_path=str(vis))
     assert [(t.value, t.kind) for t in toks] == [("quiet-ledger-service", "linkage")]
 
 
@@ -136,7 +136,7 @@ def test_every_documented_suffix_derives(suffix, tmp_path, monkeypatch):
         "owner/example-skill%s" % suffix: "PRIVATE",
     })
     monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/other-repo.git\n")
-    toks = g._cross_repo_tokens_typed(".", vis_path=str(vis))
+    toks = g.load_cross_repo_tokens(".", vis_path=str(vis))
     # some suffixes do not clear the distinctiveness filter on their own; when they are admitted
     # at all, they must be admitted as derived
     for t in toks:
@@ -152,7 +152,7 @@ def test_an_undocumented_suffix_does_not_derive(tmp_path, monkeypatch):
         "owner/example-skill-backup-store": "PRIVATE",
     })
     monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/other-repo.git\n")
-    toks = g._cross_repo_tokens_typed(".", vis_path=str(vis))
+    toks = g.load_cross_repo_tokens(".", vis_path=str(vis))
     assert [(t.value, t.kind) for t in toks] == [("example-skill-backup-store", "linkage")]
 
 
@@ -200,15 +200,6 @@ def test_a_secret_hit_is_BLOCK_in_history_too():
     pol = g.Policy.of(["zzsecrettokenalpha"])
     past = sev_of("the zzsecrettokenalpha account", pol, "history")
     assert list(past.values()) == ["BLOCK"]
-
-
-def test_associative_needs_company_to_gate():
-    pol = g.Policy()
-    pol.tokens = [g.Token("acmecorp", "associative"), g.Token("zzsecrettok", "secret")]
-    alone = sev_of("we partnered with AcmeCorp last year", pol, "tree")
-    assert alone[("PRIVATE-DENYLIST/ASSOCIATIVE", "acmecorp")] == "WARN"
-    together = sev_of("AcmeCorp, see zzsecrettok", pol, "tree")
-    assert together[("PRIVATE-DENYLIST/ASSOCIATIVE", "acmecorp")] == "BLOCK"
 
 
 # ================================================================== loader self-attestation
@@ -339,9 +330,24 @@ def test_the_real_matcher_passes_its_own_probe():
 
 
 # ================================================================== exemptions and the receipt
+def _nonced(repo_key, entries):
+    """Stamp each object entry with the nonce `grant` would have written.
+
+    A fixture without one now models a HAND-WRITTEN exemption, which is a different thing and has
+    its own test. Most of these fixtures mean to model a grant that went through the proper path.
+    """
+    out = []
+    for e in entries:
+        if isinstance(e, dict) and "nonce" not in e:
+            e = dict(e, nonce=g._nonce_for(repo_key, e.get("token", "")))
+        out.append(e)
+    return out
+
+
 def _exempt(tmp_path, monkeypatch, payload):
     home = tmp_path / "home"
     (home / ".pii-guard").mkdir(parents=True)
+    payload = {k: (_nonced(k, v) if isinstance(v, list) else v) for k, v in payload.items()}
     (home / ".pii-guard" / "denylist-exempt.json").write_text(json.dumps(payload),
                                                               encoding="utf-8")
     monkeypatch.setattr(g.os.path, "expanduser",
@@ -354,30 +360,19 @@ def _exempt(tmp_path, monkeypatch, payload):
 def test_a_valid_history_only_grant_is_loaded(tmp_path, monkeypatch):
     grants, notes = _exempt(tmp_path, monkeypatch, {"owner/scanned-repo": [
         {"token": "hidden-venture-config", "scope": "history-only",
-         "exposure": "accepted-public", "reason": "written before that repo existed"}]})
+         "reason": "written before that repo existed"}]})
     assert len(grants) == 1 and grants[0].scope == "history-only"
     assert notes == []
-
-
-def test_a_grant_without_an_exposure_is_rejected_and_reported(tmp_path, monkeypatch):
-    """Rejected AND reported. A silently dropped grant is the worst outcome: the operator has
-    been through the compliant motions and believes the exemption is in place."""
-    grants, notes = _exempt(tmp_path, monkeypatch, {"owner/scanned-repo": [
-        {"token": "hidden-venture-config", "scope": "history-only", "reason": "because"}]})
-    assert grants == []
-    assert any("exposure" in n for n in notes)
-
-
 def test_scope_all_needs_its_own_sentence(tmp_path, monkeypatch):
     grants, notes = _exempt(tmp_path, monkeypatch, {"owner/scanned-repo": [
-        {"token": "zztok", "scope": "all", "exposure": "false-positive", "reason": "x"}]})
+        {"token": "zztok", "scope": "all", "reason": "x"}]})
     assert grants == []
     assert any("all_scope_reason" in n for n in notes)
 
 
 def test_scope_all_is_accepted_when_justified(tmp_path, monkeypatch):
     grants, _ = _exempt(tmp_path, monkeypatch, {"owner/scanned-repo": [
-        {"token": "zztok", "scope": "all", "exposure": "false-positive", "reason": "x",
+        {"token": "zztok", "scope": "all", "reason": "x",
          "all_scope_reason": "the token is a common English word in this repo"}]})
     assert len(grants) == 1 and grants[0].scope == "all"
 
@@ -386,7 +381,7 @@ def test_a_block_keyed_on_a_bare_repo_name_is_reported_as_inert(tmp_path, monkey
     """The most likely way to be wrong here, and the one that used to be completely silent: the
     file looks right, applies to nothing, and nothing says so."""
     grants, notes = _exempt(tmp_path, monkeypatch, {"scanned-repo": [
-        {"token": "zztok", "scope": "history-only", "exposure": "legacy", "reason": "x"}]})
+        {"token": "zztok", "scope": "history-only", "reason": "x"}]})
     assert grants == []
     assert any("owner/name" in n for n in notes)
 
@@ -394,22 +389,21 @@ def test_a_block_keyed_on_a_bare_repo_name_is_reported_as_inert(tmp_path, monkey
 def test_the_receipt_counts_grants_that_never_fired(tmp_path, monkeypatch):
     grants, _ = _exempt(tmp_path, monkeypatch, {"owner/scanned-repo": [
         {"token": "a-token-nothing-will-hit", "scope": "history-only",
-         "exposure": "false-positive", "reason": "x"}]})
+         "reason": "x"}]})
     pol = g.Policy()
     pol.grants = grants
     pol.tokens = [g.Token("zzother", "secret")]
     out = []
     g.scan_text("zzother appears here", "x", set(), pol, out, domain="tree")
     r = pol.receipt()
-    assert r and "1 declared" in r and "0 matched" in r and "1 never fired" in r
+    assert r and "1 declared" in r and "0 suppressed" in r and "1 never fired" in r
 
 
 def test_a_history_only_grant_relaxes_history_but_not_the_tree(tmp_path, monkeypatch):
     """The twin that keeps the exit honest. An exemption for the past is not an exemption for
     what you are writing right now."""
     grants, _ = _exempt(tmp_path, monkeypatch, {"owner/scanned-repo": [
-        {"token": "zzaccepted", "scope": "history-only", "exposure": "accepted-public",
-         "reason": "already disclosed"}]})
+        {"token": "zzaccepted", "scope": "history-only", "reason": "already disclosed"}]})
     pol = g.Policy()
     pol.grants = grants
     pol.tokens = [g.Token("zzaccepted", "secret")]
@@ -427,20 +421,6 @@ def test_the_nonce_is_stable_and_repo_scoped():
     assert a == g._nonce_for("owner/repo-one", "zztok")     # stateless and reproducible
     assert a != b                                            # a slip for one repo is not a slip
     assert len(a) == 8
-
-
-def test_the_audit_log_never_carries_the_token_in_the_clear():
-    """An append-only log of real private strings is a PII document with a long life. The log
-    records a digest so the entry is comparable but not readable."""
-    d = g._token_digest("zzsomethingprivate")
-    assert "zzsomethingprivate" not in d and len(d) == 16
-
-
-# ================================================================== gaps found by mutation testing
-# Each test below exists because a deliberate break in pii_guard.py SURVIVED the suite: the code
-# was wrong and every test still passed. That is the only evidence that a test suite is thin which
-# is worth anything, so the mutants that found them are recorded in bench/mutation.py and run in CI.
-
 def test_an_empty_v1_file_raises_even_with_no_canary_to_check(tmp_path, monkeypatch):
     """The v2 file is also caught by the canary assertion, which MASKED this one: the empty-list
     check could be deleted entirely and the suite stayed green. A v1-format file has no canary,
@@ -475,12 +455,12 @@ def test_grant_for_respects_the_domain_boundary_on_its_own(tmp_path, monkeypatch
     grant in every domain. Two layers agreeing is fine; two layers where only one is tested is
     how the untested one rots."""
     pol = g.Policy()
-    pol.grants = [g.Grant("zztok", "history-only", "accepted-public", "x")]
+    pol.grants = [g.Grant("zztok", "history-only", "x")]
     assert pol.grant_for("zztok", "history") is not None
     assert pol.grant_for("zztok", "tree") is None
     assert pol.grant_for("zztok", "staged") is None
     pol2 = g.Policy()
-    pol2.grants = [g.Grant("zztok", "all", "false-positive", "x")]
+    pol2.grants = [g.Grant("zztok", "all", "x")]
     assert pol2.grant_for("zztok", "tree") is not None      # the twin: scope=all does reach live
 
 
@@ -503,15 +483,14 @@ def test_the_receipt_counts_a_grant_that_DID_fire(tmp_path, monkeypatch):
     the receipt reported every grant as inert, which reads as an alarm and is pure noise. A
     counter is only meaningful if it can move in both directions."""
     grants, _ = _exempt(tmp_path, monkeypatch, {"owner/scanned-repo": [
-        {"token": "zzaccepted", "scope": "history-only", "exposure": "accepted-public",
-         "reason": "already disclosed"}]})
+        {"token": "zzaccepted", "scope": "history-only", "reason": "already disclosed"}]})
     pol = g.Policy()
     pol.grants = grants
     pol.tokens = [g.Token("zzaccepted", "secret")]
     out = []
     g.scan_text("zzaccepted appears here", "x", set(), pol, out, domain="history")
     r = pol.receipt()
-    assert "1 declared" in r and "1 matched" in r and "0 never fired" in r
+    assert "1 declared" in r and "1 suppressed" in r and "0 never fired" in r
 
 
 def test_the_canary_is_never_treated_as_a_token_to_search_for(tmp_path, monkeypatch):
@@ -657,7 +636,7 @@ def test_a_derived_verdict_exhibits_its_witness(tmp_path, monkeypatch):
     write_vis(vis, {"owner/example-skill": "PUBLIC",
                                "owner/example-skill-config": "PRIVATE"})
     monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/other.git\n")
-    tok = g._cross_repo_tokens_typed(".", vis_path=str(vis))[0]
+    tok = g.load_cross_repo_tokens(".", vis_path=str(vis))[0]
     assert tok.kind == "derived"
     assert tok.witness and "example-skill" in tok.witness and "PUBLIC" in tok.witness
 
@@ -861,8 +840,7 @@ def _grant(repo, tmp_path, home_name, token, content):
     repo.commit()
     nonce = g._nonce_for("exampleowner/scanned-repo", token)
     p = subprocess.run([sys.executable, GUARD, "grant", "--repo", repo.root,
-                        "--token", token, "--exposure", "false-positive",
-                        "--reason", "testing", "--nonce", nonce],
+                        "--token", token, "--reason", "testing", "--nonce", nonce],
                        cwd=repo.root, env=env, capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
     return p, home
@@ -881,10 +859,17 @@ def test_grant_accepts_when_the_token_really_is_live(repo, tmp_path):
     p, home = _grant(repo, tmp_path, "home_b", "zzgranttesttoken",
                      "we reference zzgranttesttoken here\n")
     assert p.returncode == 0, p.stdout + p.stderr
-    assert os.path.exists(os.path.join(home, ".pii-guard", "grant-log.jsonl"))
-    logged = io.open(os.path.join(home, ".pii-guard", "grant-log.jsonl"),
-                     encoding="utf-8").read()
-    assert "zzgranttesttoken" not in logged        # the log records a digest, never the token
+    # The exemption FILE is the record. There used to be a second append-only log beside it; it
+    # lived in the same directory with the same owner, so the hand that can edit an exemption could
+    # truncate it with one more open, and it stored only a digest of each token by design, so it
+    # could never have rebuilt the exemptions either. A second copy sharing the whole attack
+    # surface of the first is not redundancy.
+    written = os.path.join(home, ".pii-guard", "denylist-exempt.json")
+    assert os.path.exists(written)
+    entry = json.load(io.open(written, encoding="utf-8"))["exampleowner/scanned-repo"][0]
+    assert entry["token"] == "zzgranttesttoken"
+    assert entry["reason"] and entry["granted_utc"] and entry["nonce"]
+    assert not os.path.exists(os.path.join(home, ".pii-guard", "grant-log.jsonl"))
 
 
 def test_a_derived_finding_prints_its_witness():
@@ -901,7 +886,7 @@ def test_a_short_repo_name_does_not_exempt_its_unrelated_siblings(tmp_path, monk
     write_vis(vis, {"owner/ab": "PUBLIC", "owner/ab-config": "PRIVATE",
                                "owner/ab-hidden-thing": "PRIVATE"})
     monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/ab.git\n")
-    vals = [t.value for t in g._cross_repo_tokens_typed(".", vis_path=str(vis))]
+    vals = [t.value for t in g.load_cross_repo_tokens(".", vis_path=str(vis))]
     assert "ab-hidden-thing" in vals          # an unrelated private sibling
     assert "ab-config" not in vals            # the twin: this repo's OWN companion
 
@@ -910,7 +895,7 @@ def test_a_single_hyphen_data_companion_is_admitted(tmp_path, monkeypatch):
     vis = tmp_path / "vis3.json"
     write_vis(vis, {"owner/pubtool": "PUBLIC", "owner/pubtool-data": "PRIVATE"})
     monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/other.git\n")
-    toks = g._cross_repo_tokens_typed(".", vis_path=str(vis))
+    toks = g.load_cross_repo_tokens(".", vis_path=str(vis))
     assert [(t.value, t.kind) for t in toks] == [("pubtool-data", "derived")]
 
 
@@ -919,14 +904,14 @@ def test_an_unknown_visibility_state_is_reported(tmp_path, monkeypatch):
     write_vis(vis, {"owner/x-y-z": "ARCHIVED"})
     monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/other.git\n")
     notes = []
-    g._cross_repo_tokens_typed(".", vis_path=str(vis), notes=notes)
+    g.load_cross_repo_tokens(".", vis_path=str(vis), notes=notes)
     assert any("visibility state" in n for n in notes)
 
 
 def test_an_absent_visibility_map_is_reported(tmp_path, monkeypatch):
     monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/other.git\n")
     notes = []
-    g._cross_repo_tokens_typed(".", vis_path=str(tmp_path / "nope.json"), notes=notes)
+    g.load_cross_repo_tokens(".", vis_path=str(tmp_path / "nope.json"), notes=notes)
     assert any("no visibility map" in n for n in notes)
 
 
@@ -1042,7 +1027,7 @@ def _typed(tmp_path, monkeypatch, refreshed, name="vis-age.json"):
                     "owner/example-skill-config": "PRIVATE"}, refreshed=refreshed)
     monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/other.git\n")
     notes = []
-    toks = g._cross_repo_tokens_typed(".", vis_path=str(vis), notes=notes)
+    toks = g.load_cross_repo_tokens(".", vis_path=str(vis), notes=notes)
     return toks, notes
 
 
@@ -1070,7 +1055,7 @@ def test_a_map_with_no_refreshed_stamp_is_not_evidence(tmp_path, monkeypatch):
                                "owner/example-skill-config": "PRIVATE"}), encoding="utf-8")
     monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/other.git\n")
     notes = []
-    toks = g._cross_repo_tokens_typed(".", vis_path=str(vis), notes=notes)
+    toks = g.load_cross_repo_tokens(".", vis_path=str(vis), notes=notes)
     assert [(t.value, t.kind) for t in toks] == [("example-skill-config", "linkage")]
     assert any("no _refreshed stamp" in n for n in notes), notes
 
@@ -1096,7 +1081,7 @@ def test_staleness_does_not_touch_the_LINKAGE_verdicts(tmp_path, monkeypatch):
     write_vis(vis, {"owner/hidden-venture": "PRIVATE",
                     "owner/hidden-venture-config": "PRIVATE"}, refreshed=_aged(45))
     monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/other.git\n")
-    toks = g._cross_repo_tokens_typed(".", vis_path=str(vis))
+    toks = g.load_cross_repo_tokens(".", vis_path=str(vis))
     assert [(t.value, t.kind) for t in toks] == [("hidden-venture-config", "linkage")]
 
 
@@ -1109,5 +1094,115 @@ def test_freshness_comes_from_the_STAMP_and_never_from_the_file_mtime(tmp_path, 
                     "owner/example-skill-config": "PRIVATE"}, refreshed=_aged(45))
     os.utime(str(vis), None)                       # touched just now, verdicts still 45 days old
     monkeypatch.setattr(g, "_run", lambda *a, **k: "git@github.com:owner/other.git\n")
-    toks = g._cross_repo_tokens_typed(".", vis_path=str(vis))
+    toks = g.load_cross_repo_tokens(".", vis_path=str(vis))
     assert [(t.value, t.kind) for t in toks] == [("example-skill-config", "linkage")]
+
+
+# ================================================================== after the subtraction pass
+# The exemption exit lost `exposure`, the append-only grant log and the `_token_digest` helper, and
+# kept its `scope` axis. That last decision was not a judgement call in the end: an adversarial
+# review built the version without it and showed that a `secret` already accepted in a repo's PAST
+# could then be written fresh into a live file and pass. What follows pins the parts that survived
+# and the parts that were added to replace what went.
+
+def test_the_receipt_names_hand_written_exemptions(tmp_path, monkeypatch):
+    """`grant` writes a nonce only after PROVING the token produces a finding in this repo, so an
+    entry without a matching one was typed by hand and never went through that proof. It is still
+    honoured, because refusing it would take away the exit, but it is not invisible.
+
+    Reported in the RECEIPT rather than as its own warning line: it is a standing fact about a
+    long-lived exemption, not an event, and a warning printed on every scan of that repo forever is
+    the noise that trains people to stop reading the output."""
+    grants, notes = _exempt(tmp_path, monkeypatch, {"owner/scanned-repo": [
+        {"token": "zzhandwritten", "scope": "history-only", "reason": "typed in by hand",
+         "nonce": "deadbeef"}]})
+    assert len(grants) == 1 and grants[0].hand_written
+    assert notes == []                       # not a separate warning
+    pol = g.Policy()
+    pol.grants = grants
+    assert "written by hand" in pol.receipt()
+
+
+def test_a_properly_granted_exemption_is_not_flagged(tmp_path, monkeypatch):
+    """The twin. If everything were flagged the flag would mean nothing."""
+    grants, _ = _exempt(tmp_path, monkeypatch, {"owner/scanned-repo": [
+        {"token": "zzproven", "scope": "history-only", "reason": "went through grant"}]})
+    assert len(grants) == 1 and not grants[0].hand_written
+    pol = g.Policy()
+    pol.grants = grants
+    assert "written by hand" not in pol.receipt()
+
+
+def test_a_history_grant_hit_in_a_live_domain_is_counted_and_named(tmp_path, monkeypatch):
+    """The one form of this guard's reason for existing that a machine can observe: the token this
+    repo accepted in its past turning up in content being written now. It is not a suppression, so
+    it does not count as used, and it is not nothing, so it gets its own counter."""
+    grants, _ = _exempt(tmp_path, monkeypatch, {"owner/scanned-repo": [
+        {"token": "zzaccepted", "scope": "history-only", "reason": "already public"}]})
+    pol = g.Policy()
+    pol.grants = grants
+    pol.tokens = [g.Token("zzaccepted", "secret")]
+    out = []
+    g.scan_text("zzaccepted appears here", "x", set(), pol, out, domain="tree")
+    assert out and out[0][3] == "BLOCK"          # the live domain is NOT relaxed
+    assert grants[0].live_collisions == 1
+    assert not grants[0].used
+    r = pol.receipt()
+    assert "LIVE domain" in r and "0 suppressed" in r
+
+
+def test_the_remediation_command_names_the_scope_that_would_help(repo, tmp_path):
+    """It used to print `--scope history-only` unconditionally. Somebody blocked in the working
+    tree was handed a command that `grant` accepts and that then does nothing at all: a compliant
+    path that silently is not one, which is worse than none, because the person believes they took
+    it."""
+    home = str(tmp_path / "hint_home")
+    os.makedirs(os.path.join(home, ".pii-guard"), exist_ok=True)
+    dl = os.path.join(home, "denylist.json")
+    io.open(dl, "w", encoding="utf-8").write(json.dumps(
+        {"format": 2, "canary": g.CANARY_TOKEN, "count": 2,
+         "tokens": [{"value": "zzhinttoken", "kind": "secret"},
+                    {"value": g.CANARY_TOKEN, "kind": "secret"}]}))
+    repo.env["PII_DENYLIST"] = dl
+    repo.env["USERPROFILE"] = repo.env["HOME"] = home
+    repo.write("live.md", "the zzhinttoken account\n")
+    repo.commit()
+    rc, out = _cli(repo, "--tree")
+    assert rc == 1
+    assert "--scope all" in out, out          # blocked in the tree, so `all` is what would help
+    assert "--all-scope-reason" in out        # ...and it costs the extra sentence
+
+
+def test_the_removed_surface_is_really_gone():
+    """A subtraction that leaves the names behind has not subtracted anything."""
+    for gone in ("EXPOSURES", "SEVERITIES", "_token_digest",
+                 "load_private_denylist", "_cross_repo_tokens_typed"):
+        assert not hasattr(g, gone), gone
+    assert "associative" not in g.KINDS
+    assert set(g.KINDS) == {"secret", "linkage", "derived"}
+
+
+def test_a_bare_string_exemption_loads_at_the_SAFE_scope(tmp_path, monkeypatch):
+    """A bare string is the oldest shape this file ever had, from before it had a shape at all. It
+    used to become `scope=all`, so the least considered entries silently received the widest
+    exemption the system can express. The default now points the other way; the one real legacy
+    entry on this machine was migrated to an explicit object first, so nothing depends on the old
+    behaviour."""
+    grants, notes = _exempt(tmp_path, monkeypatch,
+                            {"owner/scanned-repo": ["zzlegacytoken"]})
+    assert len(grants) == 1
+    assert grants[0].scope == "history-only"
+    assert any("history-only" in n for n in notes), notes
+
+
+def test_a_bare_string_exemption_does_not_reach_live_content(tmp_path, monkeypatch):
+    """The twin, stated as behaviour rather than as a field value."""
+    grants, _ = _exempt(tmp_path, monkeypatch, {"owner/scanned-repo": ["zzlegacytoken"]})
+    pol = g.Policy()
+    pol.grants = grants
+    pol.tokens = [g.Token("zzlegacytoken", "secret")]
+    assert list(sev_of("zzlegacytoken here", pol, "history").values()) == ["WARN"]
+    pol2 = g.Policy()
+    pol2.grants = list(grants)
+    pol2.tokens = [g.Token("zzlegacytoken", "secret")]
+    assert list(sev_of("zzlegacytoken here", pol2, "tree").values()) == ["BLOCK"]

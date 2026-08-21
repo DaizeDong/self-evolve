@@ -67,8 +67,8 @@ USAGE
   python pii_guard.py --tree               # fast: git-tracked working tree (pre-commit)
   python pii_guard.py --tree --history     # full: + every blob/message/author in history (pre-push)
   python pii_guard.py --tree --history --repo /path/to/repo
-  python pii_guard.py grant --token X --scope history-only --exposure accepted-public \
-      --reason "..." --nonce <printed at the block>
+  python pii_guard.py grant --token X --scope history-only --reason "..." \
+      --nonce <printed at the block>
 Exit 0 = no blocking findings. Note that 0 does NOT mean silence: HISTORY-DEBT and WARN lines are
          printed on a passing run and the summary refuses to say "clean" while any are outstanding.
          The hooks print the guard's output unconditionally for exactly this reason.
@@ -403,7 +403,6 @@ def _repo_slug(root):
 #     secret        BLOCK                    BLOCK
 #     linkage       BLOCK                    DEBT   (reported and counted, does not gate)
 #     derived       WARN                     WARN
-#     associative   BLOCK if co-occurring    DEBT/WARN
 #
 # Note what this buys with no dated bookkeeping at all: content written before a token existed
 # can only ever be a linkage or derived hit in HISTORY, and neither gates there. No first-seen
@@ -435,7 +434,7 @@ def _repo_slug(root):
 # The direction matters and is preserved: if the PARENT is private too, the child name is NOT
 # derivable from anything public, and it stays `linkage`.
 POLICY_FORMAT_SUPPORTED = 2
-KINDS = ("secret", "linkage", "derived", "associative")
+KINDS = ("secret", "linkage", "derived")
 DEFAULT_KIND = "secret"
 # A canary the loader asserts is present. It lives in the SYNTHETIC namespace on purpose: if it
 # ever leaked it would be harmless, and it can be written down here, in a public file.
@@ -449,7 +448,6 @@ MATCHER_PROBE_ALPHA = "zzmatcherprobealpha"
 # The documented naming conventions for a private companion of a public repo. Adding a suffix
 # here widens what counts as derivable, so it is a deliberate, reviewable act.
 CONVENTION_SUFFIXES = ("-config", "-data", "-private", "-secrets")
-SEVERITIES = ("BLOCK", "DEBT", "WARN")
 DOMAINS = ("tree", "staged", "range", "history")
 
 
@@ -514,17 +512,20 @@ class Grant(object):
     exemption needs scope=all AND a separate justification field, because those two words look
     alike and one of them turns the gate off for live content.
     """
-    __slots__ = ("token", "scope", "exposure", "reason", "used")
+    __slots__ = ("token", "scope", "reason", "used", "live_collisions", "hand_written")
 
-    def __init__(self, token, scope, exposure, reason):
+    def __init__(self, token, scope, reason, hand_written=False):
         self.token = token
         self.scope = scope
-        self.exposure = exposure
         self.reason = reason
         self.used = False
+        self.live_collisions = 0
+        # True when the entry carries no nonce, or one that does not match. `grant` always writes a
+        # matching nonce, and it only writes after PROVING the token produces a finding here. So a
+        # mismatch means the line was typed by hand and never went through that proof.
+        self.hand_written = hand_written
 
 
-EXPOSURES = ("rewritten", "accepted-public", "false-positive", "legacy")
 
 
 def severity_for(kind, domain):
@@ -535,9 +536,6 @@ def severity_for(kind, domain):
         return "DEBT" if domain == "history" else "BLOCK"
     if kind == "derived":
         return "WARN"
-    if kind == "associative":
-        # resolved by the caller, which is the only place that knows about co-occurrence
-        return "DEBT" if domain == "history" else "BLOCK"
     raise PolicyError("unknown token kind %r" % kind)
 
 
@@ -628,17 +626,38 @@ class Policy(object):
             if g.scope == "all" or (g.scope == "history-only" and domain == "history"):
                 g.used = True
                 return g
-            # a history-only grant seen in a live domain still counts as EXERCISED: the operator
-            # did write it for this token, and reporting it as never-used would be a lie.
-            g.used = True
+            # A history-only grant hit in a LIVE domain is counted separately rather than lumped in
+            # with "used". It is not a suppression, and it is not nothing either: it means the
+            # token this repo accepted in its past is turning up in what somebody is writing NOW.
+            # That is the failure this whole guard exists for, said out loud -- an operator or an
+            # agent reaching for the nearest example, and the nearest example being the real one
+            # already recorded in the exemption file. It is the only form of that failure a machine
+            # can observe, so it gets its own counter instead of being averaged away.
+            g.live_collisions += 1
         return None
 
     def receipt(self):
         if not self.grants:
             return None
         used = sum(1 for g in self.grants if g.used)
-        return ("pii_guard: exemptions -- %d declared, %d matched a token in this run, "
+        line = ("pii_guard: exemptions -- %d declared, %d suppressed a finding in this run, "
                 "%d never fired" % (len(self.grants), used, len(self.grants) - used))
+        hand = [g for g in self.grants if g.hand_written]
+        if hand:
+            # `grant` writes a nonce only after PROVING the token produces a finding in this repo,
+            # so an entry without a matching one was typed by hand and never went through that
+            # proof. It is still honoured, because refusing it would take away the exit, but the
+            # difference between "a machine verified this was needed" and "somebody wrote it down"
+            # is exactly the sort of thing that should not be invisible.
+            line += ("\n  %d of them carry no valid nonce, so they were written by hand and never"
+                     " passed the proof-of-block scan." % len(hand))
+        collided = [g for g in self.grants if g.live_collisions]
+        if collided:
+            line += ("\n  NOTE %d history-only exemption(s) were hit in a LIVE domain (%d time(s)): "
+                     "the token this repo accepted in its past is appearing in content being "
+                     "written now. That is the failure mode this guard exists for."
+                     % (len(collided), sum(g.live_collisions for g in collided)))
+        return line
 
 
 def _read_json(path):
@@ -689,7 +708,7 @@ def _parse_denylist(path, notes=None):
 
     v1 (legacy):  ["tok", ...]                     or  {"tokens": ["tok", ...]}
     v2:           {"format": 2, "count": N, "canary": "...",
-                   "tokens": [{"value": "...", "kind": "secret|linkage|derived|associative"}]}
+                   "tokens": [{"value": "...", "kind": "secret|linkage|derived"}]}
 
     WHY THE v2 FILE CARRIES A CANARY AND A COUNT
     The v1 encoding cannot tell a healthy file from a damaged one. Delete half the array and
@@ -787,14 +806,15 @@ def _parse_denylist(path, notes=None):
     # count is compared against the file's own entries, INCLUDING the canary, because it is a
     # statement about the file. The canary is dropped only after both assertions have run.
     if not toks_after_canary:
-        # A file containing ONLY the canary passes every assertion above -- it is present, it is
-        # intact, its count is right -- and then yields zero enforceable tokens once the canary is
-        # held back. denylist_present goes True, so the "layer absent" note does not print either,
-        # and the layer is gone in complete silence. Measured 2026-08-20.
+        # Zero enforceable tokens, whether the file was empty to begin with or held only its
+        # canary. Either way `denylist_present` goes True, so the "layer absent" note does not
+        # print, and the layer is gone in complete silence. Measured 2026-08-20.
+        #
         raise PolicyError(
-            "%s contains its canary and nothing else, so the private layer would load with zero\n"
-            "  enforceable tokens while reporting itself as present. If you meant to empty it,\n"
-            "  delete the file: absent is a state this guard announces, empty is one it hid."
+            "%s yields zero enforceable tokens, so the private layer would load and report itself\n"
+            "  as PRESENT while enforcing nothing. Either the file is empty, or it holds only its\n"
+            "  canary. If you meant to empty it, delete it instead: absent is a state this guard\n"
+            "  announces out loud, and empty is one it used to hide."
             % path)
     return toks_after_canary
 
@@ -830,15 +850,6 @@ def _probe_one(probe):
         raise PolicyError(
             "the denylist matcher matched %r against text that does not contain it.\n"
             "  A matcher that says yes to everything is as useless as one that says no." % probe)
-
-
-def load_private_denylist(root=None):
-    """Back-compatible shim: the flat list of token strings, exemptions already applied.
-
-    Kept because other tooling and the tests call it by this name. New code should use
-    load_policy, which preserves the kinds this function has to throw away.
-    """
-    return [t.value for t in load_policy(root).tokens]
 
 
 VISIBILITY_STATES = ("PUBLIC", "PRIVATE", "UNKNOWN")
@@ -967,23 +978,7 @@ def derivation_witness(owner, name, public_by_owner):
     return None
 
 
-def load_cross_repo_tokens(root, vis_path=None):
-    """Operator-machine layer: the NAMES of the operator's OTHER PRIVATE repos, TYPED.
-
-    A public repo that names one of the operator's private repos leaks fleet topology. That is
-    real but it is not the same harm as a person's mailbox, and until now it was punished as if
-    it were. Each name that survives the distinctiveness filter is now classified:
-
-        derivable from a public sibling  ->  `derived`   reported, never gates
-        everything else                  ->  `linkage`   gates live content, DEBT in history
-
-    Absent visibility cache -> empty, exactly as before: the structural checks still run
-    everywhere and this layer only ever augmented the operator's own machine.
-    """
-    return [t for t in _cross_repo_tokens_typed(root, vis_path)]
-
-
-def _cross_repo_tokens_typed(root, vis_path=None, notes=None):
+def load_cross_repo_tokens(root, vis_path=None, notes=None):
     loaded = _load_visibility(vis_path, notes)
     if loaded is None:
         return []
@@ -1075,14 +1070,14 @@ def load_grants(root, notes):
             continue
         for i, e in enumerate(entries or []):
             if isinstance(e, str):
-                # legacy shape. Honoured, but named, because it carries no stated exposure and
-                # therefore nothing a later reviewer can weigh.
-                grants.append(Grant(e.strip().lower(), "all", "legacy", "(legacy entry)"))
+                # A bare string, from before this file had a shape. Honoured at the SAFE scope:
+                # the least considered entries must not receive the widest exemption.
+                grants.append(Grant(e.strip().lower(), "history-only", "(legacy entry)"))
                 notes.append(
                     "pii_guard: WARNING a legacy string exemption in %s is being honoured at "
-                    "scope=all with no stated exposure and no reason. Full scope switches the gate "
-                    "off for LIVE content, not just history. Rewrite it as an object with scope, "
-                    "exposure and reason." % path)
+                    "scope=history-only with no reason. If it was meant to cover live content it "
+                    "is not doing so any more. Rewrite it as an object with scope and reason."
+                    % path)
                 continue
             if not isinstance(e, dict):
                 notes.append("pii_guard: WARNING exemption %d for %s is a %s, ignored"
@@ -1090,7 +1085,6 @@ def load_grants(root, notes):
                 continue
             tok = str(e.get("token", "")).strip().lower()
             scope = e.get("scope", "history-only")
-            exposure = e.get("exposure")
             reason = str(e.get("reason", "")).strip()
             if not tok:
                 notes.append("pii_guard: WARNING exemption %d for %s has no token, ignored"
@@ -1106,16 +1100,22 @@ def load_grants(root, notes):
                     "all_scope_reason, ignored. Full scope switches the gate off for LIVE "
                     "content, so it takes its own sentence." % tok)
                 continue
-            if exposure not in EXPOSURES:
-                notes.append(
-                    "pii_guard: WARNING exemption for %r has exposure %r, ignored (expected "
-                    "one of %s). Without it nobody can later judge whether this grant was "
-                    "reasonable." % (tok, exposure, ", ".join(EXPOSURES)))
-                continue
             if not reason:
                 notes.append("pii_guard: WARNING exemption for %r has no reason, ignored" % tok)
                 continue
-            grants.append(Grant(tok, scope, exposure, reason))
+            # The nonce is finally READ. It used to be written by `grant` and then ignored on
+            # load, which made it decoration. `grant` computes it from (repo, token) and only
+            # writes the entry after proving the token really produces a finding in this repo, so
+            # an entry whose nonce is absent or wrong was typed by hand and never went through
+            # that proof. The entry is still honoured, because refusing it would take away the
+            # exit, but it is named on every run. That is the whole protection the deleted
+            # append-only log was supposed to provide, moved into the file people already read.
+            # Reported in the RECEIPT, not as its own WARNING line. A hand-written grant is a
+            # standing fact about a legitimate long-lived exemption, not an event, and a warning
+            # that prints on every single scan of that repo forever is the kind of noise that
+            # trains people to stop reading the output at all.
+            hand = str(e.get("nonce", "")).strip().lower() != _nonce_for(key, tok)
+            grants.append(Grant(tok, scope, reason, hand_written=hand))
     return grants
 
 
@@ -1133,7 +1133,7 @@ def load_policy(root=None, vis_path=None):
         pol.denylist_present = True
         pol.tokens.extend(_parse_denylist(path, pol.notes))
     if root:
-        cross = _cross_repo_tokens_typed(root, vis_path, pol.notes)
+        cross = load_cross_repo_tokens(root, vis_path, pol.notes)
         pol.visibility_present = bool(cross) or os.path.exists(
             vis_path or os.path.expanduser("~/.pii-guard/visibility.json"))
         have = {t.value for t in pol.tokens}
@@ -1290,22 +1290,10 @@ def scan_text(text, where, allow, pol, out, domain="tree", deny_only=False, stri
                 continue
             structural.append(("PRIVATE-PATH", m.group(0)))     # the full home-anchored path
 
-    # An `associative` token is a real proper noun with legitimate public uses; it is only a
-    # disclosure when it sits next to something else private. So it needs company in the same
-    # chunk before it gates. Note the honest limitation, which is documented rather than papered
-    # over: in the staged and range domains a "chunk" is ONE LINE, because that is how those
-    # scanners feed text in, so co-occurrence there is line-local and this class will under-fire.
-    # It reports a WARN in that case rather than nothing, so the miss is visible instead of silent.
-    company = bool(structural) or any(t.kind != "associative" for t in deny_hits)
-
     for tok in deny_hits:
         sev = severity_for(tok.kind, domain)
-        if tok.kind == "associative" and not company:
-            sev = "WARN"
-        g = pol.grant_for(tok.value, domain)
-        if g is not None and g.scope == "all":
-            sev = "WARN"
-        elif g is not None and g.scope == "history-only" and domain == "history":
+        # `grant_for` has already applied the domain rule, so there is nothing to re-check here.
+        if pol.grant_for(tok.value, domain) is not None:
             sev = "WARN"
         label = "PRIVATE-DENYLIST" if tok.source == "denylist" else "CROSS-REPO"
         if tok.kind != "secret":
@@ -1707,13 +1695,6 @@ def _nonce_for(repo_key, token):
     return h[:8]
 
 
-def _token_digest(token):
-    """A truncated hash for the audit log. The log must never carry the token in the clear:
-    a durable append-only file of real private strings is a PII document with a long life."""
-    import hashlib
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()[:16]
-
-
 def do_grant(argv):
     """Write one exemption, with a reason, and leave a trail.
 
@@ -1742,7 +1723,6 @@ def do_grant(argv):
     ap.add_argument("--repo", default=".", help="a path inside the repo the grant applies to")
     ap.add_argument("--token", required=True)
     ap.add_argument("--scope", default="history-only", choices=["history-only", "all"])
-    ap.add_argument("--exposure", required=True, choices=list(EXPOSURES))
     ap.add_argument("--reason", required=True)
     ap.add_argument("--all-scope-reason", default="")
     ap.add_argument("--nonce", default="")
@@ -1798,22 +1778,22 @@ def do_grant(argv):
         if not isinstance(data, dict):
             print("pii_guard grant: %s is not an object" % path, file=sys.stderr)
             return 2
-    entry = {"token": token, "scope": a.scope, "exposure": a.exposure,
-             "reason": a.reason.strip(), "granted_utc": _utcnow(), "nonce": want}
+    entry = {"token": token, "scope": a.scope, "reason": a.reason.strip(),
+             "granted_utc": _utcnow(), "nonce": want}
     if a.all_scope_reason.strip():
         entry["all_scope_reason"] = a.all_scope_reason.strip()
     data.setdefault(key, []).append(entry)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, sort_keys=True)
 
-    logp = os.path.join(os.path.expanduser("~/.pii-guard"), "grant-log.jsonl")
-    with open(logp, "a", encoding="utf-8") as f:
-        f.write(json.dumps({"at": _utcnow(), "repo": key, "token_sha256_16": _token_digest(token),
-                            "scope": a.scope, "exposure": a.exposure,
-                            "reason": entry["reason"]}, sort_keys=True) + "\n")
-    print("pii_guard: exemption recorded for %s (scope=%s, exposure=%s)" % (key, a.scope, a.exposure))
+    # NO AUDIT LOG HERE, on purpose. One existed and was removed: it lived in the same directory
+    # with the same owner as the file it was meant to keep honest, so the hand that can edit an
+    # exemption could truncate it, and it stored only digests, so it could not have rebuilt them
+    # either. A second copy sharing the whole attack surface of the first is not redundancy. The
+    # exemption file IS the record, and the per-run receipt is what makes it visible.
+    print("pii_guard: exemption recorded for %s (scope=%s)" % (key, a.scope))
     print("  file %s" % path)
-    print("  log  %s   <- this is where it will be read back" % logp)
+    print("  every scan of this repo now names this exemption in its receipt, fired or not.")
     return 0
 
 
@@ -1961,10 +1941,19 @@ def main():
     if tokish and key:
         print("\nIf one of these is a token you have decided to accept rather than remove:",
               file=sys.stderr)
+        # The scope printed here is the one that would actually help, which is the domain that
+        # just blocked. It used to print `history-only` unconditionally, so somebody blocked in the
+        # working tree was handed a command that `grant` accepts and that then does nothing at all:
+        # a compliant path that silently is not one, which is worse than no path, because the
+        # person believes they took it.
+        live = any(w for w, _l, _v, _s in blocks
+                   if not str(w).startswith("<blob") and "commit" not in str(w))
+        scope_hint = "all" if live else "history-only"
+        extra = ' --all-scope-reason "..."' if live else ""
         for label, val in tokish:
-            print("  python pii_guard.py grant --token %s --scope history-only \\\n"
-                  "      --exposure accepted-public --reason \"...\" --nonce %s"
-                  % (val, _nonce_for(key, val)), file=sys.stderr)
+            print("  python pii_guard.py grant --token %s --scope %s%s \\\n"
+                  "      --reason \"...\" --nonce %s"
+                  % (val, scope_hint, extra, _nonce_for(key, val)), file=sys.stderr)
     print("\nIf it is real private data and it already reached a commit, rewriting the commit is\n"
           "one option, but know what it does and does not achieve: a force push leaves the old\n"
           "objects reachable by direct commit URL for a long time, refs/pull/* is untouched by it,\n"
