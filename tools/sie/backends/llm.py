@@ -66,6 +66,31 @@ def _empty(why: str) -> list:
     return []
 
 
+def _patchable(sandbox_root: str, rel: str, content: str) -> tuple[bool, str]:
+    """Would the PATCH gate accept this file as it stands? (ok, reason-if-not).
+
+    Uses the real gates rather than a copy of their rules, so the proposer's view and the gate's
+    verdict cannot drift apart. Never raises: an error here must not silently empty the candidate
+    set, which would turn "the gate is strict" into "the proposer had nothing to look at".
+    """
+    try:
+        from tools.sie.patch import (DEFAULT_IMPORT_ALLOW, import_gate,
+                                     scan_ast_dangerous)
+        ok, why = import_gate(content, set(DEFAULT_IMPORT_ALLOW),
+                              sandbox_root=sandbox_root, file_rel=rel)
+        if not ok:
+            return False, why
+        reasons = scan_ast_dangerous(content, sandbox_root=sandbox_root,
+                                     target_path=os.path.join(sandbox_root, rel))
+        if reasons:
+            return False, "; ".join(reasons)[:160]
+        return True, ""
+    except Exception as e:  # noqa: BLE001 - a broken check must not empty the candidate set
+        print("sie: patchability check failed for %s (%s); including it anyway"
+              % (rel, type(e).__name__), file=sys.stderr)
+        return True, ""
+
+
 def _gather_sources(sandbox_root: str, skipped: list | None = None) -> dict[str, str]:
     """收集 candidate 的非测试 .py 源码（相对路径 → 内容），受规模上限约束。
 
@@ -93,6 +118,23 @@ def _gather_sources(sandbox_root: str, skipped: list | None = None) -> dict[str,
             except (OSError, UnicodeDecodeError):
                 continue
             rel = os.path.relpath(ap, sandbox_root).replace("\\", "/")
+            # Do not show the proposer a file the PATCH gate will refuse no matter what it writes.
+            #
+            # The gate permanently refuses a file whose imports or calls carry capability the loop
+            # must not edit unsupervised: subprocess, socket, importlib, a non-literal open(). That
+            # boundary is correct and stays. What was wrong is that it was INVISIBLE to the component
+            # obliged to respect it, so the proposer picked blindly and a round spent on such a file
+            # could only ever end in STATIC_REJECT. Measured on a live target: 9 of 17 modules are in
+            # that set, so more than half of all proposals were unlandable before they were written.
+            #
+            # Checking the file as it stands is the right test: the gate reads the CONTENT, and a
+            # proposal keeps the imports it found. A file that cannot pass today cannot be made to
+            # pass by an edit that leaves its subprocess call in place.
+            ok, why = _patchable(sandbox_root, rel, content)
+            if not ok:
+                if skipped is not None:
+                    skipped.append((rel, "the patch gate would refuse it: %s" % why))
+                continue
             total += len(content)
             if total > _MAX_TOTAL_BYTES:
                 return files
