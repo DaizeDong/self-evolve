@@ -106,6 +106,13 @@ DANGEROUS_MODULE_PREFIXES: frozenset[str] = frozenset({
 # was declining the language.
 DEFAULT_IMPORT_ALLOW: frozenset[str] = frozenset({
     "__future__",
+    # Pure-computation stdlib that a real repository cannot be edited without. Measured 2026-08-29
+    # against a live target: 9 of its 10 core modules were unpatchable, and argparse alone blocked
+    # every script with a CLI, random blocked the sampler, difflib blocked the deduplicator. None of
+    # these adds a capability the gate is defending against: they parse strings, shuffle numbers and
+    # diff text. They cannot open a socket, spawn a process or reach the filesystem.
+    "argparse", "random", "difflib", "unicodedata", "base64", "uuid", "csv", "statistics",
+    "shlex", "shutil", "hmac", "html", "glob", "tempfile", "atexit", "warnings", "logging",
     "os", "sys", "re", "json", "math", "typing", "dataclasses",
     "pathlib", "collections", "itertools", "functools", "datetime",
     "ast", "hashlib", "io", "string", "textwrap", "enum", "abc",
@@ -244,6 +251,12 @@ def scan_ast_dangerous(
        (cannot be statically proven safe).
     """
     allow = set(DEFAULT_IMPORT_ALLOW) | set(allow_imports or set())
+    # Gate 3 keeps its OWN allow set, so teaching gate 2 about first-party modules fixed half the
+    # problem and left `from lib import load_config` refused here instead. That is the third time in
+    # this file that two lists read by different paths drifted apart, so the resolution is shared
+    # rather than duplicated: both gates call _first_party_modules.
+    if sandbox_root and target_path:
+        allow |= _first_party_modules(sandbox_root, os.path.relpath(target_path, sandbox_root))
     try:
         tree = ast.parse(source)
     except SyntaxError as e:
@@ -267,6 +280,12 @@ def scan_ast_dangerous(
                     reasons.append(f"import not in allowlist: {alias.name}")
 
         elif isinstance(node, ast.ImportFrom):
+            _m2 = (node.module or "")
+            # Same carve-out as gate 2: urllib.parse is string manipulation, urllib.request is
+            # the network. Both gates must carry it; adding it to one leaves a refusal that
+            # looks unrelated to the edit, which this file has now produced three times.
+            if _m2 == "urllib.parse" or _m2.startswith("urllib.parse."):
+                continue
             top = (node.module or "").split(".")[0]
             if top in DANGEROUS_MODULE_PREFIXES:
                 reasons.append(f"dangerous module import: {node.module}")
@@ -391,7 +410,65 @@ def scan_ast_dangerous(
     return reasons
 
 
-def import_gate(source: str, allow: set[str] | None = None) -> tuple[bool, str]:
+_FIRST_PARTY_CACHE: dict[str, set[str]] = {}
+
+
+def _first_party_modules(sandbox_root: str | None, file_rel: str | None) -> set[str]:
+    """Module names the TARGET REPO defines itself, which are not third-party dependencies.
+
+    The gate could not tell `from lib import load_config` (a sibling file in the same directory)
+    from `import requests`, so it refused both as unlisted. Measured 2026-08-29 on a live target,
+    that alone made score.py and yield.py unpatchable, and it is not a whitelist gap: any codebase
+    whose modules import each other was unpatchable by construction.
+
+    Allowing them is not a new capability. A first-party module is code that already lives in the
+    sandbox, was itself written through these same gates, and is subject to them again on its next
+    edit. Refusing it protects nothing and blocks everything.
+
+    Scope is deliberately narrow: only names that resolve to a real .py file or package directory
+    NEXT TO the file being patched, or at the sandbox root. Resolution is confined to the sandbox
+    via canonical_in_sandbox, so a crafted file_rel cannot walk out and whitelist a name by pointing
+    at something outside. Returns an empty set when either path is unknown, because guessing here
+    would widen the gate on no evidence.
+    """
+    if not sandbox_root or not file_rel:
+        return set()
+    names: set[str] = set()
+    try:
+        root = os.path.realpath(sandbox_root)
+        here = os.path.dirname(os.path.normpath(os.path.join(root, file_rel)))
+        if not canonical_in_sandbox(here, root) and os.path.realpath(here) != root:
+            return set()
+        # The whole sandbox, not only the adjacent directory. A vendored helper reached by
+        # sys.path manipulation is still first-party: runstore.py loads tools/datadir.py that way
+        # and was refused as "import not in whitelist: datadir" while every sibling passed.
+        # Bounded to the sandbox and cached, because this runs once per patched file.
+        cached = _FIRST_PARTY_CACHE.get(root)
+        if cached is None:
+            cached = set()
+            for dirpath, dirnames, filenames in os.walk(root):
+                dirnames[:] = [d for d in dirnames
+                               if d not in (".git", ".sie", "__pycache__", ".pytest_cache")]
+                for fn in filenames:
+                    if fn.endswith(".py"):
+                        cached.add(fn[:-3])
+                for d in dirnames:
+                    if os.path.isfile(os.path.join(dirpath, d, "__init__.py")):
+                        cached.add(d)
+            _FIRST_PARTY_CACHE[root] = cached
+        names |= cached
+    except OSError:
+        return set()
+    names.discard("__init__")
+    # A first-party file may not shadow a module the gate exists to refuse. Without this, dropping a
+    # file called subprocess.py next to the target would whitelist the name.
+    return {n for n in names if n not in _DANGER_MODULES
+            and n not in DANGEROUS_MODULE_PREFIXES}
+
+
+def import_gate(source: str, allow: set[str] | None = None,
+                sandbox_root: str | None = None,
+                file_rel: str | None = None) -> tuple[bool, str]:
     """AST scan *source*; return (True, "") on pass or (False, reason) on rejection.
 
     Rejection conditions (M1a baseline):
@@ -406,6 +483,7 @@ def import_gate(source: str, allow: set[str] | None = None) -> tuple[bool, str]:
     *allow* is merged with _DEFAULT_ALLOW; pass an empty set() to allow only defaults.
     """
     allowed = (set(allow) if allow is not None else set()) | _DEFAULT_ALLOW
+    allowed |= _first_party_modules(sandbox_root, file_rel)
     try:
         tree = ast.parse(source)
     except SyntaxError as e:
@@ -421,7 +499,13 @@ def import_gate(source: str, allow: set[str] | None = None) -> tuple[bool, str]:
                     return False, f"import not in whitelist: {top}"
 
         elif isinstance(node, ast.ImportFrom):
-            top = (node.module or "").split(".")[0]
+            mod = (node.module or "")
+            top = mod.split(".")[0]
+            # `urllib.parse` is string manipulation (urlsplit/quote) and carries no network
+            # capability; `urllib.request` does. Blocking the whole prefix refused the parser too,
+            # which is why digest.py was unpatchable while doing nothing riskier than splitting URLs.
+            if mod == "urllib.parse" or mod.startswith("urllib.parse."):
+                continue
             if top in _DANGER_MODULES:
                 return False, f"dangerous module import: {top}"
             if top and top not in allowed:
@@ -523,7 +607,8 @@ def apply_patch(
         # This does not loosen the danger surface. _DANGER_MODULES is rejected even when a caller
         # whitelists it, the dangerous-symbol and dangerous-call checks are unchanged, and
         # scan_ast_dangerous still runs afterwards as gate 3 with this same set.
-        ok, why = import_gate(new_content, set(DEFAULT_IMPORT_ALLOW) | set(allow or set()))
+        ok, why = import_gate(new_content, set(DEFAULT_IMPORT_ALLOW) | set(allow or set()),
+                              sandbox_root=sandbox_root, file_rel=file_rel)
         if not ok:
             return {"status": "REJECT", "reason": f"AST gate: {why}"}
 
