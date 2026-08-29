@@ -140,3 +140,74 @@ def test_dangerous_calls_are_still_refused():
     sb = _sandbox()
     res = apply_patch(sb, "m.py", "import os\neval('1+1')\n")
     assert res["status"] == "REJECT"
+
+
+# --------------------------------------------------------------------------- first-party imports
+# The gate could not tell `from lib import load_config`, a sibling file, from `import requests`. It
+# refused both as unlisted, so any codebase whose modules import each other was unpatchable by
+# construction. Measured on a live target: 1 of 17 core modules could be patched.
+def _repo(tmp_path):
+    r = tmp_path / "sb"
+    (r / "pkg").mkdir(parents=True)
+    (r / "tools").mkdir()
+    (r / "pkg" / "lib.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (r / "tools" / "datadir.py").write_text("VALUE = 2\n", encoding="utf-8")
+    return r
+
+
+def test_a_sibling_module_is_allowed(tmp_path):
+    r = _repo(tmp_path)
+    res = apply_patch(str(r), "pkg/m.py",
+                      "from __future__ import annotations\nfrom lib import VALUE\n")
+    assert res["status"] == "APPLIED", res
+
+
+def test_a_first_party_module_elsewhere_in_the_repo_is_allowed(tmp_path):
+    """runstore.py reaches tools/datadir.py by sys.path manipulation. Still first-party."""
+    r = _repo(tmp_path)
+    res = apply_patch(str(r), "pkg/m.py",
+                      "from __future__ import annotations\nimport datadir\n")
+    assert res["status"] == "APPLIED", res
+
+
+def test_an_unknown_third_party_module_is_still_refused(tmp_path):
+    """Over-rejection control inverted: first-party resolution must not become 'allow anything'."""
+    r = _repo(tmp_path)
+    res = apply_patch(str(r), "pkg/m.py", "import requests_toolbelt\n")
+    assert res["status"] == "REJECT"
+    assert "requests_toolbelt" in res["reason"]
+
+
+def test_a_first_party_file_cannot_shadow_a_dangerous_module(tmp_path):
+    """Dropping subprocess.py into the repo must not whitelist the name subprocess."""
+    r = _repo(tmp_path)
+    (r / "pkg" / "subprocess.py").write_text("X = 1\n", encoding="utf-8")
+    res = apply_patch(str(r), "pkg/m.py", "import subprocess\n")
+    assert res["status"] == "REJECT"
+    assert "subprocess" in res["reason"]
+
+
+def test_urllib_parse_is_allowed_but_urllib_request_is_not(tmp_path):
+    """urllib.parse is string manipulation; urllib.request is the network. Blocking the whole
+    prefix refused the parser too."""
+    r = _repo(tmp_path)
+    ok = apply_patch(str(r), "pkg/a.py",
+                     "from __future__ import annotations\nfrom urllib.parse import urlsplit\n")
+    assert ok["status"] == "APPLIED", ok
+    bad = apply_patch(str(r), "pkg/b.py", "from urllib.request import urlopen\n")
+    assert bad["status"] == "REJECT"
+
+
+@pytest.mark.parametrize("src,needle", [
+    ("import subprocess\n", "subprocess"),
+    ("import socket\n", "socket"),
+    ("import importlib\n", "importlib"),
+])
+def test_capability_bearing_imports_remain_refused(src, needle, tmp_path):
+    """The deliberate boundary. A self-improving loop must not silently edit the files that spawn
+    processes, open sockets or load code dynamically; 9 of the target's 17 modules stay unpatchable
+    for exactly this reason and that is the gate working, not a gap."""
+    r = _repo(tmp_path)
+    res = apply_patch(str(r), "pkg/m.py", src)
+    assert res["status"] == "REJECT"
+    assert needle in res["reason"]
