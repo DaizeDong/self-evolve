@@ -25,7 +25,13 @@ _DANGER_ATTR = {("os", "system"), ("os", "popen")}
 _DANGER_MODULES = {"subprocess", "socket", "ctypes", "multiprocessing"}
 
 # Modules always allowed regardless of the caller-supplied allow set.
+#
+# THERE ARE TWO ALLOW SETS IN THIS FILE and they are read by different paths: `import_gate` reads
+# this one, `apply_patch` merges DEFAULT_IMPORT_ALLOW below. Adding a name to only one of them fixes
+# half the gate and leaves a refusal that looks unrelated to the edit, which is exactly what
+# happened on the first attempt at this fix. Keep `__future__` in both.
 _DEFAULT_ALLOW: frozenset[str] = frozenset({
+    "__future__",
     "json", "math", "re", "typing", "dataclasses", "collections",
     "itertools", "functools", "pathlib", "datetime", "decimal",
 })
@@ -86,7 +92,20 @@ DANGEROUS_MODULE_PREFIXES: frozenset[str] = frozenset({
 })
 
 # Modules permitted by default without an explicit allow set.
+#
+# `__future__` is here because it is NOT a module in the sense this gate cares about. It is a
+# compile-time directive: `from __future__ import annotations` changes how the parser treats
+# annotations and cannot execute anything, reach the filesystem, or open a socket. There is no
+# dangerous symbol to import from it; the whole surface is a handful of feature flags.
+#
+# Leaving it out made the harness unable to patch modern Python AT ALL. Measured 2026-08-29 on a
+# real target: 27 of its 80 source files open with `from __future__ import annotations`, including
+# every file the proposer wanted to touch, so EVERY proposal was refused with "import not in
+# whitelist: __future__" before any of its actual content was considered. Four runs, every round,
+# 100% of static rejections traced to this one line. The harness was not declining bad changes, it
+# was declining the language.
 DEFAULT_IMPORT_ALLOW: frozenset[str] = frozenset({
+    "__future__",
     "os", "sys", "re", "json", "math", "typing", "dataclasses",
     "pathlib", "collections", "itertools", "functools", "datetime",
     "ast", "hashlib", "io", "string", "textwrap", "enum", "abc",

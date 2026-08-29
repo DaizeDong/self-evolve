@@ -594,11 +594,21 @@ def run_loop(
         # 态5 PATCH, apply each proposal; AST + boundary gates enforced by apply_patch
         # M4.6: enforce_immutable 由 --self/--enforce-immutable 透传，默认 False（非自举不变）
         applied = False
+        # apply_patch returns a precise reason for every refusal (immutable_hit, boundary, AST
+        # import gate, AST danger gate). Those reasons used to be discarded and the round recorded
+        # only a counter, so a run that rejected every proposal for eight rounds said WHAT happened
+        # and never WHY. Diagnosing it meant re-deriving the gate by hand. The reasons are evidence;
+        # they belong in the append-only log next to the decision they explain.
+        rejections: list[dict] = []
         for p in props:
             res = apply_patch(sandbox_root, p["file_rel"], p["new_content"],
                               enforce_immutable=enforce_immutable)
             if res["status"] == "APPLIED":
                 applied = True
+            else:
+                rejections.append({"file_rel": p.get("file_rel"),
+                                   "status": res.get("status"),
+                                   "reason": str(res.get("reason") or "")[:300]})
 
         if not applied:
             note_static_reject(st)   # in-memory counter update
@@ -606,6 +616,8 @@ def run_loop(
                 "type": "STATIC_REJECT",
                 "phase": "PATCH",
                 "static_reject_delta": 1,
+                "proposals": len(props),
+                "rejections": rejections[:10],
             })
             cc = circuit_check(st, params)
             if cc in ("no_progress_circuit", "static_reject_circuit",
