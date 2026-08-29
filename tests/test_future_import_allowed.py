@@ -81,3 +81,62 @@ def test_future_is_a_directive_not_a_capability():
     for name in exported:
         obj = getattr(fut, name)
         assert not callable(obj), f"__future__.{name} is callable, so this justification is wrong"
+
+
+# --------------------------------------------------------------------------- the two lists again
+# `__future__` was one symptom; this is the mechanism. apply_patch's docstring has always said it
+# uses "DEFAULT_IMPORT_ALLOW | allow_imports", and it did not: `allow` arrives as None from the
+# state machine, so import_gate fell back to _DEFAULT_ALLOW, a narrower list. Measured 2026-08-29 on
+# a real target, 42 files import sys and 32 import os, so almost nothing was patchable and the runs
+# reported static rejection as though the proposals were unsafe.
+import os as _os
+import tempfile as _tempfile
+
+from tools.sie.patch import _DEFAULT_ALLOW, apply_patch
+
+
+def _sandbox():
+    d = _tempfile.mkdtemp(prefix="sie-patch-test-")
+    return d
+
+
+@pytest.mark.parametrize("mod", sorted(set(DEFAULT_IMPORT_ALLOW) - set(_DEFAULT_ALLOW)))
+def test_every_documented_module_is_actually_patchable(mod):
+    """The gap between the documented list and the effective one, asserted module by module so a
+    future divergence names the module it broke."""
+    sb = _sandbox()
+    res = apply_patch(sb, "m.py", "from __future__ import annotations\nimport %s\n" % mod)
+    assert res["status"] == "APPLIED", f"{mod} is documented as allowed but was rejected: {res}"
+
+
+def test_the_measured_failure_reproduces_as_a_pass_now():
+    """The literal rejection seen in the run: 'import not in whitelist: hashlib' on a file that has
+    always imported hashlib."""
+    sb = _sandbox()
+    src = "from __future__ import annotations\nimport hashlib\n\ndef k(s: str) -> str:\n    return hashlib.sha256(s.encode()).hexdigest()[:16]\n"
+    res = apply_patch(sb, "skills/x/scripts/lib.py", src)
+    assert res["status"] == "APPLIED", res
+    assert _os.path.isfile(_os.path.join(sb, "skills", "x", "scripts", "lib.py"))
+
+
+@pytest.mark.parametrize("mod", ["subprocess", "socket", "ctypes", "multiprocessing"])
+def test_danger_modules_are_still_refused_even_though_the_list_widened(mod):
+    """The over-rejection control inverted. Widening the allow list must not widen the danger
+    surface; _DANGER_MODULES is refused even when a caller whitelists it."""
+    sb = _sandbox()
+    res = apply_patch(sb, "m.py", "import %s\n" % mod)
+    assert res["status"] == "REJECT"
+    assert mod in res["reason"]
+
+
+def test_an_undocumented_module_is_still_refused():
+    sb = _sandbox()
+    res = apply_patch(sb, "m.py", "import yaml\n")
+    assert res["status"] == "REJECT"
+    assert "yaml" in res["reason"]
+
+
+def test_dangerous_calls_are_still_refused():
+    sb = _sandbox()
+    res = apply_patch(sb, "m.py", "import os\neval('1+1')\n")
+    assert res["status"] == "REJECT"

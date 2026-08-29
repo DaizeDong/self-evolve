@@ -508,7 +508,22 @@ def apply_patch(
 
     # Gate 2: import_gate (M1a baseline whitelist + baseline danger calls).
     if file_rel.endswith(".py"):
-        ok, why = import_gate(new_content, allow)
+        # Pass the DOCUMENTED whitelist, which this function's own docstring has always claimed to
+        # use ("Import whitelist (DEFAULT_IMPORT_ALLOW | allow_imports)"). It did not. `allow`
+        # arrives as None from every caller in the state machine, and import_gate falls back to
+        # `_DEFAULT_ALLOW`, a NARROWER list of 12 modules, while DEFAULT_IMPORT_ALLOW holds 25. The
+        # 13 in the gap are abc, ast, copy, enum, hashlib, io, os, pprint, string, struct, sys,
+        # textwrap and time.
+        #
+        # Effect on a real target measured 2026-08-29: 42 of its files import sys and 32 import os,
+        # so essentially nothing was patchable. Rounds refused proposals with "import not in
+        # whitelist: hashlib" against a file that has always imported hashlib, and the run reported
+        # static rejection as though the proposer kept producing unsafe changes.
+        #
+        # This does not loosen the danger surface. _DANGER_MODULES is rejected even when a caller
+        # whitelists it, the dangerous-symbol and dangerous-call checks are unchanged, and
+        # scan_ast_dangerous still runs afterwards as gate 3 with this same set.
+        ok, why = import_gate(new_content, set(DEFAULT_IMPORT_ALLOW) | set(allow or set()))
         if not ok:
             return {"status": "REJECT", "reason": f"AST gate: {why}"}
 
