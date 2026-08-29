@@ -40,10 +40,42 @@ def _exec_signal(target: str, base_ref: str) -> dict | None:
         from tools.sie.sandbox import make_worktree
         from tools.sie.probes.exec_probe import run_exec_probe
 
-        sandbox_root = make_worktree(target, base_ref, "profile_probe")
+        # The probe worktree is keyed by the RESOLVED base ref, not by a fixed name.
+        #
+        # It used to be make_worktree(target, base_ref, "profile_probe"), and make_worktree is
+        # idempotent by design: if the directory already holds a valid worktree it returns it
+        # as-is, WITHOUT checking that it sits at the ref it was just asked for. So the first
+        # profile on a machine created .sie/worktrees/profile_probe at whatever HEAD was that day,
+        # and every profile afterwards silently graded THAT code no matter what base_ref said.
+        #
+        # Measured 2026-08-29: the cached probe worktree was pinned three commits behind, at a
+        # revision whose suite fails 22 of 1083 tests, and it kept reporting exit_code 1. PROFILE
+        # therefore froze the target at tier C with verifiability_score 0.0 across four separate
+        # runs, which reads as "this target has no verifiable signal" when the truth was "we
+        # measured code you fixed three commits ago". A fresh worktree at the same ref passes 1429.
+        # Keying on the ref makes the cache correct instead of merely fast, and different refs no
+        # longer collide.
+        ref = _resolve_ref(target, base_ref)
+        sandbox_root = make_worktree(target, ref, "profile_probe_%s" % ref[:12])
         return run_exec_probe(sandbox_root)
-    except Exception:
-        return None
+    except Exception as e:
+        # Returning None here means "no exec signal", which the caller turns into a tier downgrade.
+        # Swallowing the reason made an infrastructure failure indistinguishable from a target that
+        # genuinely has no tests, so the reason now travels with the verdict.
+        return {"has_tests": None, "exit_code": None, "mutation_killed": False,
+                "unavailable_reason": "exec probe could not run: %s: %s" % (type(e).__name__, e)}
+
+
+def _resolve_ref(target: str, base_ref: str) -> str:
+    """The commit `base_ref` names right now, so a moving ref cannot alias a stale worktree."""
+    import subprocess
+    out = subprocess.run(["git", "-C", target, "rev-parse", base_ref or "HEAD"],
+                         capture_output=True, text=True, timeout=30)
+    sha = (out.stdout or "").strip()
+    if out.returncode != 0 or not sha:
+        raise RuntimeError("cannot resolve base ref %r in %s: %s"
+                           % (base_ref, target, (out.stderr or "").strip()[:200]))
+    return sha
 
 
 def run_profile(target: str, base_ref: str, run_dir: str | None = None) -> dict:
