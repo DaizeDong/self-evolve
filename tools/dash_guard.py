@@ -224,6 +224,40 @@ def process_text(text: str, kind: str, notes=None):
     return "\n".join(out_lines), hits
 
 
+_HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+
+
+def added_line_numbers(repo, path):
+    """Line numbers this staged diff ADDS to `path`, numbered in the post-image.
+
+    Why this exists. --staged scans whole staged files, which is right for a repo whose tree was
+    cleaned once and has to stay clean. It is wrong for a tree carrying standing violations nobody
+    intends to rewrite, because then every commit touching such a file re-reports lines the commit
+    did not introduce, and a check that is always red gets bypassed within a day. The memory pool
+    is exactly that case: 2184 standing hits against an owner rule that says existing internal docs
+    are not retroactively cleaned while newly written prose must comply.
+
+    Returns None when the added range cannot be determined, and callers MUST read None as "examine
+    the whole file" rather than "nothing was added". Returning an empty set on a parse failure
+    would convert a broken scan into a silent pass, which is the one outcome this guard exists to
+    prevent.
+    """
+    out = _git(repo, "diff", "--cached", "-U0", "--", path, allow_fail=True)
+    if out is None:
+        return None
+    nums, seen_hunk = set(), False
+    for line in out.splitlines():
+        m = _HUNK.match(line)
+        if m:
+            seen_hunk = True
+            start = int(m.group(1))
+            count = int(m.group(2)) if m.group(2) is not None else 1
+            nums.update(range(start, start + count))
+    if not seen_hunk and out.strip():
+        return None
+    return nums
+
+
 class GitError(RuntimeError):
     """A git invocation this run depends on did not succeed. Raised, never swallowed."""
 
@@ -287,8 +321,21 @@ def main() -> int:
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--staged", action="store_true")
     g.add_argument("--tree", action="store_true")
+    ap.add_argument("--added-only", action="store_true",
+                    help="report only lines the staged diff ADDS (implies --staged); for trees "
+                         "with standing violations that are not being retroactively cleaned")
     ap.add_argument("paths", nargs="*", help="explicit files (overrides --staged/--tree)")
     args = ap.parse_args()
+
+    # --fix rewrites whole files, so pairing it with --added-only would silently clean the standing
+    # lines the mode exists to leave alone. Refuse rather than pick one of the two meanings.
+    if args.added_only and args.fix:
+        print("dash_guard: --added-only cannot be combined with --fix. --fix rewrites the whole "
+              "file, which would also rewrite the standing lines --added-only exists to skip.",
+              file=sys.stderr)
+        return 2
+    if args.added_only:
+        args.staged = True
 
     repo = os.path.abspath(args.repo)
     enumerated = None                 # how many paths git named, before the extension filter
@@ -365,6 +412,14 @@ def main() -> int:
         for n in notes:                       # e.g. a .py the tokenizer could not parse
             unexamined.append((rel, n))
             examined -= 1
+        if args.added_only and hits:
+            added = added_line_numbers(repo, _rel)
+            if added is None:
+                # Could not determine the added range. Keep every hit and say so: narrowing on a
+                # failed parse would turn "we could not tell" into "nothing was added".
+                unexamined.append((rel, "added-line range unavailable; reported the whole file"))
+            else:
+                hits = [h for h in hits if h[0] in added]
         if not hits:
             continue
         total += len(hits)
