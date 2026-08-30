@@ -341,17 +341,64 @@ def main():
               % e, file=sys.stderr)
         return 2
 
+    if not files:
+        # AN EMPTY FILE LIST IS NOT A CLEAN REPO (promoted from daily-hotspots 2026-08-29, negative
+        # control: tools/test_data_boundary.py::test_zero_tracked_files_is_not_a_clean_bill_of_health).
+        #
+        # `git ls-files` can exit 0 and hand back nothing: a fresh work tree, an index git rebuilt
+        # as empty, a `--repo` pointed one directory off. Every per-file check below then iterates
+        # zero times and the summary printed "clean (... 0 tracked files ...)" with rc=0. A count
+        # inside a success message was the ONLY thing separating that from a real pass, and this
+        # file's own `_run` docstring is a paragraph about how that exact shape was the defect on
+        # the primary control. Same verdict as an unusable git, because it is the same fact.
+        print("data_boundary: 0 tracked files in %s, so NOTHING was examined. This is not a clean\n"
+              "  bill of health, the scan had no input. Check that --repo names the work tree you\n"
+              "  meant and that the index is populated (`git ls-files | head`)." % root,
+              file=sys.stderr)
+        return 2
+
     m = load_manifest(root)
-    if m is None:
-        print("data_boundary: no %s in this repo (nothing declared, nothing enforced)" % MANIFEST)
-        return 0
+    manifest_absent = m is None
+    if manifest_absent:
+        # A MISSING MANIFEST USED TO DISARM THE WHOLE GATE (promoted 2026-08-29, negative controls:
+        # test_no_manifest_does_not_launder_a_tracked_run_artifact and
+        # test_no_manifest_is_reported_as_not_armed_not_as_clean).
+        #
+        # The old body returned 0 right here, so the one-line route past the primary control was
+        # `rm .dataclass.json`: the repo could then track an entire real archive and both hooks
+        # would report success. Measured 2026-08-29 in a scratch repo: a tracked
+        # `metrics/verdicts.jsonl` is 2 violations with the manifest present and rc=0 with it
+        # deleted, the file still tracked either way. That the fail-open was KNOWN is written into
+        # CI: .github/workflows/pii-guard.yml carries a `test -f .dataclass.json` step whose error
+        # text says data_boundary "would exit 0 on every run and leave the primary control inert".
+        # A workaround in one caller is not a property of the gate, and the hooks never had it.
+        #
+        # Check 4 is manifest-INDEPENDENT by construction: it runs off the tracked file list and
+        # asks whether anything WEARS the shape of run output. So it still runs, against an empty
+        # manifest, and a run artifact is still caught. Only the declaration-driven checks (1, 2,
+        # 3, 5) are genuinely unanswerable without a manifest, and that is reported as NOT ARMED
+        # with its own exit code rather than as a pass.
+        m = {}
 
     out = []
     check_data_not_tracked(root, m, files, out)
     check_data_has_schema(root, m, out)
     check_fixtures_are_generated(root, m, out)
     check_no_undeclared_run_shapes(root, m, files, out)
-    check_empty_data_is_audited(root, m, out)
+    if not manifest_absent:
+        # Check 5 asks whether an EMPTY data list was a finding. With no manifest at all there is
+        # no list to have been a finding, and reporting UNAUDITED against a file that does not
+        # exist would tell the reader to edit a note when what is missing is the whole manifest.
+        check_empty_data_is_audited(root, m, out)
+
+    if not out and manifest_absent:
+        print("data_boundary: NOT ARMED. There is no %s in %s, so checks 1, 2, 3 and 5 asserted\n"
+              "  NOTHING about this repo. Check 4 ran (it needs no manifest) and found no tracked\n"
+              "  file wearing the shape of real-run output, across %d tracked files, that is the\n"
+              "  only statement this run is entitled to make.\n"
+              "  Declare the repo's classes in %s to arm the rest."
+              % (MANIFEST, root, len(files), MANIFEST), file=sys.stderr)
+        return 3
 
     if not out:
         print("data_boundary: clean (%d DATA + %d sealed paths absent, %d FIXTUREs "
