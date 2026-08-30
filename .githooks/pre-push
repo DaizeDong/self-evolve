@@ -91,8 +91,13 @@ fi
 # layer could have caught and every structural check passed it clean. That is not a defect in the
 # structural checks: they match shapes, and the class this layer exists for has no shape to match.
 #
-# NOT vendored, deliberately: semantic_gate.py and llmcall live under the operator's HOME and are
-# not part of this repo. An outside contributor does not have them, this block is a no-op for them,
+# NOT vendored, deliberately: this layer's script and the model call it makes are machine-local
+# and are not part of this repo.
+#
+# The sentence that used to sit here named where those two components live on disk. It was
+# removed on 2026-08-30 because this comment ships to eighteen PUBLIC repos and the semantic
+# gate flagged it, correctly, as prose describing private infrastructure. A hook whose own
+# comment trips its own gate is a small thing and it still blocked four pushes. An outside contributor does not have them, this block is a no-op for them,
 # and the structural gate above has already run fail-closed for everyone.
 #
 # ADVISORY BY CONSTRUCTION: semantic_gate exits 0 when llmcall is down, when the push adds no prose,
