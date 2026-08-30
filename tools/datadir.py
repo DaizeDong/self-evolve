@@ -192,13 +192,13 @@ def resolve_companion_root(skill):
     This answers the adjacent question, "where is the companion itself", which is what a caller
     looking for config.json, a registry or a runbook needs.
 
-    IT EXISTS SO THERE IS ONE DISCOVERY ORDER, NOT TWO. small-cap-deepdive had a second resolver in
-    tools/_common.py that probed only environment variables and home dotfiles, and did not know the
-    sibling convention at all. The consequence, measured 2026-08-30: resolve_data_dir found the
-    companion at CodesClaude/small-cap-deepdive-config/data while resolve_config_json returned None,
-    so the skill fell back to the shipped example default of `./reports/smallcap` and wrote 4029
-    real-run files into its own public repository. Two answers to one question, and the wrong one
-    was the one that decided where files landed.
+    IT EXISTS SO THERE IS ONE DISCOVERY ORDER, NOT TWO. One skill in this fleet carried a second
+    resolver of its own, for its config file rather than its data, and that one probed only
+    environment variables and home dotfiles without knowing the sibling convention. The consequence,
+    measured 2026-08-30: this function found the companion while the other returned nothing, so the
+    skill fell through to a shipped example default that was repo relative and wrote 4029 real-run
+    files into its own public repository. Two answers to one question, and the wrong one was the one
+    that decided where files landed.
 
     So a caller that needs the companion asks here rather than re-deriving the order. The order is
     the same as resolve_data_dir's, minus the data/ suffix probes, and the same rejection applies: a
