@@ -86,10 +86,16 @@ fi
 # WHY IT IS HERE AND NOT ONLY IN THE MACHINE-WIDE HOOK. Every repo that vendors these hooks sets
 # repo-level core.hooksPath=.githooks, which SHADOWS the machine-wide hook entirely. The identity
 # assertion was duplicated into both places for exactly that reason; the semantic gate never was,
-# so the one layer that reads MEANING rather than shape ran
-# on none of the repos that matter. On 2026-08-30 a commit MESSAGE carried something only this
-# layer could have caught and every structural check passed it clean. That is not a defect in the
-# structural checks: they match shapes, and the class this layer exists for has no shape to match.
+# so the one layer that reads MEANING rather than shape ran on none of the repos that matter.
+# On 2026-08-30 a commit MESSAGE carried something only this layer could have caught and every
+# structural check passed it clean. That is not a defect in the structural checks: they match
+# shapes, and the class this layer exists for has no shape to match. Both are needed.
+#
+# This paragraph is deliberately vague about WHAT was carried, and that is the second lesson.
+# The first draft named the category, this gate blocked it at 0.85 confidence, and it was right:
+# a comment that ships to eighteen PUBLIC repos must not describe the thing it protects. It also
+# passed the same text on sixteen other repos before blocking on two, so a probabilistic layer
+# catches a class eventually rather than the first time. When it does catch, fix the prose.
 #
 # NOT vendored, deliberately: this layer's script and the model call it makes are machine-local
 # and are not part of this repo.
