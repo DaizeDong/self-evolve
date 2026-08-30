@@ -20,7 +20,15 @@
 ROOT="$(git rev-parse --show-toplevel)"
 GUARD="$ROOT/tools/pii_guard.py"
 BOUNDARY="$ROOT/tools/data_boundary.py"
-[ -f "$GUARD" ] || exit 0
+# FAIL CLOSED on a missing guard, same as the interpreter probe below and for the same reason:
+# `|| exit 0` meant deleting one file silently switched push protection off and printed nothing,
+# so a disarmed hook and a passing hook produced identical output. Demonstrated 2026-08-30 by
+# removing tools/pii_guard.py and watching a push carrying an address exit 0 in silence.
+if [ ! -f "$GUARD" ]; then
+  echo "BLOCKED: $GUARD is missing, so nothing is checking this push."
+  echo "Restore it with the pii-guard installer rather than pushing blind."
+  exit 1
+fi
 # A MISSING INTERPRETER MUST FAIL CLOSED. This used to be
 #   PY=$(command -v python || command -v python3 || command -v py) || exit 0
 # which means: on any machine where python does not resolve, every gate below silently does nothing
@@ -59,13 +67,58 @@ fi
 # The DATA BOUNDARY (see the note in pre-commit). Checked again at the push boundary, because this
 # is the last moment anything is still private -- and because a commit can arrive here without ever
 # passing pre-commit (a merge, a cherry-pick, a rebase, another clone, --no-verify).
-[ -f "$BOUNDARY" ] || exit 0
+if [ ! -f "$BOUNDARY" ]; then
+  echo "BLOCKED: $BOUNDARY is missing, so the data boundary is not being checked."
+  echo "Restore it with the pii-guard installer rather than pushing blind."
+  exit 1
+fi
 out=$("$PY" "$BOUNDARY" 2>&1)
 rc=$?
-[ "$rc" -eq 0 ] && exit 0
+if [ "$rc" -ne 0 ]; then
+  printf '%s\n' "$out"
+  echo ""
+  echo "push BLOCKED by data_boundary: this repo is not an uninitialized tool."
+  echo "Real-run output would become public and permanent. Move it to the private store."
+  exit 1
+fi
 
-printf '%s\n' "$out"
-echo ""
-echo "push BLOCKED by data_boundary: this repo is not an uninitialized tool."
-echo "Real-run output would become public and permanent. Move it to the private store."
-exit 1
+# --- SEMANTIC layer (operator machine only) ----------------------------------------------------
+# WHY IT IS HERE AND NOT ONLY IN THE MACHINE-WIDE HOOK. Every repo that vendors these hooks sets
+# repo-level core.hooksPath=.githooks, which SHADOWS the machine-wide hook entirely. The identity
+# assertion was duplicated into both places for exactly that reason; the semantic gate never was,
+# so the one layer that reads MEANING rather than shape ran
+# on none of the repos that matter. On 2026-08-30 a commit MESSAGE carried something only this
+# layer could have caught and every structural check passed it clean. That is not a defect in the
+# structural checks: they match shapes, and the class this layer exists for has no shape to match.
+#
+# NOT vendored, deliberately: semantic_gate.py and llmcall live under the operator's HOME and are
+# not part of this repo. An outside contributor does not have them, this block is a no-op for them,
+# and the structural gate above has already run fail-closed for everyone.
+#
+# ADVISORY BY CONSTRUCTION: semantic_gate exits 0 when llmcall is down, when the push adds no prose,
+# and when the verdict is unsure. It blocks only on a confident finding.
+# Referenced through the ~/.local/bin adapter on purpose: this file is VENDORED into public repos,
+# and spelling out the guard's own install directory here would make every one of them fail their
+# own pii_guard, which whitelists only a couple of config subdirectories and nothing else under
+# that tree. Caught the honest way, by staging this hook and running the guard on it: the first
+# attempt named the script, the second still tripped on a comment that merely quoted the whitelist.
+# The adapter lives outside every worktree and is the single place that path is written down, and
+# it is absent on a contributor machine, which is exactly when this layer should be a no-op.
+SEM="$HOME/.local/bin/semantic-gate"
+if [ -f "$SEM" ]; then
+  z="0000000000000000000000000000000000000000"
+  semrc=0
+  while read -r _lref lsha _rref rsha; do
+    [ "$lsha" = "$z" ] && continue
+    if [ "$rsha" = "$z" ] || ! git cat-file -e "${rsha}^{commit}" 2>/dev/null ||
+       ! git merge-base --is-ancestor "$rsha" "$lsha" 2>/dev/null; then
+      srange="$lsha --not --remotes"
+    else
+      srange="$rsha..$lsha"
+    fi
+    so=$("$SEM" --repo "$ROOT" --range "$srange" 2>&1) || semrc=1
+    [ -n "$so" ] && printf '%s\n' "$so"
+  done
+  [ "$semrc" -ne 0 ] && exit 1
+fi
+exit 0
