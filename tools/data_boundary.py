@@ -73,6 +73,7 @@ reason. That is an allowlist entry visible in the diff, which is the opposite of
 Stdlib only.
 """
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -87,23 +88,73 @@ MANIFEST = ".dataclass.json"
 # `metrics/live-runs.jsonl.example` must not therefore become a violation of check 4.
 SHAPE_EXEMPT = re.compile(r"\.(example|sample|tmpl|template)(\.|$)", re.I)
 
-# The shapes real runs actually leave behind in this fleet. Each entry is (why, pattern).
+# The shapes real runs leave behind in this fleet. Each entry is (why, pattern).
+#
+# WHAT THIS LIST IS FOR, AND WHAT IT IS NOT. It answers one question about a NAME: does this look
+# like something a run produced. It is not a description of any particular skill's output, and the
+# moment it starts becoming one it stops being maintainable by anyone but that skill's author.
+#
+# WHY IT CANNOT BE TRUSTED ON ITS OWN. Checks 1, 2, 3 and 5 read a manifest and object to what they
+# find there, so a mistake in them surfaces as a wrong verdict. Check 4 objects only to what it
+# RECOGNISES, so a list that recognises nothing prints byte for byte what a repo with nothing to
+# find prints. That is not hypothetical. The predecessor of this list was assembled from a handful
+# of skills' filenames and never held against a real run: measured against one skill's actual daily
+# output it matched 0 of 116 files, and across the fleet it matched 16 of 54 representative names
+# with 7 of 18 repos scoring zero, while every one of those repos writes output on every run.
+#
+# So a repo does not rely on this list alone. Each declares `_run_shape_probes` in its own
+# .dataclass.json: the SCHEMATIC names ITS runs produce, held against this list with
+# `--explain`. That is where a skill's inventory belongs. This file stays generic, and a probe that
+# matches nothing here is a gap in this list reported by name rather than a silent miss.
+#
+# WHERE THESE PATTERNS CAME FROM. Six of the twelve were calibrated in daily-hotspots against a real
+# run, the only place in the fleet where that had been done, and promoted here on 2026-08-30 after
+# being scored against every git-tracked file in all 18 public repos: zero undeclared hits, so
+# nothing turns red on adoption. They carry some vocabulary harvested from real skills (roster,
+# candidates, cards, shards) and that is deliberate, because these ARE the words this fleet's
+# pipelines use. What is NOT promoted is the per-skill inventory that surrounded them: which files
+# that one skill writes, in what size, on which day. That belongs in its probes, not here.
 RUN_SHAPES = (
     ("a jsonl ledger under metrics/ -- the exact shape of the 2026-07 leak",
      re.compile(r"(^|/)metrics/.*\.(jsonl|ndjson)$", re.I)),
     ("anything under a runs/ directory -- per-run output",
      re.compile(r"(^|/)runs/", re.I)),
+    ("a DATED RUN DIRECTORY -- one whole tree per real run, scratch and captures alike",
+     re.compile(r"(^|/)\.?runs?[-_]\d{4}-\d{2}-\d{2}", re.I)),
     ("a dated file under an output directory -- a dated file is a record of a day, not a tool",
      re.compile(r"(^|/)(reports?|archive|digests?|logs?|out|output|state|snapshots?)/"
                 r".*(\d{4}-\d{2}-\d{2}|\d{4}-\d{2}(?!\d)|\d{8})", re.I)),
     ("a jsonl ledger under an output directory",
      re.compile(r"(^|/)(archive|logs?|state|out|output|runs|reports?)/.*\.(jsonl|ndjson)$", re.I)),
+    ("a DATE-STAMPED or MONTH-SHARDED record -- the date is there because a run happened",
+     re.compile(r"(^|/)[A-Za-z0-9_.-]*[-_]\d{4}-\d{2}(-\d{2})?"
+                r"([-_.][A-Za-z0-9_.-]*)?\.(jsonl|ndjson|json|md|txt|csv|log|rss|html|py)$", re.I)),
     ("a filename this fleet uses for a live ledger",
      re.compile(r"(^|/)(ledger|live-runs|events|dry-run|verdicts|opportunities|history|transcript"
-                r"|pulls-\d{4}-\d{2})\.(jsonl|ndjson)$", re.I)),
+                r"|pulls-\d{4}-\d{2})([-_.][A-Za-z0-9_.-]+)?\.(jsonl|ndjson)$", re.I)),
     ("a filename this fleet uses for real-run state",
      re.compile(r"(^|/)(escalation_state|fleet-check-status|bandit-state|throttle-state"
                 r"|dedup-state)\.json$", re.I)),
+    # `roster-evolution.md` is the DESIGN NOTE for the roster and must not match; `roster-review.md`
+    # is the report a real run emits and must. Hence the .md arm is a name, not a wildcard: a shape
+    # broad enough to swallow the documentation would be turned off within a week.
+    ("a ROSTER -- this skill evolves it from real runs, so it is output, not configuration",
+     re.compile(r"(^|/)roster([-_][A-Za-z0-9_.-]*)?\.(json|jsonl)$"
+                r"|(^|/)roster[-_]review\.md$", re.I)),
+    # NOTE: the trailing arm deliberately excludes `.md`. With it, any `*_log.md` matched,
+    # and `feedback_log.md` / `change_log.md` / `audit_log.md` are ordinary hand-written
+    # documentation idioms. A raw capture is what a source returned; nobody returns markdown.
+    # Measured 2026-08-30: that one character class was the only over-match this list
+    # produced across every tracked file in all 18 repos, and it reported a real file with a
+    # reason that had nothing to do with why the file is interesting.
+    ("a RAW THIRD-PARTY CAPTURE -- whatever a source returned on the day it was polled",
+     re.compile(r"(^|/)(raw|reddit_raw|captures?|parts\d*|shards?|chunks?|_d)/"
+                r"|(^|/)raw[-_][A-Za-z0-9_.-]+\.(json|jsonl|ndjson|txt|html)$"
+                r"|[-_](raw|out|log|err|dump)\.(json|jsonl|ndjson|txt|log)$", re.I)),
+    ("a COLLECTION INTERMEDIATE -- the pipeline's own working set for one run",
+     re.compile(r"(^|/)(candidates?|signals?|clusters?|cards|supply_cards|demand_cards|demand_\w+"
+                r"|all_jobs|raw_jobs|sources|sources_result|result|run_out|roster_plan"
+                r"|roster_raw_\d+|roster_shard_\d+|dry)\.(json|jsonl|ndjson)$", re.I)),
     ("a database file -- nobody hand-writes one, so it came from a run",
      re.compile(r"\.(db|sqlite|sqlite3)$", re.I)),
 )
@@ -273,6 +324,115 @@ def check_fixtures_are_generated(root, m, out):
                 out.append(("HAND-EDITED", rel,
                             "does not match the generator -- a real record cannot be regenerated. "
                             "Change the SCHEMA, then run: python tools/make_fixtures.py"))
+
+
+def _resolve_companion(start):
+    """Ask tools/datadir.py where this skill's private data lives. ONE resolver, here too.
+
+    Not a second probe order. The whole point of datadir.py is that exactly one piece of code
+    answers "where does real-run output go"; a checker that answered it independently could
+    disagree with the writer it is auditing, and the disagreement would look like a clean report.
+    """
+    # LOAD THE TARGET REPO'S datadir.py, not the one beside this file. datadir resolves the sibling
+    # companion relative to ITS OWN worktree, so a copy living outside the repo under audit answers
+    # for its own neighbourhood, which is to say None. The vendored copies were unaffected because
+    # there the two paths coincide, and that is exactly the kind of bug that only appears when
+    # someone runs the tool the less usual way. Measured: an out-of-tree copy invoked with --repo
+    # reported "no companion resolved" for a repo whose companion was one directory over.
+    try:
+        target = _repo_root(start)
+    except GitError:
+        target = start
+    dd_path = os.path.join(target, "tools", "datadir.py")
+    if not os.path.isfile(dd_path):
+        dd_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "datadir.py")
+    if not os.path.isfile(dd_path):
+        return None
+    spec = importlib.util.spec_from_file_location("_data_boundary_datadir", dd_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    try:
+        root = _repo_root(start)
+    except GitError:
+        root = start
+    # DataDirInsideOwnRepo is deliberately NOT caught: a data dir pointing into the tool repo is a
+    # defect, and a traceback naming it is a better outcome than "no companion resolved".
+    # resolve_companion_root, not resolve_data_dir: check_companion runs `git status` on what
+    # it gets back, and the ROOT is what a person reads in that report. Both answers come from
+    # the same candidate list, so this is still one probe order, not two.
+    # A vendored datadir.py older than resolve_companion_root is a real state during a rollout, and
+    # it must degrade to "cannot answer" rather than to a traceback. Deliberately NOT falling back
+    # to resolve_data_dir: that returns the data DIRECTORY, and silently auditing a subdirectory
+    # while reporting it as the companion is the kind of near-miss this file exists to refuse.
+    fn = getattr(mod, "resolve_companion_root", None)
+    if fn is None:
+        return None
+    p = fn(os.path.basename(os.path.normpath(root)))
+    return str(p) if p else None
+
+
+def check_companion(companion, max_report):
+    """Is the PRIVATE companion repo's real-run output actually under version control?
+
+    THIS IS NOT THE SAME QUESTION AS THE ONE ABOVE, and conflating them has already caused one
+    wrong verdict in this fleet. The rule is "DATA never in a PUBLIC repo", not "DATA never in
+    git": a private companion repo is exactly where a person's real output legitimately lives, with
+    a remote, a history and a backup. So this check does not object to run output being tracked
+    there. It objects to run output being NEITHER tracked NOR ignored -- sitting loose in the
+    working tree, in a limbo where it is not backed up by anything and where it buries `git status`
+    under so much noise that a genuinely new file cannot be seen. Measured on the operator's
+    companion 2026-08-27: 35 loose run trees, 1640 files, 1.5 GB, against 40 tracked files. The
+    signal-to-noise ratio of `git status` there was 0.
+
+    Deliberately opt-in (`--companion`) and deliberately NOT part of the public repo's CI: there is
+    no companion on a CI runner, and a check that cannot run must say so rather than pass. Absent
+    companion exits 3, which is neither clean nor a violation.
+    """
+    try:
+        root = _repo_root(companion)
+        status = _run(["git", "status", "--porcelain", "--untracked-files=all", "-z"], root)
+        tracked_files = tracked(root)
+    except GitError as e:
+        print("data_boundary --companion: SCAN FAILED, NOTHING was examined.\n  %s" % e,
+              file=sys.stderr)
+        return 2
+
+    loose = sorted(f[3:] for f in status.split("\0") if f.startswith("?? "))
+    loose_shaped = [f for f in loose if shape_of(f) and not f.endswith("/")]
+    # `git status -z` reports an untracked DIRECTORY as one entry ending in `/`; expand it so the
+    # count is files, not directories. A directory reported as "1 item" is how 1640 files hide.
+    for d in [f for f in loose if f.endswith("/")]:
+        for r, _dirs, fs in os.walk(os.path.join(root, d)):
+            for x in fs:
+                rel = os.path.relpath(os.path.join(r, x), root).replace("\\", "/")
+                if shape_of(rel):
+                    loose_shaped.append(rel)
+    tracked_shaped = [f for f in tracked_files if shape_of(f)]
+
+    print("data_boundary --companion: %s" % root)
+    print("  tracked files wearing a run shape:  %d   (correct: this is the private repo)"
+          % len(tracked_shaped))
+    print("  LOOSE files wearing a run shape:    %d   (neither tracked nor ignored)"
+          % len(loose_shaped))
+    if not loose_shaped:
+        return 0
+
+    shown = sorted(loose_shaped)[:max_report]
+    for f in shown:
+        print("    %s" % f, file=sys.stderr)
+    withheld = len(loose_shaped) - len(shown)
+    # The bound and what it dropped are both printed. A listing that silently stops at N teaches
+    # the reader that N is the whole answer.
+    print("    ... %d more not listed (--max-report %d)" % (withheld, max_report), file=sys.stderr)
+    print("\n%d file(s) of real-run output are loose in %s: not tracked, and not ignored either.\n"
+          "Decide, do not drift. Both dispositions are legitimate in a PRIVATE repo:\n"
+          "  TRACK   if the files are curated output you would want to diff and restore.\n"
+          "  IGNORE  if they are per-run scratch: raw third-party captures, fetch logs, stderr\n"
+          "          dumps, one-off scripts. Check first that the curated record is already\n"
+          "          tracked, then add the pattern to that repo's .gitignore.\n"
+          "Leaving them loose is the one option that is not a decision."
+          % (len(loose_shaped), root), file=sys.stderr)
+    return 1
 
 
 def check_run_shape_probes(root, m, out, phase_blocking=False):
@@ -447,6 +607,13 @@ def main():
                          "it recognises none of them.")
     ap.add_argument("--require-hit", action="store_true",
                     help="with --explain, exit 1 when no supplied name matched any shape")
+    ap.add_argument("--companion", action="store_true",
+                    help="also audit the PRIVATE companion repo for run output that is neither "
+                         "tracked nor ignored (exit 3 if no companion resolves: NOTHING checked)")
+    ap.add_argument("--companion-dir", metavar="PATH",
+                    help="the companion repo to audit, instead of resolving one")
+    ap.add_argument("--max-report", type=int, default=20,
+                    help="cap the --companion listing (the cap and the count withheld are printed)")
     a = ap.parse_args()
 
     if a.explain:
@@ -455,6 +622,19 @@ def main():
         # lives. Without --require-hit it always exits 0, so it can never become a gate by accident.
         hits = explain(a.explain)
         return 1 if (a.require_hit and hits == 0) else 0
+
+    if a.companion or a.companion_dir:
+        # Deliberately opt-in and deliberately NOT in CI: there is no companion on a CI runner, and
+        # a check that cannot run must say so rather than pass. Exit 3 when none resolves.
+        comp = a.companion_dir or _resolve_companion(os.path.abspath(a.repo))
+        if comp is None:
+            print("data_boundary --companion: no private companion repo resolved, so\n"
+                  "  NOTHING was examined. This is not a clean bill of health. Point\n"
+                  "  $%s_CONFIG at it, or pass --companion-dir."
+                  % os.path.basename(os.path.abspath(a.repo)).upper().replace("-", "_"),
+                  file=sys.stderr)
+            return 3
+        return check_companion(comp, a.max_report)
 
     try:
         root = _repo_root(os.path.abspath(a.repo))
