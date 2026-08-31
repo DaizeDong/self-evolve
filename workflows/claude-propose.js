@@ -28,9 +28,21 @@ const findings = Array.isArray(input.findings) ? input.findings : [];
 const files = (input.files && typeof input.files === 'object') ? input.files : {};
 const fileRels = Object.keys(files);
 
-if (!fileRels.length) {
+// Every failure below prints WHY to stderr before emitting {}. Without this the four distinct
+// failures (no input, launch failed, output was not JSON, output did not match the contract) reach
+// the loop as one identical empty object, and the loop records one identical STATIC_REJECT. A
+// calibration run lost 6 of its 7 rounds this way and its own log could not say which failure it
+// was even once. stdout stays exactly as contracted; only stderr gains content.
+function giveUp(why, raw) {
+  process.stderr.write('claude-propose: ' + why + '\n');
+  if (raw) process.stderr.write('claude-propose: raw agent output (first 600): '
+                               + String(raw).slice(0, 600) + '\n');
   process.stdout.write('{}');
   process.exit(0);
+}
+
+if (!fileRels.length) {
+  giveUp('no source files were supplied, so there was nothing to propose against');
 }
 
 let fileBlock = '';
@@ -49,17 +61,40 @@ const prompt =
   'FINDINGS:\n' + (findings.length ? findings.map(f => '- ' + f).join('\n') : '(none)') +
   '\n\nCURRENT FILES:\n' + fileBlock + '\n';
 
-const out = launchClaude(['--model', 'sonnet'], prompt);
-if (!out.ok) { process.stdout.write('{}'); process.exit(0); }
+// No model pin. The pinned 'sonnet' here was invisible from every log the loop keeps, and it is
+// the proposer, the one step whose quality decides whether a round produces anything at all.
+// _claude_launch resolves the session default instead.
+const out = launchClaude([], prompt);
+if (!out.ok) giveUp('the agent launch failed: ' + (out.error || 'no reason reported'), out.result);
 
-let result = {};
+const first = out.result.indexOf('{'), last = out.result.lastIndexOf('}');
+if (first < 0 || last <= first) {
+  giveUp('the agent returned no JSON object at all (' + out.result.length + ' chars). For a large '
+         + 'target this usually means it wrote the file content somewhere instead of returning it '
+         + 'inline; the contract only reads stdout.', out.result);
+}
+
+let obj = null;
 try {
-  const obj = JSON.parse(out.result.slice(out.result.indexOf('{'), out.result.lastIndexOf('}') + 1));
-  if (obj && typeof obj.file_rel === 'string' && typeof obj.new_content === 'string'
-      && fileRels.includes(obj.file_rel)) {   // 只允许改给定文件之一（不许凭空新建路径）
-    result = { file_rel: obj.file_rel, new_content: obj.new_content };
-  }
-} catch (_) { result = {}; }
+  obj = JSON.parse(out.result.slice(first, last + 1));
+} catch (e) {
+  giveUp('the agent output looked like JSON but did not parse: ' + e.message, out.result);
+}
 
-process.stdout.write(JSON.stringify(result));
+if (!obj || typeof obj !== 'object') giveUp('the agent returned JSON that is not an object', out.result);
+if (Object.keys(obj).length === 0) {
+  giveUp('the agent explicitly returned {}, meaning it judged that no useful change was possible',
+         out.result);
+}
+if (typeof obj.file_rel !== 'string' || typeof obj.new_content !== 'string') {
+  giveUp('the agent returned an object without both file_rel and new_content as strings (keys: '
+         + JSON.stringify(Object.keys(obj)) + ')', out.result);
+}
+if (!fileRels.includes(obj.file_rel)) {
+  // Only the given files may be edited: no inventing new paths.
+  giveUp('the agent named ' + JSON.stringify(obj.file_rel) + ', which was not one of the '
+         + fileRels.length + ' files it was given');
+}
+
+process.stdout.write(JSON.stringify({ file_rel: obj.file_rel, new_content: obj.new_content }));
 process.exit(0);

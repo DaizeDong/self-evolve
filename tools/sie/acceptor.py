@@ -173,6 +173,29 @@ def decide(paired: list[tuple[float, float]], tier: str,
             return {"decision": "ACCEPT", "evalue": evalue,
                     "reason": f"e={evalue:.2f} >= 1/α={thr:.1f} (A 档二态)",
                     "force_review": False, "degrade_reason": None}
+        # UNOBSERVED is not REJECT. If not a single pair moved, the e-process did not weigh evidence
+        # and find it wanting; it received NO EVIDENCE AT ALL and returned its null value of 1.0.
+        # Reporting that as a refusal says "this change is not an improvement" when the truthful
+        # statement is "this instrument cannot see this change".
+        #
+        # It is not a hypothetical distinction. A calibration seeds 21 defects whose ADMISSION
+        # CRITERION is that the target's own 1160 tests stay green, because every real defect ever
+        # found in this codebase was invisible to its suite until a human looked. A correct repair of
+        # such a defect flips zero tests, so diffs are all zero, so e stays exactly 1.0. Measured: the
+        # gate needs about ten tests to go red-to-green before e clears 1/alpha=20, and this defect
+        # class supplies zero. Two runs against a pinned commit rejected 8 of 8 proposals this way,
+        # every one with "insufficient evidence", while hidden oracles confirmed several of them were
+        # correct repairs.
+        #
+        # So this branch routes to human review instead, which iron law 4 already provides for and
+        # which needs no new machinery. The loop stops claiming to have adjudicated something it
+        # never measured.
+        if not any(d != 0 for d in diffs):
+            return {"decision": "REJECT", "evalue": evalue,
+                    "reason": ("no pair moved: the test signal cannot observe this change at all, "
+                               "so there is nothing for the e-process to weigh. This is a blind "
+                               "spot, not a verdict; routed to human review."),
+                    "force_review": True, "degrade_reason": "unobservable-by-tier-A"}
         return {"decision": "REJECT", "evalue": evalue,
                 "reason": f"e={evalue:.2f} < 1/α={thr:.1f} (A 档二态, 证据不足)",
                 "force_review": False, "degrade_reason": None}

@@ -58,6 +58,9 @@ def run_reflections_parallel(run_dir: str, history: list[dict],
 
     families: 每个 reflector 用的 agent 家族, 循环复用。默认 ["claude","codex","claude"]
       → N=3 时得到 claude/codex/claude 的异质反思组合（codex 不再只限 C 档判官）。
+
+    注意 n_reflectors=3 只是本函数的签名默认, **生产路径从不用它**: statemachine.py 传的是
+    len(_fams), dual 开时 2、关时 1。文档一度按 3 来描述实际行为, 与真跑对不上。
     """
     if not families:
         families = ["claude", "codex", "claude"]

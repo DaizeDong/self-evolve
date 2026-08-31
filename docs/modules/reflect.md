@@ -59,7 +59,9 @@ reflect → propose → evaluate → judge → accept   （全程反自欺）
 
 ## 契约
 
-### `run_reflections_parallel(run_dir, history, n_reflectors=3) -> list[dict]`
+### `run_reflections_parallel(run_dir, history, n_reflectors=N) -> list[dict]`
+
+> `n_reflectors=3` 是签名默认, **生产路径从不用它**: `statemachine.py` 传 `len(_fams)`,dual 开时 2、关时 1。
 
 | 项 | 类型 | 说明 |
 |---|---|---|

@@ -23,7 +23,10 @@ _injected_fix: M1a scaffold for deterministic testing of the ACCEPT path.
 """
 from __future__ import annotations
 
+import json
 import os
+import subprocess
+import sys
 
 from tools.sie.state import RunState, save_state
 from tools.sie.events import append_event, replay
@@ -61,6 +64,11 @@ def apply_acceptor_outcome(st: RunState, decision: dict, params: dict) -> str:
     cap = params.get("continue_count_cap", 5)
     base_tier = st.tier.split("+")[0]
 
+    # static_reject is NOT reset here. It looks like it belongs here and it does not work here:
+    # _step replays events.jsonl to rebuild the state right after this returns, so events._apply is
+    # the authority and anything mutated on this object is thrown away. The reset lives there, next
+    # to the ACCEPT semantics it belongs with.
+
     if d == "ACCEPT":
         st.no_progress = 0
         st.forced_review = 0
@@ -68,6 +76,16 @@ def apply_acceptor_outcome(st: RunState, decision: dict, params: dict) -> str:
         return "ARCHIVE"
 
     if d == "FORCE_HUMAN":
+        return "PAUSE_FOR_HUMAN"
+
+    # `force_review` on any decision routes to the human arm, not only the FORCE_HUMAN decision.
+    # This function read the decision STRING and ignored the field, so an acceptor that set
+    # force_review=True on a REJECT was silently handled as an ordinary refusal. Measured: after the
+    # A-tier gate was taught to flag "the test signal cannot observe this change at all" as a blind
+    # spot rather than a verdict, a full run still produced 8 REJECT and 0 PAUSE_FOR_HUMAN, because
+    # the flag had nowhere to go. Producer fixed, consumer not: the same shape as the history record
+    # that grew new fields the serial reflect path then dropped.
+    if decision.get("force_review"):
         return "PAUSE_FOR_HUMAN"
 
     if d == "CONTINUE":
@@ -379,6 +397,40 @@ def _run_dir(target: str, run_id: str) -> str:
     return os.path.join(os.path.abspath(target), ".sie", "runs", run_id)
 
 
+def _round_record(rnd, summary, passed, props=None, dec=None, phase=None):
+    """One history entry, carrying what actually happened rather than a verdict word.
+
+    History is the ONLY thing the reflectors are given. Every failing branch already wrote a real
+    reason (`dec["reason"]`, `ra.get("reason")`); every SUCCEEDING branch wrote the constant string
+    "accepted". A run that goes well therefore produces a history that is a column of identical
+    words, and the reflectors, asked to diagnose an improvement direction from "round 1 accepted,
+    round 2 accepted, ...", correctly returned nothing at all. The loop got less to reflect on the
+    better it did.
+
+    They said so themselves once their output was finally being recorded, six rounds running, in two
+    languages: "the history entries are extremely sparse (only round, summary, passed fields), there
+    is no record of what was actually changed, what the eval gate checked, or why each round passed".
+    They also caught something nobody had noticed: rounds that ended in a static reject appended
+    NOTHING, so round 5 was simply missing from the history with no explanation, which reads as data
+    loss rather than as a barren round. Both are fixed here.
+    """
+    rec = {"round": rnd, "summary": summary, "passed": passed}
+    if phase:
+        rec["phase"] = phase
+    if props:
+        files = [p.get("file_rel") for p in props if isinstance(p, dict) and p.get("file_rel")]
+        if files:
+            rec["files_changed"] = files
+    if isinstance(dec, dict):
+        if dec.get("decision"):
+            rec["decision"] = dec["decision"]
+        if dec.get("evalue") is not None:
+            rec["evalue"] = dec["evalue"]
+        if dec.get("reason"):
+            rec["reason"] = dec["reason"]
+    return rec
+
+
 def _step(run_dir: str, ev: dict) -> RunState:
     """Append ev to events.jsonl, then replay to get new RunState, then save_state.
 
@@ -407,6 +459,121 @@ def select_parent(run_dir: str, st: RunState) -> str:
         return "base"               # 冷启动 -> base ref (spec 态2)
     return lin[-1]["vid"]           # lineage 末版 (最新已采纳)
 
+
+
+def _discard_rejected_changes(sandbox_root: str) -> None:
+    """Throw away the working-tree edits of a proposal the evidence just refused.
+
+    THIS WAS NOT HAPPENING, and it is a real behavior change rather than a bug fix, so it is worth
+    saying plainly what the old behavior was and why it is being changed.
+
+    run_loop had no rollback of any kind. A REJECT wrote its event, incremented no_progress, and
+    moved on with the refused edits still sitting in the sandbox. The next round then reflected,
+    proposed and evaluated on top of them. So "rejected" did not mean "this change does not stay",
+    it only meant "this change gets no version number".
+
+    Nobody saw it for five calibration runs because the A-tier gate was accepting unconditionally
+    and never rejected anything. Fixing that gate is what made this visible: the very next run
+    accepted ZERO proposals across 11 rounds, and its sandbox still held 330 changed lines across
+    five files. Worse, the calibration harness grades the sandbox, so it scored those refused edits
+    as 6 repaired defects. A number produced entirely by changes the loop had rejected.
+
+    The spec is silent here: docs/pipeline.md 态9 says only "拒绝本轮, no_progress++" and says
+    nothing about the tree. This is therefore a judgement call, recorded as one. It rests on A-tier
+    being two-state with CONTINUE forbidden, which makes REJECT terminal rather than "keep the work
+    and gather more evidence", and on select_parent already resolving the next round's starting
+    point to the lineage tail. Accumulating refused edits contradicts both.
+
+    Discarding is safe because the sandbox is a git worktree and a proposal is never committed:
+    `git checkout -- .` restores exactly the last accepted state. Failure to restore is reported and
+    not swallowed, because continuing on a tree in an unknown state is worse than a loud stop.
+    """
+    if not sandbox_root or not os.path.isdir(sandbox_root):
+        return                      # no tree to restore (tests drive run_loop with a stub root)
+    try:
+        r = subprocess.run(["git", "-c", "core.hooksPath=", "checkout", "--", "."],
+                           cwd=sandbox_root, capture_output=True, text=True)
+    except OSError as e:
+        print("sie: could not run git to discard the rejected changes in %s: %s"
+              % (sandbox_root, e), file=sys.stderr)
+        return
+    if r.returncode != 0:
+        print("sie: could not discard the rejected changes in %s: %s"
+              % (sandbox_root, (r.stderr or "").strip()[:300]), file=sys.stderr)
+
+
+def _base_ref_worktree(run_dir: str) -> str | None:
+    """The probe worktree PROFILE built at the base ref, if it is still on disk.
+
+    Named `profile_probe_<sha12>` by profile.py. Nothing else writes there, and it sits at the exact
+    commit the sandbox was branched from, which makes it the honest "before" for round 1.
+    """
+    wt = os.path.join(os.path.dirname(os.path.dirname(run_dir)), "worktrees")
+    if not os.path.isdir(wt):
+        return None
+    cands = sorted(d for d in os.listdir(wt) if d.startswith("profile_probe_"))
+    if not cands:
+        return None
+    path = os.path.join(wt, cands[-1])
+    return path if os.path.isdir(path) else None
+
+
+def _parent_baseline(run_dir: str, parent_vid: str) -> dict | None:
+    """The parent version's own per-test scores, shaped as evaluate()'s `base_result`.
+
+    WHY. run_loop used to call `evaluate(..., base_result=None)`, which sends the A-tier path down
+    its cold-start branch where `before = 0.0` for every task. Two things followed, both measured
+    across five calibration runs rather than reasoned about:
+
+      1. Every passing test scored as an improvement over an "everything failed" baseline. With 1160
+         tests the e-value came out as literal inf, so ACCEPT was unconditional. Fifty one accepted
+         versions were compared against their parents test by test: FIFTY ONE of them changed not a
+         single score, and every one was accepted.
+      2. The no-regression hard gate tests `before >= 1.0 > after`. With before pinned at 0.0 it can
+         never fire. A proposal turning three tests RED measured at e-value inf and ACCEPT.
+
+    The acceptor was never the problem; tests/test_acceptor.py drives `decide()` with hand written
+    pairs and covers both gates correctly. Nothing covered what the production path FED it. That is
+    the fourth defect of this exact shape found in this codebase in one session: a gate correct in
+    its unit test and inert in production, because the test supplied its own input.
+
+    The parent's scores are already on disk. archive.add_version stores each accepted version's full
+    per-test dimensions in lineage.json, which is what made the fifty one version audit possible in
+    the first place. Nothing needs re-running; the baseline just has to be handed over.
+
+    Returns None only for a genuinely cold start (no parent yet), which is the one case where
+    "before = 0.0" is the honest answer.
+    """
+    if not parent_vid or parent_vid == "base":
+        # ROUND 1. There is no accepted version to compare against, but there IS a truthful
+        # baseline: the base ref itself. PROFILE already built a worktree at that commit to run its
+        # exec probe, so grading it costs one pytest run and no extra checkout.
+        #
+        # Leaving this as None was measured, not theorized. In the first run with a real baseline
+        # wired up the loop accepted exactly one change, in round 1, while parent was still "base",
+        # and that change broke bandit.py's cold-arm exploration; the target's own suite caught it
+        # afterwards (1 failed, 1159 passed). Rounds 2 through 10, with v1 as parent, REJECTED all
+        # eight proposals. The gate worked everywhere it had something to compare against, and round
+        # 1 was the one window where it still could not refuse anything.
+        probe = _base_ref_worktree(run_dir)
+        if not probe:
+            return None
+        try:
+            from tools.sie.evaluate import _grade_pytest_per_task
+            graded = _grade_pytest_per_task(probe)
+        except Exception:
+            return None                      # readers may degrade; a missing baseline is round 1's
+        dims = graded.get("dimensions") or []
+        return {"dimensions": dims} if dims else None
+    try:
+        lin = archive.lineage(os.path.join(run_dir, "archive"))
+    except (OSError, ValueError):
+        return None
+    for entry in reversed(lin):
+        if entry.get("vid") == parent_vid:
+            dims = entry.get("scores") or []
+            return {"dimensions": dims} if dims else None
+    return None
 
 
 def run_loop(
@@ -532,15 +699,45 @@ def run_loop(
             # Defensive: if refs is empty, use empty dict to avoid IndexError on refs[0]
             refs = [dict(refs[0] if refs else {}, **_injected_fix)]
 
+        # Persist what reflect produced, BEFORE the gate sees it.
+        #
+        # Nothing reflect ever produced was written anywhere. When nine of ten barren rounds turned
+        # out to be gate rejections rather than empty reflections, the reflections themselves were
+        # already gone, and the cause had to be established by elimination from the source instead of
+        # read off an artifact. This file is append-only and sits beside events.jsonl; it is what
+        # makes a future "the reflectors said nothing" claim checkable rather than assumed.
+        try:
+            with open(os.path.join(run_dir, "reflections.jsonl"), "a", encoding="utf-8") as _fh:
+                _fh.write(json.dumps({"round": rnd, "mode": reflect_mode,
+                                      "reflections": refs}, ensure_ascii=False) + "\n")
+        except (OSError, TypeError, ValueError) as _e:
+            # A record we could not write is worth a line of noise, never a dead run.
+            print("sie: could not record this round's reflections: %s" % _e, file=sys.stderr)
+
         # 态3b CHECK_REFLECTION, weak validation gate
+        _before_gate = list(refs)
         refs = [r for r in refs if check(r, 0.5)]
         if not refs:
+            # SAY WHAT WAS REJECTED. This branch was silent, and it was the loop's single most
+            # frequent outcome: nine of ten barren rounds in one calibration, six of six in another.
+            # The whole run's captured output was 622 characters and contained not one word about
+            # reflect, so the dominant failure mode was unreconstructable after the fact. Naming the
+            # keys present against the keys looked for is what turns "reflection had nothing to say"
+            # (innocent) into "the reflection was full and the gate could not see it" (a defect).
+            from tools.sie.check_reflection import _REFLECTION_CONTENT_KEYS
+            for _i, _r in enumerate(_before_gate):
+                _keys = sorted(_r) if isinstance(_r, dict) else ["<not a dict: %s>" % type(_r).__name__]
+                print("sie: reflection %d rejected by the gate; keys present=%s, keys it looks "
+                      "for=%s" % (_i, _keys, list(_REFLECTION_CONTENT_KEYS)), file=sys.stderr)
+            if not _before_gate:
+                print("sie: the reflect stage returned no reflections at all", file=sys.stderr)
             note_static_reject(st)   # in-memory counter update
             st = _step(run_dir, {
                 "type": "STATIC_REJECT",
                 "phase": "REFLECT",
                 "static_reject_delta": 1,
             })
+            history.append(_round_record(rnd, "no reflection cleared the evidence gate", False, phase="REFLECT"))
             # circuit_check after static_reject
             cc = circuit_check(st, params)
             if cc in ("no_progress_circuit", "static_reject_circuit",
@@ -559,6 +756,7 @@ def run_loop(
                 "phase": "PROPOSE",
                 "static_reject_delta": 1,
             })
+            history.append(_round_record(rnd, "the proposer produced no admissible proposal", False, phase="PROPOSE"))
             cc = circuit_check(st, params)
             if cc in ("no_progress_circuit", "static_reject_circuit",
                       "forced_review_circuit", "drift_circuit"):
@@ -585,6 +783,7 @@ def run_loop(
                 note_static_reject(st)
                 st = _step(run_dir, {"type": "STATIC_REJECT", "phase": "REVIEW",
                                      "static_reject_delta": 1})
+                history.append(_round_record(rnd, "both reviewers rejected", False, phase="REVIEW"))
                 cc = circuit_check(st, params)
                 if cc in ("no_progress_circuit", "static_reject_circuit",
                           "forced_review_circuit", "drift_circuit"):
@@ -619,6 +818,7 @@ def run_loop(
                 "proposals": len(props),
                 "rejections": rejections[:10],
             })
+            history.append(_round_record(rnd, "the patch gate refused every proposal", False, phase="PATCH"))
             cc = circuit_check(st, params)
             if cc in ("no_progress_circuit", "static_reject_circuit",
                       "forced_review_circuit", "drift_circuit"):
@@ -765,7 +965,8 @@ def run_loop(
         else:
             # M4.6: 自举时跳过 evaluate（grade 由 supervisor.grade 在态7 内替代）
             if supervisor is None:
-                ev_result = evaluate(sandbox_root, prof["tier"], base_result=None)
+                ev_result = evaluate(sandbox_root, prof["tier"],
+                                     base_result=_parent_baseline(run_dir, parent))
             else:
                 ev_result = {}  # 自举：ev_result 未使用（supervisor.grade 直接在决策块中调）
 
@@ -799,7 +1000,7 @@ def run_loop(
                     "phase": "ARCHIVE",
                     "parent_vid": vid,
                 })
-                history.append({"round": rnd, "summary": "B ACCEPT", "passed": True})
+                history.append(_round_record(rnd, "B ACCEPT", True, props=props))
 
             elif ra_next == "9.5":
                 # 态9.5 PAUSE_FOR_HUMAN, resolve_accept 已 forced_review++ + enqueue
@@ -839,6 +1040,7 @@ def run_loop(
 
             else:
                 # 态9 REJECT, resolve_accept 已 no_progress++
+                _discard_rejected_changes(sandbox_root)
                 st = _step(run_dir, {
                     "type": "REJECT",
                     "phase": "REFLECT",
@@ -866,6 +1068,7 @@ def run_loop(
             # no_regression 硬门: 退化直接 REJECT, 跳过后续多闸
             if not ev_result.get("no_regression", True):
                 st.no_progress += 1
+                _discard_rejected_changes(sandbox_root)
                 st = _step(run_dir, {
                     "type": "REJECT",
                     "phase": "REFLECT",
@@ -978,7 +1181,7 @@ def run_loop(
                     "phase": "ARCHIVE",
                     "parent_vid": vid,
                 })
-                history.append({"round": rnd, "summary": "C ACCEPT", "passed": True})
+                history.append(_round_record(rnd, "C ACCEPT", True, props=props))
 
             elif _c_route == "PAUSE_FOR_HUMAN":
                 # 态9.5 PAUSE_FOR_HUMAN, C 档强制人审 (纯 C + auto, 或 Codex 不可用)
@@ -1016,6 +1219,7 @@ def run_loop(
             else:
                 # 态9 REJECT, C 档拒绝
                 st.no_progress += 1
+                _discard_rejected_changes(sandbox_root)
                 st = _step(run_dir, {
                     "type": "REJECT",
                     "phase": "REFLECT",
@@ -1072,7 +1276,7 @@ def run_loop(
                     "parent_vid": vid,
                     # ACCEPT semantics in _apply: clears no_progress / forced_review / continue_count
                 })
-                history.append({"round": rnd, "summary": "accepted", "passed": True})
+                history.append(_round_record(rnd, "accepted", True, props=props, dec=dec))
 
             elif nxt == "EVALUATE":
                 # CONTINUE: accumulate evidence, re-enter evaluation next round
@@ -1120,6 +1324,7 @@ def run_loop(
 
             else:
                 # 态9 REJECT: no_progress already incremented by apply_acceptor_outcome
+                _discard_rejected_changes(sandbox_root)
                 st = _step(run_dir, {
                     "type": "REJECT",
                     "phase": "REFLECT",

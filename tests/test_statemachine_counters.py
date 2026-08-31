@@ -142,14 +142,56 @@ def test_a_tier_compound_tier():
     assert nxt == "LOOP" and st.continue_count == 0
 
 
-def test_accept_does_not_affect_static_reject():
-    """ACCEPT 清零 no_progress/forced_review/continue_count, 但不影响 static_reject."""
+def test_reaching_the_acceptor_clears_static_reject_through_replay(tmp_path):
+    """走到裁决器就清零 static_reject, 与最终判成什么无关 —— 而且必须在 REPLAY 这一层验。
+
+    这条测试的上一版直接调 apply_acceptor_outcome 断言内存里的 RunState, 于是当修复被写在那个
+    函数里时它全绿, 而真跑仍然熔断: _step 是「先追加事件, 再重放整个日志重建状态」, 所以
+    events._apply 才是权威, 内存对象下一行就被丢掉。测对了行为, 测错了层, 结果与没测一样。
+
+    背景: 这个保险丝问的是「proposer 是不是什么都产不出来」。一轮只要把提议送过补丁门进到评估,
+    就已经回答了「不是」, 哪怕证据随后否决了它。只增不减会让预算 6 变成整个 run 的空转轮次总上限,
+    --max-rounds 写多少都没用。
+    """
+    from tools.sie.events import append_event, replay
+
+    rd = str(tmp_path / "run")
+    for _ in range(4):
+        append_event(rd, {"type": "STATIC_REJECT", "phase": "PROPOSE", "static_reject_delta": 1})
+    assert replay(rd).static_reject == 4          # 先证明它确实在涨, 否则下面清零无意义
+
+    append_event(rd, {"type": "ACCEPT", "phase": "ARCHIVE"})
+    assert replay(rd).static_reject == 0
+
+    # 被否决的一轮同样清零: 它证明的是 proposer 在产出, 不是这次产出对。
+    for _ in range(3):
+        append_event(rd, {"type": "STATIC_REJECT", "phase": "PROPOSE", "static_reject_delta": 1})
+    assert replay(rd).static_reject == 3
+    append_event(rd, {"type": "REJECT", "phase": "JUDGE"})
+    assert replay(rd).static_reject == 0
+
+
+def test_accept_still_clears_the_other_three_counters(tmp_path):
+    """负对照之一: 改动不许顺手动了 ACCEPT 原有的三个清零语义。"""
+    from tools.sie.events import append_event, replay
+
+    rd = str(tmp_path / "run")
+    append_event(rd, {"type": "REJECT", "phase": "JUDGE", "no_progress_delta": 2})
+    append_event(rd, {"type": "PAUSE", "phase": "GATE", "forced_review_delta": 1,
+                      "continue_count_delta": 3})
+    st = replay(rd)
+    assert (st.no_progress, st.forced_review, st.continue_count) == (2, 1, 3)
+    append_event(rd, {"type": "ACCEPT", "phase": "ARCHIVE"})
+    st = replay(rd)
+    assert (st.no_progress, st.forced_review, st.continue_count) == (0, 0, 0)
+
+
+def test_the_static_reject_fuse_still_blows_on_a_barren_run():
+    """负对照: 清零点放宽后, 连续空转仍然必须熔断, 否则这一改就是把保险丝拆了."""
     st = _rs()
-    st.static_reject = 3
-    st.no_progress = 5
-    apply_acceptor_outcome(st, {"decision": "ACCEPT", "evalue": 99.0, "reason": ""}, P)
-    assert st.static_reject == 3   # static_reject 不清零
-    assert st.no_progress == 0
+    for _ in range(P["static_reject_circuit"]):
+        note_static_reject(st)          # 空转轮从不经过裁决器, 所以从不清零
+    assert circuit_check(st, P) == "static_reject_circuit"
 
 
 def test_continue_cap_boundary():
