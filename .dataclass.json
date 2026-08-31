@@ -26,5 +26,6 @@
   ],
   "data_sealed": [],
   "fixture": [],
-  "_data_home": "~/.self-evolve-config/data/   (override with $SELF_EVOLVE_DATA_DIR). If this skill ever needs to record real-run output, it goes THERE -- never back into this repo."
+  "_data_home": "~/.self-evolve-config/data/   (override with $SELF_EVOLVE_DATA_DIR). If this skill ever needs to record real-run output, it goes THERE -- never back into this repo.",
+  "_calibration_defects": "tools/sie/calibration_defects/ is TOOL, not FIXTURE, and the distinction was worth getting right rather than waving through. FIXTURE in this spec means LIFELIKE data whose real counterpart is sitting in the operator's life, and the generator requirement exists so that a real record cannot be pasted in, because a real record cannot be regenerated. These 21 files hold nothing of that kind: each is a code-defect spec over a PUBLIC repo's source, a `find`/`replace` pair plus a pytest oracle. There is no personal record to reach for and therefore nothing for a generator to protect against. They are reference data ABOUT this skill's calibration, which is the TOOL definition verbatim. Checked before declaring: pii_guard clean over the tree, and a direct scan for operator username, machine-absolute paths and mail addresses found only 'calibration@example.com' and a regex false positive on '\n@pytest.mark.parametrize'. They are tracked because without them calibrate.py is an empty shell: it exits 2 and says so."
 }
