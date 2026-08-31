@@ -393,8 +393,61 @@ def _resolve_accept_legacy(st: RunState, eval_out: dict, params: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 def _run_dir(target: str, run_id: str) -> str:
-    """Return the absolute run directory: <target>/.sie/runs/<run_id>."""
-    return os.path.join(os.path.abspath(target), ".sie", "runs", run_id)
+    """The absolute run directory. `<target>/.sie/runs/<run_id>`, EXCEPT when target is this repo.
+
+    A foreign target legitimately owns its own `.sie` directory: the run is about that repository,
+    the transcript belongs beside it, and nothing here should relocate somebody else's output.
+
+    The headline use case is different. Self iteration points --target at THIS repository, and this
+    repository is PUBLIC. Every run then wrote its state, events, targets and pending actions into
+    the public work tree, held back by one .gitignore line, which this fleet's own boundary guard
+    calls advisory. 127 such files had accumulated by 2026-08-30. The manifest's `_audited` note
+    admitted the shape and nothing acted on it, because prose is not a control.
+
+    So when the target IS this repo, the run goes to the private companion instead. That is not a
+    special case bolted on: it is the same rule the rest of the fleet already follows, arriving in
+    the one place that had been exempt from it by accident.
+
+    If the companion cannot be resolved, this RAISES rather than falling back into the repo.
+    A fallback into the repo is not a convenience, it is the leak.
+    """
+    tgt = os.path.abspath(target)
+    if not _target_is_own_repo(tgt):
+        return os.path.join(tgt, ".sie", "runs", run_id)
+    dd = _load_datadir()
+    if dd is None:
+        raise RuntimeError(
+            "target is this public repo and tools/datadir.py is missing, so the run directory "
+            "cannot be resolved to the private companion. Refusing to write run output into a "
+            "public repository. Restore tools/datadir.py, or pass a --target outside this repo.")
+    return str(dd.data_path("self-evolve", os.path.join("runs", run_id), create=True))
+
+
+def _load_datadir():
+    """Load tools/datadir.py by path. None when absent; every other failure propagates."""
+    p = os.path.join(_REPO_ROOT, "tools", "datadir.py")
+    if not os.path.isfile(p):
+        return None
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_dd_for_sie", p)
+    if spec is None or spec.loader is None:
+        return None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _target_is_own_repo(target_abs: str) -> bool:
+    """Is this target the repository this code lives in?
+
+    Compared by normalised absolute path rather than by asking git, because the question is about
+    where BYTES will land, and a worktree or a symlinked checkout would answer the git question
+    differently from the filesystem one.
+    """
+    return os.path.normcase(target_abs) == os.path.normcase(_REPO_ROOT)
+
+
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def _round_record(rnd, summary, passed, props=None, dec=None, phase=None):
