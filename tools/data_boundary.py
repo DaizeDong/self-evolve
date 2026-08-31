@@ -614,6 +614,10 @@ def main():
                     help="the companion repo to audit, instead of resolving one")
     ap.add_argument("--max-report", type=int, default=20,
                     help="cap the --companion listing (the cap and the count withheld are printed)")
+    ap.add_argument("--calibration", action="store_true",
+                    help="also say whether this repo's run-shape probe list has ever been filled. "
+                         "Off by default: it never blocks, so printing it every run turns it into "
+                         "background noise rather than information.")
     a = ap.parse_args()
 
     if a.explain:
@@ -709,15 +713,28 @@ def main():
               % (MANIFEST, root, len(files), MANIFEST), file=sys.stderr)
         return 3
 
-    if calib == "uncalibrated":
-        # PRINTED EVEN WHEN EVERYTHING ELSE IS CLEAN, and especially then. A report that says only
-        # "clean, N files" cannot distinguish a repo with nothing to find from a shape list that
-        # matches nothing, and this fleet has just measured that it is mostly the second one.
+    if calib == "uncalibrated" and a.calibration:
+        # ASKED FOR, NOT ANNOUNCED. This line used to print on every run, on the argument that a
+        # report saying only "clean, N files" cannot distinguish a repo with nothing to find from a
+        # shape list that matches nothing. That argument is still true and the line is still here,
+        # behind --calibration.
+        #
+        # What changed is the judgement about an unconditional notice that never blocks. It fires on
+        # most repos, on every single invocation, and nothing about it can ever go red. A notice in
+        # that position is read a handful of times and then becomes background, at which point it is
+        # worse than absent: it occupies the place where a real warning would have been noticed. The
+        # fleet has the same finding written down twice already, in the checks that were demoted to
+        # advisory precisely because a permanent amber gets tuned out.
+        #
+        # The protection did not move. Check 4 still runs on twelve shapes, a missing manifest is
+        # still NOT ARMED, an empty file list is still a scan failure, and a probe list that exists
+        # and does not match is still a VIOLATION. What is now silent is only the absence of a probe
+        # list, which is a question about measurement rather than a finding about this repo.
         print("data_boundary: NOT CALIBRATED for this repo. The probe list in %s is empty,\n"
               "  so check 4 asserted only that no tracked file matches a list nobody has\n"
-              "  held against this skill's own output. Build it with `--explain` over a\n"
-              "  real run's filenames and commit the SCHEMATIC forms. (Reported, not\n"
-              "  blocking, until the list is filled.)" % MANIFEST, file=sys.stderr)
+              "  held against this skill's own output. Build it by running a real run's\n"
+              "  filenames through --explain and committing the SCHEMATIC forms." % MANIFEST,
+              file=sys.stderr)
 
     if not out:
         print("data_boundary: clean (%d DATA + %d sealed paths absent, %d FIXTUREs "
