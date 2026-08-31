@@ -86,3 +86,31 @@ def test_missing_inputs_degrade_to_the_old_shape_rather_than_raising():
     rec = _round_record(2, "accepted", True)
     assert rec == {"round": 2, "summary": "accepted", "passed": True}
     assert _round_record(3, "x", False, props=[], dec=None)["passed"] is False
+
+def test_the_serial_fallback_carries_the_whole_record_not_just_the_summary():
+    """The consumer side, and it was missing while every producer test above passed.
+
+    History grew files_changed / evalue / decision / reason / phase precisely because a column of
+    the constant "accepted" gave the reflectors nothing to diagnose from. reflect()'s fallback branch
+    kept reading only `summary`, so on that path all of it was dropped one line after being written.
+    Driven through the real _round_record and the real reflect(), never a hand-built dict.
+    """
+    from tools.sie.reflect import reflect
+
+    rec = _round_record(7, "accepted", True,
+                        props=[{"file_rel": "scripts/score.py", "new_content": "..."}],
+                        dec={"decision": "ACCEPT", "evalue": 42.5, "reason": "e-process cleared"})
+    got = reflect(".", [rec], n=1)[0]
+    assert got["target_failure"] == "accepted" and got["round"] == 7
+    assert got["files_changed"] == ["scripts/score.py"], got
+    assert got["evalue"] == 42.5 and got["decision"] == "ACCEPT", got
+
+
+def test_a_barren_round_reaches_the_reflectors_with_the_phase_it_died_in():
+    """The other half: a round that produced nothing must still tell the reflectors WHERE it died,
+    or the history hole is back in a new form."""
+    from tools.sie.reflect import reflect
+
+    rec = _round_record(5, "the proposer produced no admissible proposal", False, phase="PROPOSE")
+    got = reflect(".", [rec], n=1)[0]
+    assert got["phase"] == "PROPOSE" and got["passed"] is False, got
