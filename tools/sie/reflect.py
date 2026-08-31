@@ -8,9 +8,17 @@ def reflect(sandbox_root: str, history: list[dict], n: int = 1) -> list[dict]:
     有历史 -> 读上轮失败摘要。M3 升 N=3 并行 MARS。"""
     out = []
     if history:
-        last = history[-1]
-        out.append({"target_failure": last.get("summary", "previous round failed"),
-                    "round": last.get("round", 0)})
+        # Carry the WHOLE record, not just its summary. History entries grew fields that say what
+        # actually happened (files_changed, evalue, decision, reason, the phase a barren round died
+        # in) precisely because a column of the constant string "accepted" gave the reflectors
+        # nothing to diagnose from. This branch kept reading only `summary`, so on the fallback path
+        # every one of those new fields was dropped a line after being written. Producer changed,
+        # consumer not, which is the same shape as the gate that could not see `merged_findings`.
+        last = dict(history[-1])
+        ref = {"target_failure": last.pop("summary", "previous round failed"),
+               "round": last.pop("round", 0)}
+        ref.update(last)              # files_changed / evalue / decision / reason / phase / passed
+        out.append(ref)
     else:
         srcs = [p for p in glob.glob(os.path.join(sandbox_root, "**", "*.py"),
                                      recursive=True)
