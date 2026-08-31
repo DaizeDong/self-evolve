@@ -37,6 +37,22 @@ def _apply(rs: RunState, ev: dict) -> RunState:
         patch["no_progress"] = 0
         patch["forced_review"] = 0
         patch["continue_count"] = 0
+    # Reaching the acceptor at all clears static_reject, whichever way it then decided.
+    #
+    # THIS IS THE ONLY PLACE THE RESET CAN LIVE. It was first written into
+    # statemachine.apply_acceptor_outcome, as a mutation of the in-memory RunState, and it did
+    # nothing at all: _step appends the event and then REPLAYS the whole log to rebuild the state,
+    # so the reducer is the authority and the in-memory object is discarded a line later. 650 tests
+    # passed and a live 13 round run still blew the fuse with static_reject=6 after two accepts that
+    # should each have zeroed it. The test that was supposed to guard the change called
+    # apply_acceptor_outcome directly, so it verified the layer that does not decide anything.
+    #
+    # The fuse asks one question: is the proposer producing NOTHING? A round that got a proposal
+    # through the patch gate and into evaluation has answered no, even when the evidence then
+    # rejected the change. Counting only upward made its budget of 6 a ceiling on total barren
+    # rounds for the LIFETIME of a run, whatever --max-rounds said.
+    if ev.get("type") in ("ACCEPT", "REJECT"):
+        patch["static_reject"] = 0
     return replace(rs, **patch)
 
 

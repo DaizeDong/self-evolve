@@ -15,9 +15,19 @@ INIT → PROFILE → [REFLECT → CHECK → PROPOSE → PATCH → EVALUATE → A
 模块本身只做一件事：判断一条反思是否站得住脚。它有两档强度：
 
 - **弱校验 `check`（M1a，当前 live 接线）**：只要反思非空、含有意义字段就放行。这是早期脚手架阶段的最低门槛，目的是先让端到端闭环跑通。
-- **trace 证据门 `check_benchtrace`（M3）**：升级版强校验。要求反思的**每一条 finding 都必须引用至少一条真实存在的历史 trace ID**，否则视为臆造、不予 grounded。这是本模块的核心反自欺机制。
+- **trace 证据门 `check_benchtrace`**：**设计意图，尚未接线，且以当前数据形态接上去也不能工作。** 它的设想是要求反思的每一条 finding 都引用至少一条真实存在的历史 trace ID，否则视为臆造。
 
-> 当前 `statemachine.py` 第 33 行导入并调用的是弱校验 `check`（`refs = [r for r in refs if check(r, 0.5)]`，约 532 行）。`check_benchtrace` 是 M3 阶段在同一模块内提供的更强门，按 SDD 计划将替换弱校验接线。两者共存于本文件，本文档同时记述。
+> **别把它当成在用的闸门。** 2026-08-30 实测三件事：
+>
+> 一，它在 `tools/` 与 `workflows/` 下没有任何调用点，只有自己的测试文件引用它。
+>
+> 二，`trace_refs` 这个键在整个仓库里**没有任何生产者**，也不存在 trace 存储。
+>
+> 三，它与实际流过来的数据**结构上不兼容**：`meta_aggregate` 产出的是 `merged_findings: list[str]`，而它读的是 `findings: list[dict]` 且每条要带 `trace_refs`；`reflect-fanout.js` 让 agent 返回的同样是字符串列表。把真实聚合结果喂给它，得到 `{"pass": False, "grounded_ratio": 0.0, "ungrounded": []}`,**它拒绝一切，而且连「哪条没依据」都报不出来，因为它一条 finding 都没看见。**
+>
+> 所以「凭空臆造改进点」这一类自欺，当前**没有任何机制在挡**。本文档此前称它是「本模块的核心反自欺机制」，那句话会让读者以为这道防线存在。要真正启用它，先得有 trace 存储、有 `trace_refs` 的生产者、以及一个能对已知正样本量出召回率的标定，三者缺一不可。
+
+> 当前 `statemachine.py` 导入并调用的是弱校验 `check`（`refs = [r for r in refs if check(r, 0.5)]`）。
 
 ## method
 
@@ -80,7 +90,8 @@ return any(reflection.get(k) for k in keys)
 
 - **上游 `reflect.py`**：
   - 串行 `reflect(sandbox_root, history, n=1) -> list[dict]`（M1a），产出 `target_failure` / `static_review` 形态的反思，喂给弱校验 `check`。
-  - 并行 `run_reflections_parallel(run_dir, history, n_reflectors=3)` + `meta_aggregate(...) -> {"merged_findings": [...], ...}`（M3 的并行反思去重：N 个互不可见的反思器各自跑、合并去重）。聚合出的 `findings` 是 `check_benchtrace` 的判定对象。
+  - 并行 `run_reflections_parallel(run_dir, history, n_reflectors=N)` + `meta_aggregate(...) -> {"merged_findings": [...], ...}`（N 个互不可见的反思器各自跑、合并去重）。**N 由 `statemachine.py` 取 `len(_fams)`,dual 开时是 2、关时是 1；`reflect.py` 里那个默认 3 从未生效。**
+    聚合结果流向的是弱校验 `check` 与下游 proposer,**不是 `check_benchtrace`**：前者产出 `merged_findings: list[str]`，后者读 `findings: list[dict]`,两者结构不兼容（见上文 §overview 的实测）。
 - **证据源 `events.py`**：历史 trace 来自 `events.jsonl`（append-only，`append_event` 写、`replay` 读）。`available_traces` 即从中导出的真实事件 ID 集合。
 - **下游 `propose.py`**：只有过门的反思才进入 `propose()` 生成提案。
 - **调用方 `statemachine.py`**：在 `CHECK` 态执行过滤（`refs = [r for r in refs if check(r, 0.5)]`）；全空则调 `note_static_reject` 记一次静态拒绝并发 `STATIC_REJECT` 事件，随后 `circuit_check` 可能因 `static_reject_circuit` 熔断。

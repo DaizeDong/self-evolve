@@ -55,14 +55,23 @@ def _scratch_cwd() -> str:
     return tempfile.mkdtemp(prefix="sie-proposer-")
 
 
-def _empty(why: str) -> list:
+def _empty(why: str, child_stderr: str = "") -> list:
     """Return [] and SAY WHY on stderr.
 
     Every one of the callers of this used to be a bare `return []`, and `[]` is also what the
     function returns when the model genuinely had no suggestion. One value, two meanings, and only
     the innocent one appears in the run report.
+
+    `child_stderr` matters as much as `why`. claude-propose.js distinguishes four different failures
+    and explains each on its own stderr, but this layer captured that stream and dropped it on the
+    one path that matters most, the child exiting 0 with an empty object. The diagnosis was written
+    and then thrown away one frame up, which reads exactly like never having written it.
     """
     print("sie: proposer produced nothing -- %s" % why, file=sys.stderr)
+    tail = (child_stderr or "").strip()
+    if tail:
+        for line in tail.splitlines()[-12:]:
+            print("sie:   child: %s" % line, file=sys.stderr)
     return []
 
 
@@ -199,7 +208,7 @@ def generate(sandbox_root: str, reflections: list[dict], timeout_s: int = 600) -
         return _empty("proposer exited %d: %s"
                       % (proc.returncode, (proc.stderr or "").strip()[:300]))
     if not proc.stdout.strip():
-        return _empty("proposer produced no stdout at all")
+        return _empty("proposer produced no stdout at all", proc.stderr)
     try:
         obj = json.loads(proc.stdout)
     except (ValueError, json.JSONDecodeError):
@@ -210,13 +219,15 @@ def generate(sandbox_root: str, reflections: list[dict], timeout_s: int = 600) -
         return _empty("proposer stdout was not JSON (first 200 chars: %r). If the target file is "
                       "large the agent may have written the content to a file instead of "
                       "returning it inline; the contract only reads stdout."
-                      % proc.stdout.strip()[:200])
+                      % proc.stdout.strip()[:200], proc.stderr)
     fr, nc = obj.get("file_rel"), obj.get("new_content")
     if not isinstance(fr, str) or not isinstance(nc, str):
         return _empty("proposer JSON lacked file_rel/new_content strings (keys: %s)"
-                      % sorted(obj) if isinstance(obj, dict) else "not an object")
+                      % (sorted(obj) if isinstance(obj, dict) else "not an object"),
+                      proc.stderr)
     if fr not in files:
-        return _empty("proposer named %r, which was not one of the files it was given" % fr)
+        return _empty("proposer named %r, which was not one of the files it was given" % fr,
+                      proc.stderr)
     return [{"file_rel": fr, "new_content": nc, "fixes": "llm-proposer"}]
 
 

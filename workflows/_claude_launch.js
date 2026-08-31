@@ -45,14 +45,23 @@ function launchClaude(extraArgs, promptText) {
     process.stderr.write('launch: cc unavailable, falling back to claude\n');
     r = _spawn('claude', args, promptText);
   }
+  // Every ok:false below carries an `error` string, and says so on stderr. Callers read out.error
+  // to explain themselves and the field never existed, so claude-propose.js printed "the agent
+  // launch failed: no reason reported" for every launch failure it ever hit. Two of the three
+  // ok:false paths were also completely silent, writing nothing anywhere at all.
   if (r.error || r.status !== 0 || !r.stdout || !r.stdout.trim()) {
-    process.stderr.write(`launch error: status=${r.status} ${(r.stderr || '').slice(-200)}\n`);
-    return { ok: false };
+    const why = `status=${r.status} ${(r.stderr || '').slice(-200)}`;
+    process.stderr.write(`launch error: ${why}\n`);
+    return { ok: false, error: why };
   }
   // claude --output-format json: {"type":"result","result":"...","is_error":bool,...}
   try {
     const obj = JSON.parse(r.stdout);
-    if (obj && obj.is_error) return { ok: false };
+    if (obj && obj.is_error) {
+      const why = 'the agent reported is_error: ' + String(obj.result || obj.error || '').slice(0, 300);
+      process.stderr.write('launch error: ' + why + '\n');
+      return { ok: false, error: why, result: r.stdout };
+    }
     if (obj && typeof obj.result === 'string' && obj.result.trim()) {
       return { ok: true, result: obj.result };
     }
@@ -60,7 +69,9 @@ function launchClaude(extraArgs, promptText) {
     // 非预期 JSON → 退用原始 stdout（下游可再提取 JSON 块）
     return { ok: true, result: r.stdout };
   }
-  return { ok: false };
+  const why = 'the agent returned JSON with no usable result string';
+  process.stderr.write('launch error: ' + why + '\n');
+  return { ok: false, error: why, result: r.stdout };
 }
 
 module.exports = { launchClaude };
