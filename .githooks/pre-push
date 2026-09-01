@@ -91,30 +91,20 @@ fi
 # structural check passed it clean. That is not a defect in the structural checks: they match
 # shapes, and the class this layer exists for has no shape to match. Both are needed.
 #
-# This paragraph is deliberately vague about WHAT was carried, and that is the second lesson.
-# The first draft named the category, this gate blocked it at 0.85 confidence, and it was right:
-# a comment that ships to eighteen PUBLIC repos must not describe the thing it protects. It also
-# passed the same text on sixteen other repos before blocking on two, so a probabilistic layer
-# catches a class eventually rather than the first time. When it does catch, fix the prose.
+# This paragraph is deliberately vague, and that vagueness is the lesson rather than an accident.
+# A comment that ships into public repos must not describe the thing it protects. Three drafts of
+# this block have now been refused by the very gate they describe: the first named the category,
+# the second quoted a whitelist, the third spelled out a path. Each time the gate was right and the
+# prose was wrong. Note also that the same text passed on most repos before blocking on a couple,
+# so a probabilistic layer catches a class eventually rather than the first time it appears.
 #
-# NOT vendored, deliberately: this layer's script and the model call it makes are machine-local
-# and are not part of this repo.
+# This layer is NOT vendored, deliberately. It is resolved through an indirection that exists only
+# on a maintainer machine, so it is absent for an outside contributor and this whole block is then
+# a no-op for them, which is exactly the intent. The structural gate above has already run, fail
+# closed, for everyone.
 #
-# The sentence that used to sit here named where those two components live on disk. It was
-# removed on 2026-08-30 because this comment ships to eighteen PUBLIC repos and the semantic
-# gate flagged it, correctly, as prose describing private infrastructure. A hook whose own
-# comment trips its own gate is a small thing and it still blocked four pushes. An outside contributor does not have them, this block is a no-op for them,
-# and the structural gate above has already run fail-closed for everyone.
-#
-# ADVISORY BY CONSTRUCTION: semantic_gate exits 0 when llmcall is down, when the push adds no prose,
-# and when the verdict is unsure. It blocks only on a confident finding.
-# Referenced through the ~/.local/bin adapter on purpose: this file is VENDORED into public repos,
-# and spelling out the guard's own install directory here would make every one of them fail their
-# own pii_guard, which whitelists only a couple of config subdirectories and nothing else under
-# that tree. Caught the honest way, by staging this hook and running the guard on it: the first
-# attempt named the script, the second still tripped on a comment that merely quoted the whitelist.
-# The adapter lives outside every worktree and is the single place that path is written down, and
-# it is absent on a contributor machine, which is exactly when this layer should be a no-op.
+# ADVISORY BY CONSTRUCTION: it exits 0 when its backend is unavailable, when the push adds no new
+# prose, and when the verdict is unsure. It blocks only on a confident finding.
 SEM="$HOME/.local/bin/semantic-gate"
 if [ -f "$SEM" ]; then
   z="0000000000000000000000000000000000000000"
