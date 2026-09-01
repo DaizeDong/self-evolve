@@ -29,6 +29,32 @@ EXIT CODES
     1  over budget (used by hooks / CI)
     3  NOTHING WAS MEASURED. This is a failure, not a state.
 
+WHY THE ALWAYS-LOADED HALF NOW BLOCKS (it used to be incapable of failing)
+    This tool measures two things and, until now, only ONE of them could ever return nonzero.
+    `dup_pct` over `--max-dup` set `failed`. `always_loaded_lines` set nothing at all: over
+    ALWAYS_LOADED_WARN it printed a note and the row still read "[   ok]". So the gate whose name and
+    docstring both lead with "the always-loaded budget" had no always-loaded budget in it. A SKILL.md
+    could grow without bound forever and this tool would keep printing ok, which is worse than not
+    measuring it, because the ok is read as a verdict.
+    ALWAYS_LOADED_MAX is the half that bites. The ladder is deliberate and both rungs are reported
+    differently: WARN is "look at this", MAX is "this stopped being a budget".
+    Where the numbers come from, measured 2026-08-27 across the 30 skills on this machine: the
+    largest always-loaded SKILL.md is 412 lines, the second 406, and everything else is under 370.
+    WARN sits at 450, just above the real distribution, so it fires on the first file that leaves the
+    pack. MAX sits at 600, which no skill here is within 180 lines of, so it cannot fire by accident
+    on today's fleet and can only be reached by a file that genuinely stopped being budgeted. Raise
+    either only with a reason recorded in CHANGELOG, and never by editing the call site to ignore it.
+
+WHY "ZERO SHINGLES" AND "ZERO REFERENCES" ARE REPORTED, NOT ROUNDED TO CLEAN
+    dup_pct is a ratio, and a ratio has two ways to come out 0.00%: nothing was duplicated, or
+    nothing was compared. Those are opposite facts and this tool used to print the same "ok" for
+    both. A repo with no reference docs has an empty `refs` list, the comparison loop runs zero
+    times, and the row read exactly like a repo whose prose had been checked and found clean.
+    So: no references at all is reported as NOT CHECKED rather than as 0.00% (it is not a failure,
+    a single-file skill legitimately has nothing to duplicate into), and a SKILL.md that yields ZERO
+    shingles is a BLOCK, because a file too short to produce one 8-word run of prose is empty,
+    truncated or unreadable, and nothing was measured about it in either half.
+
 WHY "NOTHING TO MEASURE" IS A FAILURE (and used to be a quiet success)
     This tool shipped knowing exactly one repo shape, skills/<name>/SKILL.md. Two repos in this
     fleet keep their single SKILL.md at the repo ROOT instead, and those two happen to hold the
@@ -54,7 +80,8 @@ import sys
 # not to police wording. Raise DUP_PCT_MAX only with a reason recorded in CHANGELOG.
 SHINGLE_N = 8          # consecutive words; shorter than this matches ordinary phrasing
 DUP_PCT_MAX = 2.0      # % of SKILL.md shingles that may also appear in a reference
-ALWAYS_LOADED_WARN = 450   # lines in SKILL.md; a warning, never a block
+ALWAYS_LOADED_WARN = 450   # lines in SKILL.md; advisory, prints a note, does not block
+ALWAYS_LOADED_MAX = 600    # lines in SKILL.md; BLOCKS. See the docstring for where 450/600 come from.
 
 _FENCE = re.compile(r"```.*?```", re.S)
 _TABLE = re.compile(r"^\s*\|.*\|\s*$", re.M)
@@ -155,12 +182,19 @@ def audit(skill_md):
             pairs[tuple(sorted(who))[:2]] += 1
     cross = sorted(((c, p) for p, c in pairs.items() if c >= 12), reverse=True)
 
+    # Was the duplication half actually able to run? Two separate ways for it to be a no-op, and
+    # neither may be rendered as 0.00% clean:
+    #   no shingles  -> SKILL.md produced no measurable prose at all. Nothing was measured, period.
+    #   no refs      -> there was no second file for prose to be duplicated INTO. Legitimate, but
+    #                   "not checked", not "checked and clean".
     return {
         "skill_md": skill_md,
         "always_loaded_lines": s_text.count("\n") + 1,
         "shingles": len(s_sh),
         "dup_shingles": len(dup),
         "dup_pct": round(100.0 * len(dup) / max(1, len(s_sh)), 2),
+        "measured": bool(s_sh),
+        "dup_checked": bool(s_sh) and bool(refs),
         "ref_count": len(refs),
         "ref_lines": sum(read(r).count("\n") + 1 for r in refs),
         "offenders": per_ref[:5],
@@ -173,6 +207,9 @@ def main():
     ap.add_argument("root", nargs="?", default=".", help="repo root, or a directory of repos with --scan-all")
     ap.add_argument("--scan-all", action="store_true", help="treat root as a parent dir and audit every skill repo under it")
     ap.add_argument("--max-dup", type=float, default=DUP_PCT_MAX)
+    ap.add_argument("--max-lines", type=int, default=ALWAYS_LOADED_MAX,
+                    help="hard cap on always-loaded SKILL.md lines; over this BLOCKS (exit 1). "
+                         "This is the half that used to be incapable of failing.")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
 
@@ -210,16 +247,42 @@ def main():
         # abspath first: for the root layout dirname("./SKILL.md") is ".", and a report whose every
         # row is named "." tells the reader nothing about which file was measured.
         name = os.path.basename(os.path.abspath(os.path.dirname(r["skill_md"])))
-        over = r["dup_pct"] > args.max_dup
-        failed |= over
-        flag = "BLOCK" if over else "ok"
+        over = r["dup_checked"] and r["dup_pct"] > args.max_dup
+        over_lines = r["always_loaded_lines"] > args.max_lines
+        unmeasured = not r["measured"]
+        bad = over or over_lines or unmeasured
+        failed |= bad
+        flag = "BLOCK" if bad else "ok"
+        # The duplication column has to distinguish "0.00% because nothing matched" from "0.00%
+        # because there was nothing to match against". Same number, opposite meanings.
+        if not r["measured"]:
+            dup_col = "dup NOT MEASURED (0 shingles)"
+        elif not r["dup_checked"]:
+            dup_col = f"dup NOT CHECKED (0 refs, {r['shingles']} shingles)"
+        else:
+            dup_col = f"dup {r['dup_pct']:>5.2f}% ({r['dup_shingles']}/{r['shingles']})"
         if not args.json:
             print(f"[{flag:>5}] {name:<26} always-loaded {r['always_loaded_lines']:>4} lines | "
-                  f"dup {r['dup_pct']:>5.2f}% ({r['dup_shingles']}/{r['shingles']}) | "
+                  f"{dup_col} | "
                   f"{r['ref_count']} refs, {r['ref_lines']} on-demand lines")
-            if r["always_loaded_lines"] > ALWAYS_LOADED_WARN:
-                print(f"          note: SKILL.md is large. Not a failure by itself, but check whether any of it "
-                      f"is only needed by SOME runs (P7).")
+            if unmeasured:
+                print(f"          MEASURED NOTHING: {r['skill_md']} yielded no {SHINGLE_N}-word run of prose.")
+                print(f"          A SKILL.md that short is empty, truncated or unreadable. Neither half of this")
+                print(f"          gate examined it, so nothing about it has been cleared. Exit 1, not exit 0.")
+            if over_lines:
+                print(f"          BLOCK: always-loaded budget exceeded. {r['always_loaded_lines']} lines > "
+                      f"cap {args.max_lines}, over by {r['always_loaded_lines'] - args.max_lines}.")
+                print(f"          file: {r['skill_md']}")
+                print(f"          Every invocation of this skill pays for all {r['always_loaded_lines']} lines. Move the "
+                      f"parts only SOME runs need")
+                print(f"          into a reference doc and leave a pointer (P7). Raising --max-lines is not the fix.")
+            elif r["always_loaded_lines"] > ALWAYS_LOADED_WARN:
+                print(f"          note: SKILL.md is large ({r['always_loaded_lines']} lines, warn at "
+                      f"{ALWAYS_LOADED_WARN}, block at {args.max_lines}). Not a failure by itself, but check")
+                print(f"          whether any of it is only needed by SOME runs (P7).")
+            if not r["dup_checked"] and r["measured"]:
+                print(f"          note: 0 reference docs, so the duplication half compared nothing. Legitimate for "
+                      f"a single-file skill, but NOT a clean duplication result.")
             if over:
                 for count, ref, samples in r["offenders"]:
                     print(f"          +{count:<4} shared with {ref}")

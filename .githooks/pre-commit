@@ -402,7 +402,20 @@ fi
 ROOT="$(git rev-parse --show-toplevel)"
 GUARD="$ROOT/tools/pii_guard.py"
 BOUNDARY="$ROOT/tools/data_boundary.py"
-[ -f "$GUARD" ] || exit 0          # guard not vendored into this repo yet: do not block
+# FAIL CLOSED on a missing guard, exactly as .githooks/pre-push already does for the same condition.
+# This line used to read `[ -f "$GUARD" ] || exit 0` with the comment "guard not vendored into this
+# repo yet: do not block". That state cannot occur: this hook and tools/pii_guard.py are vendored by
+# the same installer in the same operation, so a repo running THIS FILE is by definition a repo that
+# was vendored. Checked across the fleet: every repo without the guard is also without this hook.
+# So a missing guard here has exactly one meaning, someone deleted it, and until now that silently
+# switched commit protection off while printing nothing. pre-push proved the shape on 2026-08-30 by
+# removing the scanner and watching a push carrying an address exit 0 in silence. Two hooks in one
+# repo were answering the same question in opposite ways, and the quiet answer sat on the block path.
+if [ ! -f "$GUARD" ]; then
+  echo "BLOCKED: $GUARD is missing, so nothing is checking this commit."
+  echo "Restore it with the pii-guard installer rather than committing blind."
+  exit 1
+fi
 # A MISSING INTERPRETER MUST FAIL CLOSED. This used to be
 #   PY=$(command -v python || command -v python3 || command -v py) || exit 0
 # which means: on any machine where python does not resolve, every gate below silently does nothing
@@ -450,7 +463,11 @@ fi
 # skill repo is an UNINITIALIZED TOOL -- real-run output lives in the private companion config, and
 # an agent writing this repo has nothing real within reach to copy. No manifest -> exits 0, so this
 # is a no-op in repos that have not declared their classes yet.
-[ -f "$BOUNDARY" ] || exit 0
+if [ ! -f "$BOUNDARY" ]; then
+  echo "BLOCKED: $BOUNDARY is missing, so the data boundary is unchecked."
+  echo "Restore it with the pii-guard installer rather than committing blind."
+  exit 1
+fi
 out=$("$PY" "$BOUNDARY" 2>&1)
 rc=$?
 [ "$rc" -eq 0 ] && exit 0
