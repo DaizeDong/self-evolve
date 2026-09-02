@@ -3,16 +3,17 @@
 # The local hooks are a fast fail, not a guarantee. On 2026-07-13 a pre-commit hook printed its
 # findings and let the commit through anyway, because the caller had piped `git commit` into `head`
 # and the severed pipe destroyed the guard's exit status. A local hook can also be skipped with
-# --no-verify, is not installed on a fresh clone until someone runs the installer, and does not exist
-# at all for a contributor.
+# --no-verify, is not installed on a fresh clone until someone opts in, and does not exist at all
+# for an outside contributor.
 #
-# This runs on GitHub, on every push and every PR, and it cannot be reached by any of that. If a leak
-# gets past the desk, this is what turns it from a silent permanent exposure into a red X.
+# This runs on GitHub, on every push and every PR, and it cannot be reached by any of that.
 #
-# Note it runs WITHOUT the operator's private denylist (that file never leaves their machine). That
-# is the whole point of the allowlist design: the structural checks -- a mailbox at a consumer
-# provider, a real phone, a home ZIP, a non-noreply commit author, anything outside the declared
-# synthetic namespace -- need no private data to work, so they work here too.
+# The steps live in the guards submodule (guards/ci/pii-guard/action.yml) so there is ONE copy of
+# them across the fleet rather than one per repo, which had already begun to drift. This file is
+# only the wiring; the action carries the reasoning for each step.
+#
+# It runs WITHOUT the operator's private denylist (that file never leaves their machine). That is
+# the point of the allowlist design: the structural checks need no private data, so they work here.
 name: pii-guard
 
 on:
@@ -25,66 +26,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          submodules: true
           fetch-depth: 0        # the history scan is the point; a shallow clone would see nothing
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
-
-      - name: Guard's own tests (does it still catch the leaks it was built for?)
-        run: |
-          python -m pip install --quiet pytest
-          python -m pytest tools/test_pii_guard.py -q
-
-      # The v2 policy-layer suite. Not optional and not wrapped in a file test, for the same reason
-      # as the steps below: a repo whose vendored copy went missing would otherwise go green on a
-      # step that never ran.
-      #
-      # These tests are about a layer that DOES NOT EXIST ON THIS RUNNER. There is no private
-      # denylist in CI and there never will be, so what is verified here is the SHAPE of the policy
-      # machinery: that an unknown format raises instead of guessing, that a missing canary or a
-      # wrong count is refused rather than half-loaded, that a derivable companion name is admitted
-      # as reportable rather than blocking, and that a history-only exemption does not reach live
-      # content. Every one of those is a property of the code, checkable with synthetic fixtures,
-      # and every one of them is a property whose violation used to be silent.
-      - name: Policy-layer tests (can the private layer still prove it loaded?)
-        run: |
-          test -f tools/test_pii_guard_v2.py || { echo "::error::tools/test_pii_guard_v2.py is MISSING -- re-vendor it (install.py)"; exit 1; }
-          python -m pytest tools/test_pii_guard_v2.py -q
-
-      # The resolver's tests. datadir.py decides WHERE real-run output goes, which makes it the one
-      # file no downstream scanner can compensate for. A resolver that silently answers None looks
-      # exactly like a skill that has no data, and that ambiguity is how the out-of-band boundary
-      # check reported a clean sheet over skills writing a live ledger every day.
-      #
-      # NOT wrapped in `if [ -f ... ]`. Both steps used to be, and that made THE AUTHORITY fail open:
-      # a repo whose vendored copy was missing (a stale default branch, a bad merge, a deletion) went
-      # green on a step that never ran. Every repo in this fleet is supposed to carry these files --
-      # install.py ships them -- so ABSENT is a failure, not a reason to skip. Verified 2026-07-31 by
-      # deleting each file and watching the step exit non-zero.
-      - name: Resolver tests (does the data pipe still point outside this repo?)
-        run: |
-          test -f tools/test_datadir.py || { echo "::error::tools/test_datadir.py is MISSING -- re-vendor it (install.py); a guard that is not here is not a guard"; exit 1; }
-          python -m pytest tools/test_datadir.py -q
-
-      # The DATA BOUNDARY -- the primary control. Runs FIRST, because it is the question that
-      # actually matters: is this repo an uninitialized tool, or does it contain somebody's life?
-      #
-      # pii_guard (below) is the backstop. It reads content and looks for things that SMELL private,
-      # which is why it was clean while a public repo held real-run output from the operator's own account
-      # and a full record of their private activity. A ticker with an entry price has no email in
-      # it, no phone, no ZIP -- nothing to smell. The scanner cannot see a leak that looks like data,
-      # so the boundary has to make the leak structurally impossible instead: no DATA-class path is
-      # tracked, every declared DATA path ships only a schema, and every FIXTURE must be byte-
-      # identical to what its generator emits -- because a real record cannot be regenerated.
-      #
-      # A missing .dataclass.json is caught by install.py, which refuses to ship the scanner into a
-      # repo that cannot arm it. A missing SCANNER is caught here: see the note on the step above.
-      - name: Data boundary (is this an uninitialized tool?)
-        run: |
-          test -f tools/data_boundary.py || { echo "::error::tools/data_boundary.py is MISSING -- re-vendor it (install.py); the PRIMARY control cannot be optional"; exit 1; }
-          test -f .dataclass.json || { echo "::error::.dataclass.json is MISSING -- data_boundary would exit 0 on every run and leave the primary control inert"; exit 1; }
-          python tools/data_boundary.py
-
-      - name: Scan working tree + full history
-        run: python tools/pii_guard.py --tree --history
+      - uses: ./guards/ci/pii-guard
