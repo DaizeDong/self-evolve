@@ -2,3 +2,7 @@
 	path = guards
 	url = https://github.com/DaizeDong/fleet-guards.git
 	branch = main
+[submodule "style"]
+	path = style
+	url = https://github.com/DaizeDong/fleet-style.git
+	branch = main

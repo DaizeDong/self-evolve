@@ -1,7 +1,9 @@
 # dash-guard in CI: the house rule that published prose carries no en/em dash (the ASCII hyphen is
 # code syntax and is left alone). Style, not security, so it scans the current tree only.
 #
-# The steps live in guards/ci/dash-guard/action.yml, one copy for the whole fleet.
+# The steps live in style/ci/dash-guard/action.yml, one copy for the whole fleet. This gate is
+# style, not security, which is why it comes from a different submodule than the scanner:
+# nothing here keeps an identifier out of a public history.
 name: dash-guard
 
 on:
@@ -18,4 +20,4 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
-      - uses: ./guards/ci/dash-guard
+      - uses: ./style/ci/dash-guard
