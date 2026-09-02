@@ -440,7 +440,7 @@ def _first_party_modules(sandbox_root: str | None, file_rel: str | None) -> set[
         if not canonical_in_sandbox(here, root) and os.path.realpath(here) != root:
             return set()
         # The whole sandbox, not only the adjacent directory. A vendored helper reached by
-        # sys.path manipulation is still first-party: runstore.py loads tools/datadir.py that way
+        # sys.path manipulation is still first-party: runstore.py loads guards/tools/datadir.py that way
         # and was refused as "import not in whitelist: datadir" while every sibling passed.
         # Bounded to the sandbox and cached, because this runs once per patched file.
         cached = _FIRST_PARTY_CACHE.get(root)
