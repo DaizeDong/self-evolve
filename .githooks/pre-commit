@@ -1,0 +1,26 @@
+#!/bin/sh
+# Fifteen lines that must live IN THIS REPO, because they are what runs when the submodule does not.
+#
+# THE HOLE THIS CLOSES. Pointing core.hooksPath straight at guards/hooks looks like the tidy
+# arrangement, and it is a fail-open. A plain `git clone` without --recursive leaves guards/ present
+# and EMPTY. git then finds no hook file at that path and runs NOTHING, exit 0, no message. Worse,
+# the repo-level setting SHADOWS the machine-wide hook, so the one gate that would still have been
+# there is switched off by the same line. Measured 2026-09-02 on a fresh clone: with the setting
+# removed the machine hook blocked a real mailbox with exit 1; with the setting pointing at the
+# empty directory the identical commit went in, exit 0, in silence.
+#
+# So the delegating stub is tracked and the substance is pinned. An absent kit is a BLOCK with a
+# sentence, never a quiet pass. Keep this file boring: every line here is a line the submodule
+# cannot deduplicate.
+set -e
+_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+_REAL="$_ROOT/guards/hooks/pre-commit"
+if [ ! -x "$_REAL" ] && [ ! -f "$_REAL" ]; then
+  echo "BLOCKED: guards/hooks/pre-commit is missing, so nothing checked this commit."
+  echo "  The guards submodule is not checked out. Fix it, do not bypass it:"
+  echo "      git submodule update --init --recursive"
+  echo "  An empty guards/ is an UNGUARDED repo, not a repo with nothing to check, and this"
+  echo "  setting also shadows the machine-wide hook, so skipping here skips everything."
+  exit 1
+fi
+exec sh "$_REAL" "$@"
