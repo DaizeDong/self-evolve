@@ -417,15 +417,18 @@ def _run_dir(target: str, run_id: str) -> str:
     dd = _load_datadir()
     if dd is None:
         raise RuntimeError(
-            "target is this public repo and tools/datadir.py is missing, so the run directory "
+            "target is this public repo and guards/tools/datadir.py is missing, so the run directory "
             "cannot be resolved to the private companion. Refusing to write run output into a "
-            "public repository. Restore tools/datadir.py, or pass a --target outside this repo.")
+            "public repository. Check out the guards submodule (git submodule update --init), or "
+            "pass a --target outside this repo.")
     return str(dd.data_path("self-evolve", os.path.join("runs", run_id), create=True))
 
 
 def _load_datadir():
-    """Load tools/datadir.py by path. None when absent; every other failure propagates."""
-    p = os.path.join(_REPO_ROOT, "tools", "datadir.py")
+    """Load the resolver from the guards submodule. None when absent; every other failure
+    propagates. The single caller turns None into a refusal to write, which is the point: a
+    resolver that cannot be reached must never degrade into a repo-relative default."""
+    p = os.path.join(_REPO_ROOT, "guards", "tools", "datadir.py")
     if not os.path.isfile(p):
         return None
     import importlib.util

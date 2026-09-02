@@ -35,7 +35,7 @@ def _resolve_dest(explicit: str | None) -> str:
 
     这里原来的默认值是 `_REPO/.btarget_run/btarget_repo`，也就是**公开仓内部**。文档里那条
     无参数命令是被推荐的用法，所以每跑一次就在公开仓里造一个真的 git repo；2026-08-30 实测
-    复现过一次。`tools/datadir.py` 本来会拒绝这种路径（DataDirInsideOwnRepo），但这个脚本
+    复现过一次。`guards/tools/datadir.py` 本来会拒绝这种路径（DataDirInsideOwnRepo），但这个脚本
     从不 import 它，所以从来没被问过。127 个运行产出就是这么攒出来的。
 
     显式 --dest 仍然优先，因为把目标放在别处是正当用法。但无论来自默认值还是 --dest，只要
@@ -49,7 +49,7 @@ def _resolve_dest(explicit: str | None) -> str:
         dest = os.path.abspath(os.path.expanduser(explicit))
     elif dd is None:
         raise SystemExit(
-            "找不到 tools/datadir.py，无法解析私有伴生仓，也不会退回仓内路径。\n"
+            "找不到 guards/tools/datadir.py，无法解析私有伴生仓，也不会退回仓内路径。\n"
             "请用 --dest 指定一个本仓之外的目录。")
     else:
         # create=True：伴生仓存在但还没有这个子目录时直接建，不存在伴生仓时抛异常。
@@ -65,10 +65,22 @@ def _resolve_dest(explicit: str | None) -> str:
 
 
 def _load_datadir():
-    """按路径加载 tools/datadir.py。缺失返回 None，其余错误照常抛出。"""
-    p = os.path.join(_REPO, "tools", "datadir.py")
+    """按路径加载 guards/tools/datadir.py。缺失直接抛，其余错误照常抛出。
+
+    解析器搬进了 guards 子模块：全 fleet 一份，而不是每个仓一份（那些拷贝已经开始互相漂移）。
+
+    缺失不再返回 None。这两个答案意思相反：None 是「这台机器还没配伴生仓」，一个正常状态；
+    文件不在则意味着子模块根本没 checkout，**什么都没查过**。把后者报成前者，正是「没装的闸门」
+    看起来跟「装好且干净的闸门」一模一样的原因。
+    """
+    p = os.path.join(_REPO, "guards", "tools", "datadir.py")
     if not os.path.isfile(p):
-        return None
+        raise SystemExit(
+            "找不到 %s，伴生仓解析器根本没有运行。
+"
+            "guards 子模块没有 checkout：请跑 `git submodule update --init`。
+"
+            "这跟「没有配置伴生仓」不是一回事，不能当成一回事。" % p)
     import importlib.util
     spec = importlib.util.spec_from_file_location("_dd_for_btarget", p)
     if spec is None or spec.loader is None:
