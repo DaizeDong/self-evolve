@@ -1,6 +1,8 @@
 # load-budget in CI: PHILOSOPHY P7, the always-loaded budget and the no-second-copy rule.
 #
-# The steps live in guards/ci/load-budget/action.yml, one copy for the whole fleet.
+# The steps live in style/ci/load-budget/action.yml, one copy for the whole fleet. This gate is
+# style, not security, which is why it comes from a different submodule than the scanner:
+# nothing here keeps an identifier out of a public history.
 name: load-budget
 
 on:
@@ -17,4 +19,4 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
-      - uses: ./guards/ci/load-budget
+      - uses: ./style/ci/load-budget
