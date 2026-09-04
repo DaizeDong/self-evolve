@@ -93,7 +93,7 @@ def _load_datadir():
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dest", default=None,
-                    help="独立 repo 输出目录（默认解析到私有伴生仓，见 COMPANION.md）")
+                    help="独立 repo 输出目录（默认解析到私有伴生仓，见 guards/COMPANION.md）")
     ap.add_argument("--force", action="store_true", help="若 dest 已存在则先删除重建")
     args = ap.parse_args(argv)
     args.dest = _resolve_dest(args.dest)
