@@ -23,4 +23,13 @@ if [ ! -x "$_REAL" ] && [ ! -f "$_REAL" ]; then
   echo "  setting also shadows any wider hook configuration, so skipping here skips everything."
   exit 1
 fi
+# A repo that also uses the pre-commit FRAMEWORK chains it here. `pre-commit install` refuses
+# to run while core.hooksPath is set, and the hint it prints is to unset it, which would
+# switch the guards off; a reader following that hint gets a working formatter and no gate.
+# Calling `pre-commit run` from this stub keeps both, and keeps the guard LAST so a
+# formatter that rewrites files cannot slip a change past the scan. Absent config or absent
+# binary means the block is skipped, which is correct: nothing was asked for.
+if [ -f "$_ROOT/.pre-commit-config.yaml" ] && command -v pre-commit >/dev/null 2>&1; then
+  pre-commit run --hook-stage pre-push || exit 1
+fi
 exec sh "$_REAL" "$@"
