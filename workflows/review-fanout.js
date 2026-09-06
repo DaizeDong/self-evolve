@@ -53,7 +53,17 @@ let notes = [];
 try {
   const obj = JSON.parse(out.result.slice(out.result.indexOf('{'), out.result.lastIndexOf('}') + 1));
   if (['accept', 'reject', 'abstain'].includes(obj.verdict)) { verdict = obj.verdict; }
-  if (Array.isArray(obj.notes)) { notes = obj.notes.filter(n => typeof n === 'string').slice(0, 5); }
+  if (Array.isArray(obj.notes)) {
+    const keptNotes = obj.notes.filter(n => typeof n === 'string');
+    notes = keptNotes.slice(0, 5);
+    // The cap stays; announce it so a shortened note list is not read as the reviewer's
+    // full reasoning behind the verdict.
+    if (keptNotes.length > notes.length) {
+      process.stderr.write('review-fanout: reviewer #' + idx + ' returned ' + keptNotes.length
+        + ' notes, keeping first ' + notes.length + ', dropped '
+        + (keptNotes.length - notes.length) + '\n');
+    }
+  }
 } catch (_) { /* 降级保持 abstain */ }
 
 process.stdout.write(JSON.stringify({ reviewer: idx, verdict, notes, family }));

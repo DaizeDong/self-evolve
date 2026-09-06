@@ -872,6 +872,10 @@ def run_loop(
                 "phase": "PATCH",
                 "static_reject_delta": 1,
                 "proposals": len(props),
+                # rejections[:10] caps what the trace carries. Without the total, a trace
+                # holding exactly 10 rejection records is indistinguishable from a complete
+                # one, and the reasons this block exists to preserve go missing unannounced.
+                "rejections_total": len(rejections),
                 "rejections": rejections[:10],
             })
             history.append(_round_record(rnd, "the patch gate refused every proposal", False, phase="PATCH"))
