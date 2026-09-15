@@ -55,7 +55,7 @@ def _run_pytest(root: str) -> int:
     env = dict(os.environ)
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     try:
-        proc = subprocess.run(PYTEST, cwd=root, capture_output=True, text=True, env=env,
+        proc = subprocess.run(PYTEST, cwd=root, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env,
                               timeout=_timeout_s())
         return proc.returncode  # 0=pass, 1=fail, 5=no tests collected
     except subprocess.TimeoutExpired:

@@ -112,6 +112,6 @@ def make_worktree(target: str, base_ref: str, run_id: str) -> str:
         ["git", "-C", target, "worktree", "add", "-b", branch, sandbox_root, base_ref],
         check=True,
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
     )
     return sandbox_root
