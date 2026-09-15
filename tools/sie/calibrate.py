@@ -110,7 +110,7 @@ def _make_repo(root: str) -> None:
               "-c", "user.name=calibration", "-c", "user.email=calibration@example.com",
               "commit", "-q", "-m", "calibration baseline"]]
     for cmd in steps:
-        r = subprocess.run(cmd, cwd=root, capture_output=True, text=True)
+        r = subprocess.run(cmd, cwd=root, capture_output=True, text=True, encoding="utf-8", errors="replace")
         if r.returncode != 0:
             raise CalibrationError("could not prepare the calibration copy at %s (%s): %s"
                                    % (root, " ".join(cmd[-2:]), (r.stderr or r.stdout or "").strip()))
@@ -430,7 +430,7 @@ def materialize(target: str, ref: str, dest: str) -> None:
     """
     os.makedirs(dest, exist_ok=True)
     r = subprocess.run(["git", "-C", target, "rev-parse", "--verify", "%s^{commit}" % ref],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0:
         raise CalibrationError("cannot resolve ref %r in %s: %s"
                                % (ref, target, (r.stderr or "").strip()[:200]))
