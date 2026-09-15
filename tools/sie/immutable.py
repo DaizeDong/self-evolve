@@ -80,7 +80,7 @@ def materialize_frozen(base_ref: str, sie_root: str, frozen_dir: str) -> dict[st
     # 找到 sie_root 所在仓库的根，算出 IMMUTABLE 在仓库中的 git 路径前缀。
     repo_root = subprocess.run(
         ["git", "rev-parse", "--show-toplevel"], cwd=sie_root,
-        check=True, capture_output=True, text=True).stdout.strip()
+        check=True, capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip()
     rel_prefix = os.path.relpath(sie_root, repo_root).replace("\\", "/")
     digests: dict[str, str] = {}
     for rp in IMMUTABLE_RELPATHS:

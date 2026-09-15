@@ -548,7 +548,7 @@ def _discard_rejected_changes(sandbox_root: str) -> None:
         return                      # no tree to restore (tests drive run_loop with a stub root)
     try:
         r = subprocess.run(["git", "-c", "core.hooksPath=", "checkout", "--", "."],
-                           cwd=sandbox_root, capture_output=True, text=True)
+                           cwd=sandbox_root, capture_output=True, text=True, encoding="utf-8", errors="replace")
     except OSError as e:
         print("sie: could not run git to discard the rejected changes in %s: %s"
               % (sandbox_root, e), file=sys.stderr)

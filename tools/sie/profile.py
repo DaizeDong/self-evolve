@@ -70,7 +70,7 @@ def _resolve_ref(target: str, base_ref: str) -> str:
     """The commit `base_ref` names right now, so a moving ref cannot alias a stale worktree."""
     import subprocess
     out = subprocess.run(["git", "-C", target, "rev-parse", base_ref or "HEAD"],
-                         capture_output=True, text=True, timeout=30)
+                         capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
     sha = (out.stdout or "").strip()
     if out.returncode != 0 or not sha:
         raise RuntimeError("cannot resolve base ref %r in %s: %s"
