@@ -204,7 +204,7 @@ def grade_pytest(sandbox_root: str) -> dict:
             [sys.executable, "-m", "pytest", "-q", "--no-header"],
             cwd=sandbox_root,
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             env=grader_env,
         )
 

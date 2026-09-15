@@ -46,7 +46,7 @@ def _grade_pytest_per_task(sandbox_root: str) -> dict:
             [sys.executable, "-m", "pytest", "-v", "--tb=no", "--no-header"],
             cwd=sandbox_root,
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             env=grader_env,
         )
         code = proc.returncode
