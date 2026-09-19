@@ -11,7 +11,7 @@
  * 铁律1: proposer 只生成提议；采纳由确定性 harness 裁决。
  * 生成的 new_content 后续经 apply_patch 的 import 白名单 + AST 危险门 + 沙箱边界
  * (+ 自举时 IMMUTABLE 硬拒) 全部门控；proposer 无法绕过这些门。
- * Claude 调用经 _claude_launch（cc 优先, claude fallback）。
+ * Claude 调用经 _claude_launch（一次 llmcall 请求）。
  */
 
 'use strict';
@@ -64,8 +64,15 @@ const prompt =
 // No model pin. The pinned 'sonnet' here was invisible from every log the loop keeps, and it is
 // the proposer, the one step whose quality decides whether a round produces anything at all.
 // _claude_launch resolves the session default instead.
-const out = launchClaude([], prompt);
-if (!out.ok) giveUp('the agent launch failed: ' + (out.error || 'no reason reported'), out.result);
+if (process.argv.includes('--prepare')) { process.stdout.write(prompt); process.exit(0); }
+const out = process.argv.includes('--validate')
+  ? { ok: typeof input._model_result === 'string', result: input._model_result || '' }
+  : launchClaude([], prompt);
+if (!out.ok) {
+  process.stderr.write(JSON.stringify(out) + '\n');
+  process.stdout.write(JSON.stringify({ model_result: out }));
+  process.exit(0);
+}
 
 const first = out.result.indexOf('{'), last = out.result.lastIndexOf('}');
 if (first < 0 || last <= first) {

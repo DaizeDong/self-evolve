@@ -23,7 +23,7 @@
  * 也无法读到 visible 锚的既有 expected 来抄答案。
  *
  * 铁律1: proposer 只生成提议；采纳由确定性 harness（verify_anchor + acceptor + selfdeception）裁决。
- * Claude 调用经 _claude_launch（cc 优先, claude fallback）。
+ * Claude 调用经 _claude_launch（一次 llmcall 请求）。
  */
 
 'use strict';
@@ -94,8 +94,15 @@ const prompt =
   'FINDINGS:\n' + (findings.length ? findings.map(f => '- ' + f).join('\n') : '(none)') +
   '\n\nCURRENT ARTIFACT (truth values stripped):\n' + sanitizedText + '\n';
 
-const out = launchClaude(['--model', 'sonnet'], prompt);
-if (!out.ok) { process.stdout.write('{}'); process.exit(0); }
+if (process.argv.includes('--prepare')) { process.stdout.write(prompt); process.exit(0); }
+const out = process.argv.includes('--validate')
+  ? { ok: typeof input._model_result === 'string', result: input._model_result || '' }
+  : launchClaude([], prompt);
+if (!out.ok) {
+  process.stderr.write(JSON.stringify(out) + '\n');
+  process.stdout.write(JSON.stringify({ model_result: out }));
+  process.exit(0);
+}
 
 let result = {};
 try {

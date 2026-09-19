@@ -97,6 +97,8 @@ def score(artifact_path: str, anchors_visible: list[dict], family: str) -> dict:
 
     if not res.get("available"):
         return {
+            **res,
+            **res,
             "family": family,
             "available": False,
             "span_scores": [],
@@ -105,7 +107,7 @@ def score(artifact_path: str, anchors_visible: list[dict], family: str) -> dict:
         }
 
     parsed = _parse_span_scores(res["raw"], spans)
-    parsed.update({"family": family, "available": True})
+    parsed = {**res, **parsed, "family": family, "available": True}
     return parsed
 
 

@@ -1,72 +1,44 @@
 'use strict';
-/**
- * _agent_launch.js — 统一 agent 启动器（任意阶段、任意家族）
- *
- * 把"调一个 agent"抽象成 launch(family, opts, prompt)，使 codex 与 claude 成为**可在
- * 任何阶段互换/组合的异质 agent 选项**，而非绑死某个阶段的组件。异质交叉校验由此可贯穿
- * reflect / propose / review / evaluate / judge 全流程。
- *
- *   family 'claude' | 'cc'  → 经 _claude_launch（cc 优先, claude fallback, -p json, stdin）
- *   family 'codex'          → codex exec -s read-only（禁写盘/逃逸; -o 取最终消息; web_search）
- *
- * 返回 { ok: bool, result: string }。两家族失败均 graceful（ok:false），绝不抛。
- */
-
+// Legacy JS worker transport: one structured llmcall request, never a provider CLI.
 const { spawnSync } = require('child_process');
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
-const { launchClaude } = require('./_claude_launch');
-
-const TIMEOUT_MS = 590000;
-
-function _launchCodex(opts, prompt) {
-  // 默认当下最强（与 memory 一致: codex 永远用最强模型）。2026-07 = gpt-5.6-sol + max。
-  const model = opts.model || 'gpt-5.6-sol';
-  const effort = opts.effort || 'max';
-  const outFile = path.join(os.tmpdir(), `sie-agent-codex-${process.pid}-${Date.now()}.txt`);
-  // read-only 沙箱: codex 不能写盘/逃逸 shell（任意阶段调 codex 都只读, 防副作用）。
-  // -o 取最终消息避开 header/MCP 噪声。prompt 走 stdin → shell:true 下无注入面。
-  const codexArgs = [
-    'exec', '-m', model, '-s', 'read-only',
-    '--skip-git-repo-check', '--color', 'never',
-    '-c', `model_reasoning_effort=${effort}`,
-    '-o', outFile,
-  ];
-  const r = spawnSync('codex', codexArgs, {
-    input: prompt, encoding: 'utf8', shell: true,
-    maxBuffer: 16 * 1024 * 1024, timeout: TIMEOUT_MS,
-  });
-  let out = '';
-  try { out = fs.readFileSync(outFile, 'utf8'); } catch (_) {}
-  try { fs.unlinkSync(outFile); } catch (_) {}
-  if (r.error || r.status !== 0 || !out.trim()) {
-    process.stderr.write(`codex unavailable: status=${r.status} ${(r.stderr || '').slice(-200)}\n`);
-    return { ok: false };
-  }
-  return { ok: true, result: out };
-}
-
-function _launchClaudeFamily(opts, prompt) {
-  const extra = [];
-  if (opts.tools === 'web_search') extra.push('--allowed-tools', 'WebSearch');
-  extra.push('--model', opts.model || 'sonnet');
-  const out = launchClaude(extra, prompt);
-  return out.ok ? { ok: true, result: out.result } : { ok: false };
-}
-
-/**
- * @param {string} family 'claude' | 'cc' | 'codex'
- * @param {object} opts   { model?, tools?('web_search'), effort? }
- * @param {string} prompt
- * @returns {{ok:boolean, result?:string}}
- */
 function launch(family, opts, prompt) {
   opts = opts || {};
-  if (!prompt || !prompt.trim()) return { ok: false };
-  if (family === 'codex') return _launchCodex(opts, prompt);
-  // 默认/claude/cc 走 claude 家族
-  return _launchClaudeFamily(opts, prompt);
+  const fail = (error, details = {}) => ({ ...details, ok: false, result: '', error });
+  if (!prompt || !prompt.trim()) return fail('empty prompt');
+  if (family && !['claude', 'cc', 'codex'].includes(family)) return fail('unsupported family');
+  if (opts.tools && opts.tools !== 'web_search') return fail('unsupported tool constraint');
+  const request = {
+    prompt, mode: 'agent', timeout: 590,
+    selection: opts.model ? { intent: 'exact', model: opts.model } : { intent: 'inherit' },
+    requirements: { access: 'read_only', tool_network: opts.tools ? 'required' : 'forbidden',
+      required_tools: opts.tools ? ['WebSearch'] : [],
+      tool_allowlist: opts.tools ? ['WebSearch'] : [], replay: 'never_after_start' }
+  };
+  if (family) request.selection.family = family === 'cc' ? 'claude' : family;
+  for (const key of ['chain', 'avoid', 'cwd', 'env']) {
+    if (opts[key] !== undefined) request[key] = opts[key];
+  }
+  if (opts.effort) request.effort = opts.effort;
+  const child = spawnSync(process.env.SIE_PYTHON || 'python',
+    ['-P', '-m', 'llmcall', '--request-json', '--result-json'], {
+      input: JSON.stringify(request), encoding: 'utf8', shell: false,
+      maxBuffer: 16 * 1024 * 1024
+    }); // llmcall owns the deadline and descendant cleanup
+  let result;
+  const transport = { outcome: 'execution_uncertain', effects: 'possible', execution_started: null,
+    review_state: 'unavailable', call_id: null, stderr: String(child.stderr || '').slice(-2000) };
+  try { result = JSON.parse(child.stdout); } catch (_) { return fail('invalid Result JSON; no retry', transport); }
+  if (!result || typeof result !== 'object' || Array.isArray(result) || typeof result.text !== 'string')
+    return fail('invalid Result shape; no retry', transport);
+  const details = { ...result };
+  delete details.text;
+  delete details.data;
+  if (child.error || child.status !== 0 || !result.provider || result.error || !result.text.trim()
+      || (result.outcome && result.outcome !== 'success'))
+    return fail(result.error || 'unsuccessful result; no retry', { ...details, stderr: transport.stderr });
+  const expected = family === 'cc' ? 'claude' : family;
+  if (expected && (result.model_family !== expected || result.model_source !== 'provider_reported'))
+    return fail('requested model family unverified', { ...details, outcome: 'model_unverified' });
+  return { ...details, ok: true, result: result.text };
 }
-
 module.exports = { launch };

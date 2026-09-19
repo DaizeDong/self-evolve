@@ -83,7 +83,7 @@ def test_every_failure_path_says_what_happened(tmp_path, capsys, monkeypatch):
         stdout = "I have written the new file to proposal_tmp.json for you."
         stderr = ""
 
-    monkeypatch.setattr(llm.subprocess, "run", lambda *a, **k: FakeProc())
+    monkeypatch.setattr(llm, "_proposal_call", lambda *a, **k: FakeProc())
     assert llm.generate(root, [{"text": "x"}]) == []
     err = capsys.readouterr().err
     assert "not JSON" in err and "proposer produced nothing" in err

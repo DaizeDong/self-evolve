@@ -109,7 +109,8 @@ def main(argv: list[str] | None = None) -> int:
         # 每阶段 codex&claude 双重校验默认开; --single 显式关。
         # 跑前预检 codex: 不可用则提醒 + 自动降级单跑(不硬失败)。
         from tools.sie import agents as _agents
-        _dual, _warn = _agents.preflight_dual(dual_requested=not args.single)
+        _needs_agents = _proposer != "builtin" or _reflect_mode == "parallel"
+        _dual, _warn = _agents.preflight_dual(dual_requested=not args.single and _needs_agents)
         if _warn:
             print(_warn, file=sys.stderr)
         elif _dual:

@@ -74,7 +74,7 @@ def test_find_target_artifact_none_when_no_anchors(tmp_path):
 # ---------------------------------------------------------------------------
 
 def _fake_run_factory(stdout, returncode=0):
-    def _fake_run(cmd, **kw):
+    def _fake_run(cmd, *args, **kw):
         return types.SimpleNamespace(returncode=returncode, stdout=stdout, stderr="")
     return _fake_run
 
@@ -84,7 +84,7 @@ def test_generate_artifact_success(tmp_path, monkeypatch):
     new_doc = _artifact(3)
     new_doc["sections"][0]["anchors"][0]["expected"] = 999  # proposer 改了值
     out = {"file_rel": "report.json", "new_content": json.dumps(new_doc)}
-    monkeypatch.setattr(subprocess, "run", _fake_run_factory(json.dumps(out)))
+    monkeypatch.setattr(_llm, "_proposal_call", _fake_run_factory(json.dumps(out)))
     props = _llm.generate_artifact(root, [{"merged_findings": ["fix it"]}],
                                    artifact_rel="report.json")
     assert len(props) == 1
@@ -98,13 +98,13 @@ def test_generate_artifact_node_missing_returns_empty(tmp_path, monkeypatch):
 
     def _boom(*a, **k):
         raise FileNotFoundError("node not found")
-    monkeypatch.setattr(subprocess, "run", _boom)
+    monkeypatch.setattr(_llm, "_proposal_call", _boom)
     assert _llm.generate_artifact(root, [], artifact_rel="report.json") == []
 
 
 def test_generate_artifact_invalid_json_stdout_returns_empty(tmp_path, monkeypatch):
     root = _write(tmp_path, _artifact(3))
-    monkeypatch.setattr(subprocess, "run", _fake_run_factory("not json at all"))
+    monkeypatch.setattr(_llm, "_proposal_call", _fake_run_factory("not json at all"))
     assert _llm.generate_artifact(root, [], artifact_rel="report.json") == []
 
 
@@ -112,14 +112,14 @@ def test_generate_artifact_new_content_not_artifact_returns_empty(tmp_path, monk
     """new_content 是合法 JSON 但缺 sections → 结构门拒。"""
     root = _write(tmp_path, _artifact(3))
     out = {"file_rel": "report.json", "new_content": json.dumps({"foo": 1})}
-    monkeypatch.setattr(subprocess, "run", _fake_run_factory(json.dumps(out)))
+    monkeypatch.setattr(_llm, "_proposal_call", _fake_run_factory(json.dumps(out)))
     assert _llm.generate_artifact(root, [], artifact_rel="report.json") == []
 
 
 def test_generate_artifact_wrong_file_rel_returns_empty(tmp_path, monkeypatch):
     root = _write(tmp_path, _artifact(3))
     out = {"file_rel": "other.json", "new_content": json.dumps(_artifact(3))}
-    monkeypatch.setattr(subprocess, "run", _fake_run_factory(json.dumps(out)))
+    monkeypatch.setattr(_llm, "_proposal_call", _fake_run_factory(json.dumps(out)))
     assert _llm.generate_artifact(root, [], artifact_rel="report.json") == []
 
 
@@ -130,7 +130,7 @@ def test_generate_artifact_no_artifact_in_sandbox_returns_empty(tmp_path, monkey
     def _track(*a, **k):
         called["n"] += 1
         return types.SimpleNamespace(returncode=0, stdout="{}", stderr="")
-    monkeypatch.setattr(subprocess, "run", _track)
+    monkeypatch.setattr(_llm, "_proposal_call", _track)
     assert _llm.generate_artifact(str(tmp_path), [], artifact_rel=None) == []
     assert called["n"] == 0
 
@@ -142,7 +142,7 @@ def test_generate_artifact_no_artifact_in_sandbox_returns_empty(tmp_path, monkey
 def test_propose_llm_artifact_dispatch(tmp_path, monkeypatch):
     root = _write(tmp_path, _artifact(3))
     out = {"file_rel": "report.json", "new_content": json.dumps(_artifact(3))}
-    monkeypatch.setattr(subprocess, "run", _fake_run_factory(json.dumps(out)))
+    monkeypatch.setattr(_llm, "_proposal_call", _fake_run_factory(json.dumps(out)))
     props = propose(root, [{"merged_findings": ["x"]}], backend="llm-artifact")
     assert len(props) == 1
     assert props[0]["file_rel"] == "report.json"
@@ -154,7 +154,7 @@ def test_propose_llm_artifact_empty_does_not_fallback_builtin(tmp_path, monkeypa
 
     def _boom(*a, **k):
         raise FileNotFoundError("node not found")
-    monkeypatch.setattr(subprocess, "run", _boom)
+    monkeypatch.setattr(_llm, "_proposal_call", _boom)
     # 若回退 builtin 会试图改 .py；这里目录无 .py，且我们断言结果为 []
     assert propose(root, [], backend="llm-artifact") == []
 

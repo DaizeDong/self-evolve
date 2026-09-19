@@ -19,7 +19,7 @@ const { launch } = require('./_agent_launch');
 
 const args = process.argv.slice(2);
 let idx = 0;
-let family = 'claude';
+let family = null;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--run' && args[i + 1]) { i++; }          // run_dir: 仅契约占位, 不写
   else if (args[i] === '--idx' && args[i + 1]) { idx = Number(args[++i]); }
@@ -46,9 +46,9 @@ const prompt =
   'Return ONLY JSON: {"findings":["<finding 1>","<finding 2>", ...]} (0-5 findings).\n\n' +
   'RUN HISTORY (read-only):\n' + JSON.stringify(history, null, 2) + '\n';
 
-const out = launch(family, { tools: 'web_search', model: family === 'codex' ? undefined : 'sonnet' }, prompt);
+const out = launch(family, { tools: 'web_search' }, prompt);
 if (!out.ok) {
-  process.stdout.write(JSON.stringify({ reflector: idx, findings: [], family }));
+  process.stdout.write(JSON.stringify({ ...out, reflector: idx, findings: [], family }));
   process.exit(0);  // 降级: 空 findings, 不让单个 reflector 失败拖垮 fanout
 }
 

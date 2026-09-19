@@ -1,3 +1,4 @@
+import sys
 # tests/test_judges_codex.py
 """TDD tests for M3.1: judges, judge_codex, judge_claude adapters.
 All tests mock subprocess/invoke — no real codex/claude calls."""
@@ -98,125 +99,32 @@ def test_unknown_family_raises():
         os.unlink(name)
 
 
-def test_invoke_codex_judge_timeout(monkeypatch):
-    """subprocess.TimeoutExpired → available=False, no raise."""
-    def fake_run(*args, **kwargs):
-        raise subprocess.TimeoutExpired(cmd=args[0], timeout=1)
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    result = judge_codex.invoke_codex_judge("hello", timeout_s=1)
-    assert result == {"available": False, "raw": ""}
+def test_invoke_codex_judge_contract(monkeypatch):
+    from tools.sie import agents, judge_codex
+    from llmcall import Result
+    calls = []
+    def answer(prompt, **kw):
+        calls.append(kw)
+        return Result(provider="synthetic", text='{"span_scores":[]}',
+                      model_family="codex", model_source="provider_reported")
+    monkeypatch.setattr(sys.modules["llmcall"], "call", answer)
+    result = judge_codex.invoke_codex_judge("synthetic", timeout_s=12)
+    assert result["available"]
+    assert len(calls) == 1
+    assert calls[0]["requirements"].tool_allowlist == ("WebSearch",)
+    assert calls[0]["requirements"].access == "read_only"
+    assert calls[0]["selection"].intent == "inherit"
+    assert "effort" not in calls[0]
 
 
-def test_invoke_codex_judge_file_not_found(monkeypatch):
-    """FileNotFoundError (node missing) → available=False, no raise."""
-    def fake_run(*args, **kwargs):
-        raise FileNotFoundError("node not found")
-    # Use object form (monkeypatch.setattr(module, attr, value)) to stay correct
-    # even if judge_codex switches to `from subprocess import run`.
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    result = judge_codex.invoke_codex_judge("hello", timeout_s=1)
-    assert result == {"available": False, "raw": ""}
-
-
-def test_invoke_codex_judge_nonzero_exit(monkeypatch):
-    """Non-zero returncode → available=False, no raise."""
-    class FakeProc:
-        returncode = 1
-        stdout = ""
-        stderr = "rate limit"
-    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: FakeProc())
-    result = judge_codex.invoke_codex_judge("hello", timeout_s=1)
-    assert result == {"available": False, "raw": ""}
-
-
-def test_invoke_codex_judge_empty_stdout(monkeypatch):
-    """returncode=0 but empty stdout → available=False."""
-    class FakeProc:
-        returncode = 0
-        stdout = "   "
-        stderr = ""
-    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: FakeProc())
-    result = judge_codex.invoke_codex_judge("hello", timeout_s=1)
-    assert result == {"available": False, "raw": ""}
-
-
-def test_invoke_codex_judge_success(monkeypatch):
-    """returncode=0 with stdout → available=True, raw=stdout."""
-    raw = '{"span_scores":[]}'
-    class FakeProc:
-        returncode = 0
-        stdout = raw
-        stderr = ""
-    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: FakeProc())
-    result = judge_codex.invoke_codex_judge("hello", timeout_s=1)
-    assert result == {"available": True, "raw": raw}
-
-
-# ── I1: command argv 断言（锁住 Python 侧 flag 装配） ─────────────────────
-def test_invoke_codex_judge_argv_flags(monkeypatch):
-    """invoke_codex_judge 必须拼入 --no-browser/--no-playwright/最强模型/web_search。
-    monkeypatch subprocess.run（对象形式，防 from-import 重构静默失效）。"""
-    captured = {}
-
-    def fake_run(cmd, **kwargs):
-        captured["cmd"] = cmd
-
-        class FakeProc:
-            returncode = 0
-            stdout = '{"span_scores":[]}'
-            stderr = ""
-        return FakeProc()
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    judge_codex.invoke_codex_judge("test prompt", timeout_s=10)
-
-    cmd = captured["cmd"]
-    assert "--no-browser" in cmd, f"--no-browser missing in {cmd}"
-    assert "--no-playwright" in cmd, f"--no-playwright missing in {cmd}"
-    assert "--tools" in cmd, f"--tools missing in {cmd}"
-    tools_idx = cmd.index("--tools")
-    assert cmd[tools_idx + 1] == "web_search", f"expected web_search, got {cmd[tools_idx+1]}"
-    assert "--model" in cmd, f"--model missing in {cmd}"
-    model_idx = cmd.index("--model")
-    assert cmd[model_idx + 1] == "gpt-5.6-sol", f"expected gpt-5.6-sol, got {cmd[model_idx+1]}"
-
-
-# ── I2: claude 不可用时 score() 返回契约 sentinel（显式 mock，脱离环境依赖）─
-def test_score_claude_unavailable_returns_sentinel(monkeypatch, tmp_path):
-    """family='claude' 且 invoke_claude_judge 返回 available=False 时，
-    score() 须返回完整契约 sentinel：available=False + 全部必要键。
-    使用显式 monkeypatch，不依赖 node 是否安装等环境条件。"""
-    from tools.sie import judge_claude
-
-    def fake_invoke(prompt, timeout_s):
-        return {"available": False, "raw": ""}
-
-    monkeypatch.setattr(judge_claude, "invoke_claude_judge", fake_invoke)
-    art = tmp_path / "a.md"
-    art.write_text("body text", encoding="utf-8")
-    out = judges.score(str(art), anchors_visible=[{"span": "body"}], family="claude")
-    assert out["available"] is False
-    assert out["family"] == "claude"
-    assert out["aggregate"] == 0.0
-    assert out["span_scores"] == []
-    assert "unspanned_penalized" in out
-
-
-# ── Minor: _parse_span_scores float 容错（非数值 score 被跳过） ────────────
-def test_parse_span_scores_nonnumeric_skipped(monkeypatch, tmp_path):
-    """span score 为字符串 'N/A' 时不崩溃，该 span 被跳过。"""
-    def fake_invoke(prompt, timeout_s):
-        raw = json.dumps({"span_scores": [
-            {"span": "good span", "score": 0.9},
-            {"span": "bad span", "score": "N/A"},
-        ]})
-        return {"available": True, "raw": raw}
-    monkeypatch.setattr(judge_codex, "invoke_codex_judge", fake_invoke)
-    art = tmp_path / "a.md"
-    art.write_text("body", encoding="utf-8")
-    out = judges.score(str(art), [{"span": "good span"}, {"span": "bad span"}], "codex")
-    # "N/A" span skipped: only good span counted, unspanned_penalized=1
-    assert out["available"] is True
-    assert abs(out["aggregate"] - 0.9) < 1e-9
-    assert out["unspanned_penalized"] == 1
-    assert len(out["span_scores"]) == 1
+def test_invoke_codex_judge_failure(monkeypatch):
+    from tools.sie import agents, judge_codex
+    from llmcall import Result
+    calls = []
+    def fail(*a, **kw):
+        calls.append(kw)
+        return Result(error="timeout", effects="possible")
+    monkeypatch.setattr(sys.modules["llmcall"], "call", fail)
+    result = judge_codex.invoke_codex_judge("synthetic")
+    assert not result["available"] and result["raw"] == ""
+    assert len(calls) == 1

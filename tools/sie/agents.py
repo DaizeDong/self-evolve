@@ -12,6 +12,7 @@ evaluate）都可：
 from __future__ import annotations
 import json
 import subprocess
+from .model_boundary import load_runtime, metadata
 
 VALID_FAMILIES = ("claude", "cc", "codex")
 
@@ -47,35 +48,63 @@ def preflight_dual(dual_requested: bool) -> tuple[bool, str | None]:
                    "每阶段 codex&claude 双重校验已关闭。修复 codex 或显式用 --single 静默单跑。")
 
 
-def invoke(prompt: str, family: str = "claude", *, model: str | None = None,
+def invoke(prompt: str, family: str | None = None, *, model: str | None = None,
            tools: str | None = None, effort: str | None = None,
-           role: str | None = None, timeout_s: int = 600) -> dict:
-    """在任一阶段调用任一家族的 agent。
+           role: str | None = None, timeout_s: float = 600, chain=None,
+           avoid=None, cwd=None, env=None) -> dict:
+    """One read-only llmcall request; family filters the inherited route order.
 
-    family: "claude"|"cc"(走 cc→claude) | "codex". role 仅信息性。
-    Returns {"ok": bool, "result": str, "family": str}. 失败 → ok=False（不抛）。
+    The returned model family must confirm an explicit family request. Omitted
+    family/model/effort inherit controller policy. No output repair or business retry.
     """
-    if family not in VALID_FAMILIES:
-        return {"ok": False, "result": "", "family": family}
-    cmd = ["node", "workflows/agent.js", "--family", family]
-    if model:
-        cmd += ["--model", model]
-    if tools:
-        cmd += ["--tools", tools]
-    if effort:
-        cmd += ["--effort", effort]
-    if role:
-        cmd += ["--role", role]
+    failure = {"ok": False, "result": "", "family": family, "model_family": None,
+               "outcome": "invalid_request", "effects": "none", "execution_started": False,
+               "review_state": "not_requested", "call_id": None}
+    if family is not None and family not in VALID_FAMILIES:
+        return dict(failure, error="unsupported family")
+    if tools not in (None, "web_search"):
+        return dict(failure, error="unsupported tool constraint")
+    kwargs = {}
+    for key, value in (("chain", chain), ("avoid", avoid), ("cwd", cwd), ("env", env)):
+        if value is not None:
+            kwargs[key] = value
+    if effort is not None:
+        kwargs["effort"] = effort
     try:
-        proc = subprocess.run(
-            cmd, input=prompt or "", capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=timeout_s,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        return {"ok": False, "result": "", "family": family}
-    if proc.returncode != 0 or not (proc.stdout or "").strip():
-        return {"ok": False, "result": "", "family": family}
-    return {"ok": True, "result": proc.stdout, "family": family}
+        runtime = load_runtime()
+    except (ImportError, AttributeError, TypeError, ValueError) as exc:
+        return dict(failure, outcome="dependency_unavailable", effects="none",
+                    execution_started=False, review_state="not_requested", call_id=None,
+                    error="Model use requires llmcall with ModelSelection.family and execution contracts: "
+                          + type(exc).__name__)
+    expected = "claude" if family == "cc" else family
+    try:
+        result = runtime.call(
+            prompt, mode="agent", timeout=timeout_s,
+            selection=runtime.ModelSelection("exact" if model else "inherit", model, family=expected),
+            requirements=runtime.ExecutionRequirements(
+                workspace=cwd,
+                access="read_only", tool_network="required" if tools else "forbidden",
+                required_tools=("WebSearch",) if tools else (),
+                tool_allowlist=("WebSearch",) if tools else (), replay="never_after_start"),
+            **kwargs)
+    except Exception as exc:
+        return dict(failure, error="llmcall failed: " + type(exc).__name__,
+                    outcome="execution_uncertain", effects="possible", execution_started=None,
+                    review_state="unavailable", call_id=None)
+    if not isinstance(result, runtime.Result) or not isinstance(result.text, str):
+        return dict(failure, error="llmcall returned an invalid Result; no retry",
+                    outcome="execution_uncertain", effects="possible", execution_started=None)
+    details = metadata(result)
+    if (not result or result.error or not result.text.strip()
+            or result.outcome not in (None, "success")):
+        return dict(failure, **{**details, "error": result.error or "empty or unsuccessful output"})
+    actual = result.model_family
+    if family and (actual != expected
+                   or result.model_source != "provider_reported"):
+        return {**failure, **details, "error": "requested model family unverified",
+                "outcome": "model_unverified"}
+    return {**details, "ok": True, "result": result.text, "family": family or actual}
 
 
 def _extract_json(text: str):
@@ -105,13 +134,13 @@ def cross_check(prompt: str, families=("claude", "codex"), *,
     per: dict[str, dict] = {}
     for fam in families:
         r = invoke(prompt, family=fam, tools=tools, timeout_s=timeout_s)
-        per[fam] = {"ok": r["ok"], "result": r["result"]}
+        per[fam] = r
     ok_fams = [f for f, v in per.items() if v["ok"]]
     return {
         "per": per,
         "n_ok": len(ok_fams),
         "results_ok": [per[f]["result"] for f in ok_fams],
-        "heterogeneous": len({f for f in ok_fams}) >= 2,
+        "heterogeneous": len({per[f]["model_family"] for f in ok_fams if per[f]["model_family"]}) >= 2,
     }
 
 

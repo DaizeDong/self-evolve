@@ -10,6 +10,10 @@ import json
 import os
 import subprocess
 import sys
+from types import SimpleNamespace
+import time
+from ..agents import invoke
+from ..model_boundary import ProposalBatch, metadata
 
 # proposer 输入的源码上限（防 prompt 过大 / 控成本）
 #
@@ -55,7 +59,7 @@ def _scratch_cwd() -> str:
     return tempfile.mkdtemp(prefix="sie-proposer-")
 
 
-def _empty(why: str, child_stderr: str = "") -> list:
+def _empty(why: str, child_stderr: str = "", model_result=None) -> list:
     """Return [] and SAY WHY on stderr.
 
     Every one of the callers of this used to be a bare `return []`, and `[]` is also what the
@@ -72,7 +76,7 @@ def _empty(why: str, child_stderr: str = "") -> list:
     if tail:
         for line in tail.splitlines()[-12:]:
             print("sie:   child: %s" % line, file=sys.stderr)
-    return []
+    return ProposalBatch(model_result=model_result)
 
 
 def _patchable(sandbox_root: str, rel: str, content: str) -> tuple[bool, str]:
@@ -174,6 +178,43 @@ def _extract_findings(reflections: list[dict]) -> list[str]:
     return uniq[:10]
 
 
+def _proposal_call(script_name, payload, timeout_s):
+    """Keep the JS domain prompt/redaction/validation codec; call llmcall directly."""
+    deadline = time.monotonic() + timeout_s
+    scratch = _scratch_cwd()
+    prepared = subprocess.run(
+        ["node", _script(script_name), "--prepare"], input=payload,
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=max(0.001, deadline - time.monotonic()), cwd=scratch)
+    if prepared.returncode or not prepared.stdout.strip() or prepared.stdout.strip() == "{}":
+        return SimpleNamespace(returncode=1, stdout="", stderr="prompt preparation failed", model_result=None)
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        result = {"ok": False, "error": "proposal budget exhausted before model call",
+                  "outcome": "timeout", "effects": "none", "execution_started": False}
+    else:
+        result = invoke(prepared.stdout, timeout_s=remaining, cwd=scratch)
+    details = metadata(result)
+    if not result["ok"]:
+        return SimpleNamespace(returncode=1, stdout="", stderr=result.get("error", "unavailable"), model_result=details)
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        return SimpleNamespace(returncode=1, stdout="", stderr="proposal budget exhausted before validation",
+                               model_result={**details, "outcome": "timeout"})
+    validation = json.loads(payload)
+    validation["_model_result"] = result["result"]
+    try:
+        validated = subprocess.run(
+            ["node", _script(script_name), "--validate"], input=json.dumps(validation),
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=remaining, cwd=scratch)
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        return SimpleNamespace(returncode=1, stdout="", stderr="validation failed: " + type(exc).__name__,
+                               model_result=details)
+    validated.model_result = details
+    return validated
+
+
 def generate(sandbox_root: str, reflections: list[dict], timeout_s: int = 600) -> list[dict]:
     """调 workflows/claude-propose.js 生成一个 {file_rel, new_content} 提议。
 
@@ -192,23 +233,14 @@ def generate(sandbox_root: str, reflections: list[dict], timeout_s: int = 600) -
         return []
     payload = json.dumps({"findings": _extract_findings(reflections), "files": files})
     try:
-        proc = subprocess.run(
-            ["node", _script("claude-propose.js")],
-            input=payload,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",      # 勿用 locale(GBK)解码 UTF-8 输出
-            errors="replace",
-            timeout=timeout_s,
-            cwd=_scratch_cwd(),    # not this repo: see _scratch_cwd
-        )
+        proc = _proposal_call("claude-propose.js", payload, timeout_s)
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
         return _empty("proposer subprocess failed: %s" % type(e).__name__)
     if proc.returncode != 0:
-        return _empty("proposer exited %d: %s"
-                      % (proc.returncode, (proc.stderr or "").strip()[:300]))
+        return _empty("proposer exited %d" % proc.returncode, proc.stderr,
+                      getattr(proc, "model_result", None))
     if not proc.stdout.strip():
-        return _empty("proposer produced no stdout at all", proc.stderr)
+        return _empty("proposer produced no stdout at all", proc.stderr, getattr(proc, "model_result", None))
     try:
         obj = json.loads(proc.stdout)
     except (ValueError, json.JSONDecodeError):
@@ -219,16 +251,18 @@ def generate(sandbox_root: str, reflections: list[dict], timeout_s: int = 600) -
         return _empty("proposer stdout was not JSON (first 200 chars: %r). If the target file is "
                       "large the agent may have written the content to a file instead of "
                       "returning it inline; the contract only reads stdout."
-                      % proc.stdout.strip()[:200], proc.stderr)
+                      % proc.stdout.strip()[:200], proc.stderr, getattr(proc, "model_result", None))
+    if not isinstance(obj, dict):
+        return _empty("proposer JSON was not an object", proc.stderr, getattr(proc, "model_result", None))
     fr, nc = obj.get("file_rel"), obj.get("new_content")
     if not isinstance(fr, str) or not isinstance(nc, str):
         return _empty("proposer JSON lacked file_rel/new_content strings (keys: %s)"
                       % (sorted(obj) if isinstance(obj, dict) else "not an object"),
-                      proc.stderr)
+                      proc.stderr, getattr(proc, "model_result", None))
     if fr not in files:
         return _empty("proposer named %r, which was not one of the files it was given" % fr,
-                      proc.stderr)
-    return [{"file_rel": fr, "new_content": nc, "fixes": "llm-proposer"}]
+                      proc.stderr, getattr(proc, "model_result", None))
+    return ProposalBatch([{"file_rel": fr, "new_content": nc, "fixes": "llm-proposer"}], model_result=getattr(proc, "model_result", None))
 
 
 # ---------------------------------------------------------------------------
@@ -294,32 +328,25 @@ def generate_artifact(sandbox_root: str, reflections: list[dict],
         "artifact": artifact_text,
     })
     try:
-        proc = subprocess.run(
-            ["node", _script("claude-propose-artifact.js")],
-            input=payload,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",      # 勿用 locale(GBK)解码 UTF-8 输出
-            errors="replace",
-            timeout=timeout_s,
-            cwd=_scratch_cwd(),    # not this repo: see _scratch_cwd
-        )
+        proc = _proposal_call("claude-propose-artifact.js", payload, timeout_s)
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
         return _empty("artifact proposer subprocess failed: %s" % type(e).__name__)
     if proc.returncode != 0 or not proc.stdout.strip():
-        return []
+        return _empty("artifact proposer unavailable", proc.stderr, getattr(proc, "model_result", None))
     try:
         obj = json.loads(proc.stdout)
     except (ValueError, json.JSONDecodeError):
-        return []
+        return _empty("artifact output rejected", proc.stderr, getattr(proc, "model_result", None))
+    if not isinstance(obj, dict):
+        return _empty("artifact JSON was not an object", proc.stderr, getattr(proc, "model_result", None))
     fr, nc = obj.get("file_rel"), obj.get("new_content")
     if not isinstance(fr, str) or not isinstance(nc, str) or fr != target_rel:
-        return []
+        return _empty("artifact output rejected", proc.stderr, getattr(proc, "model_result", None))
     # new_content 必须是合法 JSON 产物（结构门，与 JS 侧一致的二次防御）
     try:
         parsed = json.loads(nc)
     except (ValueError, json.JSONDecodeError):
-        return []
+        return _empty("artifact output rejected", proc.stderr, getattr(proc, "model_result", None))
     if not isinstance(parsed, dict) or not isinstance(parsed.get("sections"), list):
-        return []
-    return [{"file_rel": fr, "new_content": nc, "fixes": "llm-artifact-proposer"}]
+        return _empty("artifact output rejected", proc.stderr, getattr(proc, "model_result", None))
+    return ProposalBatch([{"file_rel": fr, "new_content": nc, "fixes": "llm-artifact-proposer"}], model_result=getattr(proc, "model_result", None))

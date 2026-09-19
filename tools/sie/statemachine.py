@@ -632,6 +632,79 @@ def _parent_baseline(run_dir: str, parent_vid: str) -> dict | None:
     return None
 
 
+def _dual_review_diagnostics(review: dict) -> dict:
+    """Bound run evidence while preserving uncertainty and advisory semantics."""
+    from tools.sie.model_boundary import metadata
+
+    per = (review.get("raw") or {}).get("per") or {}
+    verdicts = review.get("verdicts") or {}
+    failures = {}
+    for family in ("claude", "codex"):
+        result = per.get(family) or {}
+        if result.get("ok") and verdicts.get(family) in ("accept", "reject", "abstain"):
+            continue
+        details = metadata(result)
+        if not details.get("error"):
+            details["error"] = "invalid or unavailable review verdict"
+        # Absence is unknown, never evidence that execution had no effects.
+        for key, default in (("outcome", "unavailable"), ("effects", "unknown"),
+                             ("execution_started", None), ("review_state", "unavailable"),
+                             ("review_error", None), ("call_id", None)):
+            details.setdefault(key, default)
+        truncated = False
+        remaining = 8192
+        remaining_nodes = 128
+
+        def bounded(value, depth=0):
+            nonlocal truncated, remaining, remaining_nodes
+            if remaining_nodes <= 0:
+                truncated = True
+                return "[truncated]"
+            remaining_nodes -= 1
+            if value is None or isinstance(value, (bool, int, float)):
+                return value
+            if isinstance(value, str):
+                limit = min(2000, remaining)
+                truncated |= len(value) > limit
+                remaining -= min(len(value), limit)
+                return value[:limit]
+            if depth >= 4 or remaining <= 0:
+                truncated = True
+                return "[truncated]"
+            if isinstance(value, (list, tuple)):
+                truncated |= len(value) > 16
+                items = []
+                for item in value[:16]:
+                    if remaining_nodes <= 0:
+                        truncated = True
+                        break
+                    items.append(bounded(item, depth + 1))
+                return items
+            if isinstance(value, dict):
+                truncated |= len(value) > 24
+                items = {}
+                for key, item in list(value.items())[:24]:
+                    if remaining_nodes < 2:
+                        truncated = True
+                        break
+                    items[bounded(str(key))] = bounded(item, depth + 1)
+                return items
+            truncated = True
+            return "[unsupported metadata]"
+
+        # Preserve top-level identity and execution facts before variable-length
+        # attempt/evidence collections consume the per-family text allowance.
+        collections = {key: details.pop(key) for key in ("attempts", "evidence") if key in details}
+        failure = {key: bounded(value) for key, value in details.items()}
+        for key, value in collections.items():
+            failure[key + "_total"] = len(value) if isinstance(value, (list, tuple)) else None
+            failure[key] = bounded(value)
+        failure["metadata_truncated"] = truncated
+        failures[family] = failure
+    return {"model_phase": "unavailable" if len(failures) == 2 else "degraded" if failures else "complete",
+            "failures": failures}
+
+
 def run_loop(
     target: str,
     base_ref: str,
@@ -743,10 +816,11 @@ def run_loop(
             agg = meta_aggregate(run_reflections_parallel(
                 run_dir, history, n_reflectors=len(_fams), families=_fams))
             # merged_findings(list[str]) 经统一 reflection dict 传给 propose(llm 提取 findings)
-            refs = [{"merged_findings": agg.get("merged_findings", [])}]
+            refs = [agg]
             if not agg.get("merged_findings"):
                 # 首轮/无历史 → 退回串行静态审查, 给 proposer 一点上下文
-                refs = reflect(sandbox_root, history, n=1)
+                refs = [{**r, "model_phase": agg["model_phase"], "model_reflection": agg}
+                        for r in reflect(sandbox_root, history, n=1)]
         else:
             refs = reflect(sandbox_root, history, n=1)
         # M1a scaffold: merge _injected_fix into first reflection for ACCEPT path testing.
@@ -805,6 +879,14 @@ def run_loop(
 
         # 态4 PROPOSE, backend: builtin(确定性,默认) 或 llm(真 Claude proposer)
         props = propose(sandbox_root, refs, backend=proposer)
+        model_result = getattr(props, "model_result", None)
+        if model_result is not None:
+            try:
+                with open(os.path.join(run_dir, "proposals.jsonl"), "a", encoding="utf-8") as stream:
+                    stream.write(json.dumps({"round": rnd, "model_result": model_result,
+                                             "fallback": getattr(props, "fallback", None)}) + "\n")
+            except (OSError, TypeError, ValueError) as exc:
+                print("sie: could not record proposer diagnostics: %s" % exc, file=sys.stderr)
         if not props:
             note_static_reject(st)   # in-memory counter update
             st = _step(run_dir, {
@@ -833,6 +915,7 @@ def run_loop(
             st = _step(run_dir, {
                 "type": "DUAL_REVIEW", "phase": "REVIEW",
                 "verdicts": _rv.get("verdicts"), "agree": _rv.get("agree"),
+                **_dual_review_diagnostics(_rv),
             })
             _got = [v for v in (_rv.get("verdicts") or {}).values() if v]
             if _got and all(v == "reject" for v in _got) and len(_got) >= 2:

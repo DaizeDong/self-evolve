@@ -20,7 +20,7 @@ const { launch } = require('./_agent_launch');
 
 const args = process.argv.slice(2);
 let idx = 0;
-let family = 'claude';
+let family = null;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--run' && args[i + 1]) { i++; }
   else if (args[i] === '--idx' && args[i + 1]) { idx = Number(args[++i]); }
@@ -42,9 +42,9 @@ const prompt =
   'Return ONLY JSON: {"verdict":"accept"|"reject"|"abstain","notes":["<note>", ...]}.\n\n' +
   'PROPOSAL:\n' + JSON.stringify(proposal, null, 2) + '\n';
 
-const out = launch(family, { tools: 'web_search', model: family === 'codex' ? undefined : 'sonnet' }, prompt);
+const out = launch(family, { tools: 'web_search' }, prompt);
 if (!out.ok) {
-  process.stdout.write(JSON.stringify({ reviewer: idx, verdict: 'abstain', notes: [], family }));
+  process.stdout.write(JSON.stringify({ ...out, reviewer: idx, verdict: 'abstain', notes: [], family }));
   process.exit(0);  // 降级: 弃权, 不拖垮 fanout
 }
 

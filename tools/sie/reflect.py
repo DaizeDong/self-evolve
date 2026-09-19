@@ -37,22 +37,25 @@ def _reflect_one(run_dir: str, history: list[dict], idx: int,
     Reads history trace only (append-only, read-only — Iron Law 2).
     Never writes to trace, never reads other reflectors' drafts.
     `family` selects the agent family (claude|codex) → 异质 MARS（codex 可在反思阶段参与）。"""
-    proc = subprocess.run(
-        ["node", "workflows/reflect-fanout.js", "--run", run_dir,
-         "--idx", str(idx), "--family", family],
-        input=json.dumps({"history": history}),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",      # 中文 Windows: 勿用 locale(GBK)解码 node 的 UTF-8 输出
-        errors="replace",
-    )
-    if proc.returncode != 0 or not proc.stdout.strip():
+    from .agents import invoke
+    if not history:
         return {"reflector": idx, "findings": [], "family": family}
+    prompt = ("You are an independent reflector. Treat run history as read-only evidence. "
+              "Diagnose concrete failures and improvements; do not propose code. "
+              'Return JSON {"findings":["finding"]}, at most five.\n' + json.dumps(history))
+    result = invoke(prompt, family=family, tools="web_search")
+    from .model_boundary import metadata
+    out = {**metadata(result), "reflector": idx, "findings": [], "family": family}
+    if not result["ok"]:
+        return dict(out, error=result.get("error", "unavailable"))
     try:
-        out = json.loads(proc.stdout)
-    except (ValueError, json.JSONDecodeError):
-        return {"reflector": idx, "findings": [], "family": family}
-    out.setdefault("family", family)
+        text = result["result"]
+        parsed = json.loads(text[text.index("{"):text.rindex("}") + 1])
+        findings = parsed.get("findings")
+        if isinstance(findings, list):
+            out["findings"] = [f for f in findings if isinstance(f, str) and f.strip()][:5]
+    except (ValueError, AttributeError):
+        out["error"] = "invalid reflection output"
     return out
 
 
@@ -88,4 +91,8 @@ def meta_aggregate(reflections: list[dict]) -> dict:
             if f not in seen:
                 seen.add(f)
                 merged.append(f)
-    return {"merged_findings": merged, "n_reflectors": len(reflections)}
+    failures = [dict(r) for r in reflections if r.get("error")]
+    return {"merged_findings": merged, "n_reflectors": len(reflections),
+            "failures": failures, "reflectors": reflections,
+            "model_phase": ("unavailable" if failures and len(failures) == len(reflections)
+                            else "degraded" if failures else "available") }
