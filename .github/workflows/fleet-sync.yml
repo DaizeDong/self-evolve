@@ -1,0 +1,22 @@
+name: Sync fleet submodules
+
+on:
+  repository_dispatch:
+    types: [fleet-submodule-update]
+  workflow_dispatch:
+  schedule:
+    - cron: '37 6 * * *'
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: fleet-submodule-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    uses: DaizeDong/fleet-guards/.github/workflows/sync-consumer.yml@main
+    secrets:
+      sync-token: ${{ secrets.FLEET_SYNC_TOKEN }}
