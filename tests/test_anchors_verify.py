@@ -3,7 +3,9 @@
 All tests use injected fake fetchers — no real network calls, no real edgar import.
 """
 import os
+from pathlib import Path
 from tools.sie import edgar_cache, anchors
+from tools.make_fixtures import runtime_samples
 
 
 # ---------------------------------------------------------------------------
@@ -11,14 +13,16 @@ from tools.sie import edgar_cache, anchors
 # ---------------------------------------------------------------------------
 
 def test_prepare_cache_creates_dir_and_sets_env(tmp_path, monkeypatch):
-    root = tmp_path / "edgar_run"
+    root = Path(os.environ['SELF_EVOLVE_DATA_DIR']) / tmp_path.name
+    monkeypatch.setenv('EDGAR_IDENTITY',runtime_samples()['edgar_identity'])
     p = edgar_cache.prepare_cache(str(root))
     assert os.path.isdir(p)
     assert os.environ.get("EDGAR_LOCAL_DATA_DIR") == p
 
 
-def test_prepare_cache_clears_existing_nonempty(tmp_path):
-    root = tmp_path / "edgar_run"
+def test_prepare_cache_preserves_existing_nonempty(tmp_path, monkeypatch):
+    root = Path(os.environ['SELF_EVOLVE_DATA_DIR']) / tmp_path.name
+    monkeypatch.setenv('EDGAR_IDENTITY',runtime_samples()['edgar_identity'])
     os.makedirs(root, exist_ok=True)
     with open(root / "stale.bin", "wb") as f:
         f.write(b"old")
@@ -26,16 +30,20 @@ def test_prepare_cache_clears_existing_nonempty(tmp_path):
     with open(sub / "x.bin", "wb") as f:
         f.write(b"y")
     p = edgar_cache.prepare_cache(str(root))
-    # After clear: dir exists but is empty (WinError 145 tolerant: must not crash)
+    # A new empty cache preserves the previous run's versioned records.
     assert os.path.isdir(p)
     assert os.listdir(p) == []
+    assert Path(p).parent == root
+    assert (root/'stale.bin').read_bytes() == b'old'
+    assert (sub/'x.bin').read_bytes() == b'y'
 
 
-def test_prepare_cache_returns_path_string(tmp_path):
-    root = tmp_path / "ec"
+def test_prepare_cache_returns_path_string(tmp_path, monkeypatch):
+    root = Path(os.environ['SELF_EVOLVE_DATA_DIR']) / tmp_path.name
+    monkeypatch.setenv('EDGAR_IDENTITY',runtime_samples()['edgar_identity'])
     p = edgar_cache.prepare_cache(str(root))
     assert isinstance(p, str)
-    assert p == str(root)
+    assert Path(p).parent == root
 
 
 # ---------------------------------------------------------------------------

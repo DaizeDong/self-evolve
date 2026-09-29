@@ -1,36 +1,31 @@
 ---
 name: self-evolve
-description: "Use to autonomously self-improve a skill/repo via reflect/propose/evaluate/judge/accept behind an un-gameable eval gate. Triggers: self-evolve, 自迭代/进化 skill, 优化仓库."
+description: "Improve an existing skill or repository through isolated proposals, reproducible evaluation and evidence-based acceptance. Use for self-evolve or skill improvement."
 ---
 
 # self-evolve (SKILL)
 
-指向任意 skill / 仓库 / 项目，在 git worktree 沙箱内多轮自动改进它，用不可 game 的
-提交门保证「**被采纳 = 真改进**」。
+在 git worktree 沙箱内对 skill 或仓库提出修改、运行评测，再按证据决定是否采纳。
+通过检查只证明所测范围，不能据此保证所有使用场景都改善。
 
 **方法论恒定，信号来源自适应。** reflect → propose → evaluate → judge → accept，全程
 反自欺；唯一随目标变的是「评测信号从哪来」。
 
-> **能跑就跑，能核就核，都不能就生成场景让异质判官评,所以没有不能进化的目标。**
+> **先确认目标、可执行的评测和私有产物目录，再开始迭代。缺少证据不能算通过。**
 
 ## 统一评测框架（评测策略，不是目标等级）
 
-只要目标意图可抽取、可操作化，信号就能造出来，故不存在不可评的目标。下面三者是同一
-`evaluate` 契约的三个 **provider**，可叠加（`A+B`、`C+B`…），按可核验强度排序，往上尽量
-取、取不到向下兜底,底永远存在：
+先把目标转成可观察的任务与判据，再选择 `evaluate` 的证据来源。
+不同来源可以组合；没有足够证据时明确报告缺口。
 
 | 评测策略 | 取信号的方式 | 何时用 | 强度 |
 |---|---|---|---|
 | **A 程序裁决** | 跑目标自带 / 可生成的测试，pass/fail | 有可执行判据（含可为其生成测试） | 最高（确定、可重放） |
 | **B 锚核验** | 改进主张拆成可独立核验的事实锚（URL/文献/SEC/可复现命令），逐锚 verify | 「对」系于外部事实 | 高（独立源、可抽 holdout） |
-| **C 生成评测** | harness 生成场景 + rubric，交异质判官（Claude×Codex，prompt 无真值）盲评 | 前两者都取不到 | 较低（异质 + 防合谋闸补强） |
+| **C 主观评测** | 消费已提供的回归与一致性证据，核验实际 judge 家族 | 有场景但缺少程序判据 | 需报告覆盖率与人工复核边界 |
 
-**C 不是「兜底差等舱」，是第三种合法信号通道**：对任何目标都能生成使用场景、从意图写出
-可打分 rubric、让两个异质模型盲评取一致性。「取不到任何信号」在工程上不存在。纯 C 默认
-走人审落地，是信号最弱时把终判交回人的审慎，**不是「目标不可用」**。
-（**落地状态**：C 的「真 coverage（场景对意图的覆盖率）」与对 A/B 的 accept 端平权由
-scenario-eval 模块承载；当前代码对纯主观 C 仍取保守处理,`coverage=0`、权重偏低、默认
-人审,平权是 scenario-eval 的设计 / 落地方向。）详见
+自动场景生成 `scenario-eval` 尚未实现。缺少回归或一致性证据时，C 不能报告
+`no_regression=True`，覆盖率为零。纯 C 默认需要人审。详见
 [`docs/philosophy.md`](docs/philosophy.md)、[`reference/signal-providers.md`](reference/signal-providers.md)。
 
 ## Pipeline
@@ -60,22 +55,28 @@ scenario-eval 模块承载；当前代码对纯主观 C 仍取保守处理,`cove
 
 1. **LLM 提议，代码裁决**,采纳 / 拒绝 / 回滚 / 定信号源全由 harness 确定性代码决定；LLM 绝不评判自己产出。
 2. **原始证据只读**,trace / 反思 append-only，`events.jsonl` 唯一真相源，崩溃可 replay 重建。
-3. **真值隔离**,测试 / 锚 / 场景的真值对 reflect/propose/patch 物理不可读（holdout 隔离到 `_holdout/`）。
+3. **真值隔离**,reflect/propose/judge 的 prompt 排除真值。共享账户上的目录分开不等于物理不可读；需要文件读取隔离时另行验证操作系统权限。
 4. **信号源一次冻结**,PROFILE 定的策略首轮冻结，resume 不重评。
 5. **沙箱内全自动，出沙箱走人审**,push / 合主分支 / 对外发送只在独立人审子流程发生。
 
 ## 自举隔离（`--self`）
 
-candidate 改自己代码时，14 个 IMMUTABLE 决策码（acceptor / judges / verifiable / patch /
+candidate 改自己代码时，IMMUTABLE 清单内的决策码（acceptor / judges / verifiable / patch /
 events …）从 frozen base ref 物化 + sha256 启动 fail-closed 校验、patch 写 IMMUTABLE 硬拒、
 **supervisor 双进程**用 frozen 代码裁决（candidate worktree 永不进 sys.path / 不能自评）。
 细节见 [`docs/modules/self-boot.md`](docs/modules/self-boot.md)。
 
 ## 成熟度
 
-裁决 / 门控 / 反自欺 / 自举隔离 / crash-replay 全部真实可用并经测试覆盖。`--live` 开真
-agent 闭环（proposer / reflector / 双 judge 走 `cc` + `codex exec`）；默认 builtin 确定性
-模式（不调外部 CLI）。CLI flag 细节见 [`README.md`](README.md)。
+先运行 `doctor` 查看证据来源、可修改范围、必需输入和未实现的能力。
+`--live` 的 agent 使用已安装的 `llmcall.call(..., mode="agent")`，judge 使用默认模式。
+不指定另一套路由、模型或超时。独立性以实际返回 provider 为准；同一家族的别名不算
+两个独立评审。保留每次调用的 provider、attempts 与失败原因。
+
+运行记录、候选工作树和 agent 临时目录都放入经验证的 PRIVATE 伴生仓。
+设置 `SELF_EVOLVE_CONFIG` 或 `SELF_EVOLVE_DATA_DIR`，刷新可见性证明；真实 DATA
+在私有仓中版本化，缺少证明时写入失败。agent 每次使用独立 cwd，结束后清理；这不能
+代替操作系统沙箱。默认 builtin 用于确定性证据流程。CLI 细节见 [`README.md`](README.md)。
 
 ## 用法
 
@@ -88,6 +89,7 @@ agent 闭环（proposer / reflector / 双 judge 走 `cc` + `codex exec`）；默
 底层 CLI：
 
 ```
+python -m tools.sie.cli doctor   --target <target>
 python -m tools.sie.cli init     --target <target>
 python -m tools.sie.cli run      --target <target> --run-id <run_id> --base-ref HEAD \
                                  [--max-rounds 3] [--mode auto|gated] [--proposer builtin|llm] \
@@ -96,6 +98,9 @@ python -m tools.sie.cli status   --target <target> --run-id <run_id>
 python -m tools.sie.cli replay   --target <target> --run-id <run_id>
 python -m tools.sie.cli rollback --target <target> --run-id <run_id> --vid <vid>
 ```
+
+上述命令从 skill 仓库运行。其他 cwd 或安装 junction 使用
+`python <skill绝对路径>/tools/sie_cli.py <子命令> ...`，入口按自身位置解析资源。
 
 ## 文档
 

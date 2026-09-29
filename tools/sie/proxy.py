@@ -178,9 +178,8 @@ _MONOTONE_RUN_MIN = 6      # 连续单调字典序长度阈；≥此值视为逐
 
 def record_outbound(run_dir: str, kind: str, params: dict) -> None:
     """Append one outbound record to run_dir/outbound_seq.jsonl."""
-    os.makedirs(run_dir, exist_ok=True)
-    with open(os.path.join(run_dir, _SEQ_FILE), "a", encoding="utf-8") as f:
-        f.write(json.dumps({"kind": kind, "params": params}, sort_keys=True) + "\n")
+    from tools.sie.runtime_data import write_json
+    write_json(os.path.join(run_dir, _SEQ_FILE), {"kind": kind, "params": params}, append=True)
 
 
 def _longest_monotone_run(values: list[str]) -> int:

@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import statistics
+from . import business_tree, runtime_data
 
 LINEAGE = "lineage.json"
 RETIRED = "retired.jsonl"
@@ -32,7 +32,7 @@ _SOFT_DIMS = ("judge",)
 def _arch_dir(run_dir: str) -> str:
     """Return (and create) the archive directory nested inside *run_dir*."""
     d = os.path.join(run_dir, "archive")
-    os.makedirs(os.path.join(d, "versions"), exist_ok=True)
+    runtime_data.make_directory(os.path.join(d, "versions"))
     return d
 
 
@@ -75,17 +75,16 @@ def add_version(
     "append-only" holds: entries are never removed or reordered, only new
     entries are appended.
     """
-    arch = _arch_dir(run_dir)
-    os.makedirs(os.path.join(arch, "versions", vid), exist_ok=True)
-
+    runtime_data.validate_run_id(vid)
+    arch = os.path.join(run_dir, 'archive')
+    runtime_data.private_file_path(os.path.join(arch, LINEAGE))
     current = lineage(arch)
+    if any(entry['vid'] == vid for entry in current):
+        raise ValueError('An accepted version ID cannot be reused')
+    runtime_data.make_directory(os.path.join(arch, 'versions', vid))
     current.append({"vid": vid, "parent_vid": parent_vid, "scores": scores})
 
-    path = os.path.join(arch, LINEAGE)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(current, fh, ensure_ascii=False, indent=2)
-    os.replace(tmp, path)  # atomic rename preserves append-only semantics
+    runtime_data.write_json(os.path.join(arch, LINEAGE), current)
 
 
 def lineage(archive_dir: str) -> list[dict]:
@@ -103,14 +102,19 @@ def snapshot_version(archive_dir: str, vid: str, sandbox_root: str) -> None:
     Ignores ``.git``, ``__pycache__``, and ``.sie`` directories.
     If a snapshot already exists it is replaced.
     """
+    runtime_data.validate_run_id(vid)
     dst = os.path.join(archive_dir, "versions", vid, "snapshot")
     if os.path.exists(dst):
-        shutil.rmtree(dst)
-    shutil.copytree(
-        sandbox_root,
-        dst,
-        ignore=shutil.ignore_patterns(".git", "__pycache__", ".sie"),
-    )
+        raise FileExistsError('An accepted snapshot cannot be replaced')
+    business_tree.snapshot(sandbox_root, dst)
+
+
+def next_version_id(run_dir: str) -> str:
+    """Choose a fresh persistent identity, including when resuming a run."""
+    versions = lineage(os.path.join(run_dir, 'archive'))
+    numbers = [int(v['vid'][1:]) for v in versions
+               if v['vid'].startswith('v') and v['vid'][1:].isdigit()]
+    return f'v{max(numbers, default=0)+1}'
 
 
 def rollback(archive_dir: str, vid: str) -> None:
@@ -118,15 +122,14 @@ def rollback(archive_dir: str, vid: str) -> None:
 
     Raises ``FileNotFoundError`` when no snapshot exists for *vid*.
     """
+    runtime_data.validate_run_id(vid)
     src = os.path.join(archive_dir, "versions", vid, "snapshot")
     if not os.path.isdir(src):
         raise FileNotFoundError(
             f"rollback: no snapshot found for version '{vid}' at {src!r}"
         )
     cur = os.path.join(archive_dir, "current")
-    if os.path.exists(cur):
-        shutil.rmtree(cur)
-    shutil.copytree(src, cur)
+    business_tree.snapshot(src, cur)
 
 
 def pareto_front(archive_dir: str) -> list[str]:
@@ -203,9 +206,8 @@ def retire_stale(archive_dir: str, active_cap: int) -> None:
     if not retired_entries:
         return
     retired_path = os.path.join(archive_dir, RETIRED)
-    with open(retired_path, "a", encoding="utf-8") as fh:
-        for v in retired_entries:
-            fh.write(json.dumps({"vid": v["vid"], "reason": "stale_active_cap"}) + "\n")
+    for v in retired_entries:
+        runtime_data.write_json(retired_path, {"vid": v["vid"], "reason": "stale_active_cap"}, append=True)
 
 
 def _read_retired(archive_dir: str) -> list[dict]:

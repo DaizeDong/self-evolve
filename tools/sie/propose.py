@@ -17,7 +17,9 @@ def propose(sandbox_root: str, reflections: list[dict],
         if props:
             return props
         # llm 空 → 回退确定性 builtin（不让一次 LLM 失败阻断闭环）
-        return builtin.generate(sandbox_root, reflections)
+        return llm.ProposalBatch(builtin.generate(sandbox_root, reflections),
+            backend_outcomes=getattr(props, 'backend_outcomes', []),
+            diagnostics=getattr(props, 'diagnostics', []))
     if backend == "llm-artifact":
         from tools.sie.backends import llm  # 惰性 import
         # B 档产物提议: 失败/空直接返回 []（builtin 改代码对产物无意义, 不回退）。

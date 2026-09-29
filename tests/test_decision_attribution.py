@@ -23,6 +23,7 @@ from pathlib import Path
 
 from tools.sie import archive
 from tools.sie.calibrate import attribute_decisions
+from tools.sie.runtime_data import run_directory
 
 
 def _defect(did, rel, want):
@@ -38,14 +39,15 @@ def _defect(did, rel, want):
 
 
 def _version(root, run_id, vid, parent, files):
-    arch = Path(root) / ".sie" / "runs" / run_id / "archive"
+    Path(root).mkdir(parents=True, exist_ok=True)
+    arch = run_directory(root, run_id) / "archive"
     snap = arch / "versions" / vid / "snapshot"
     snap.mkdir(parents=True, exist_ok=True)
     for rel, text in files.items():
         p = snap / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(text, encoding="utf-8")
-    archive.add_version(str(Path(root) / ".sie" / "runs" / run_id), vid,
+    archive.add_version(str(run_directory(root, run_id)), vid,
                         [{"name": "t::1", "tier": "A", "score": 1.0, "weight": 1.0}], parent)
 
 
@@ -100,8 +102,8 @@ def test_a_version_with_no_snapshot_is_UNMEASURABLE_not_INERT(tmp_path, monkeypa
     root = str(tmp_path / "t")
     d = [_defect("d1", "mod.py", "FIXED")]
     _version(root, "r", "v1", "base", {"mod.py": "VALUE = 'FIXED'\n"})
-    arch = Path(root) / ".sie" / "runs" / "r" / "archive"
-    archive.add_version(str(Path(root) / ".sie" / "runs" / "r"), "v2",
+    arch = run_directory(root, "r") / "archive"
+    archive.add_version(str(run_directory(root, "r")), "v2",
                         [{"name": "t::1", "tier": "A", "score": 1.0, "weight": 1.0}], "v1")
     assert not (arch / "versions" / "v2" / "snapshot").is_dir()
 
@@ -128,7 +130,8 @@ def test_the_per_defect_shortcut_does_not_change_any_label(tmp_path, monkeypatch
 
 def test_an_empty_lineage_reports_nothing_rather_than_inventing_versions(tmp_path, monkeypatch):
     root = str(tmp_path / "t")
-    (Path(root) / ".sie" / "runs" / "r" / "archive").mkdir(parents=True)
+    Path(root).mkdir(parents=True)
+    (run_directory(root, "r") / "archive").mkdir(parents=True)
     out = _run(root, "r", [_defect("d1", "mod.py", "FIXED")], monkeypatch)
     assert out["n_accepted"] == 0 and out["versions"] == []
     assert out["totals"] == {"REPAIR": 0, "REGRESSION": 0, "NO_SEEDED_EFFECT": 0}

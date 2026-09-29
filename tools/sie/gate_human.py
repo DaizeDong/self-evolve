@@ -1,5 +1,7 @@
 from __future__ import annotations
 import json, os, time, uuid
+from pathlib import Path
+from .runtime_data import private_file_path, write_json
 
 PENDING = "pending_actions.jsonl"
 
@@ -8,7 +10,7 @@ _TERMINAL_STATUSES = {"approved", "skipped", "expired"}
 
 def enqueue(run_dir: str, action: dict) -> str:
     """Append a pending-action record and return its aid. Non-blocking."""
-    os.makedirs(run_dir, exist_ok=True)
+    path = private_file_path(Path(run_dir)/PENDING)
     aid = uuid.uuid4().hex[:12]
     rec = {
         "aid": aid,
@@ -21,8 +23,7 @@ def enqueue(run_dir: str, action: dict) -> str:
         "status": "pending",
         "ttl": action.get("ttl", 86400),
     }
-    with open(os.path.join(run_dir, PENDING), "a", encoding="utf-8") as fh:
-        fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    write_json(path, rec, append=True)
     return aid  # 非阻塞: 立即返回, 不等人
 
 
@@ -81,5 +82,4 @@ def resolve(run_dir: str, aid: str, status: str) -> None:
         "status": status,
         "resolved_at": time.time(),
     }
-    with open(os.path.join(run_dir, PENDING), "a", encoding="utf-8") as fh:
-        fh.write(json.dumps(rec, ensure_ascii=False) + "\n")  # append-only
+    write_json(Path(run_dir)/PENDING, rec, append=True)

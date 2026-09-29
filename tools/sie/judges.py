@@ -1,30 +1,18 @@
-"""Judge orchestration: prompt construction + span scoring + family routing.
+"""Judge prompts, validated span evidence, actual-provider metadata, and calibration.
 
-Exports:
-  build_judge_prompt(artifact_text, spans) -> str
-      Iron rule 5: prompt carries ONLY span text — never claim/verified/
-      marginal_gain/expected values.  Tested by test_prompt_carries_no_truth.
-
-  score(artifact_path, anchors_visible, family) -> dict
-      Routes to judge_codex or judge_claude; aggregates span_scores;
-      degrades gracefully when judge is unavailable.
-
-Return schema:
-  {
-    "family": str,
-    "available": bool,
-    "span_scores": [{"span": str, "score": float}, ...],
-    "aggregate": float,       # mean over returned span_scores (0.0 if none)
-    "unspanned_penalized": int,  # #spans not scored by judge (no padding)
-  }
+Scores are bounded to [0, 1]. Missing spans contribute zero to the aggregate;
+malformed or empty evidence is unavailable. Requested aliases do not select a
+provider or prove independent judgment.
 """
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Optional
 
 from tools.sie import judge_codex, judge_claude
+from tools.sie import llm_adapter
 
 
 def build_judge_prompt(artifact_text: str, spans: list[str]) -> str:
@@ -35,6 +23,12 @@ def build_judge_prompt(artifact_text: str, spans: list[str]) -> str:
     any numeric tolerance value.  Only the span text strings themselves are
     included.  Tested by test_prompt_carries_no_truth.
     """
+    try:
+        artifact_text = json.dumps(llm_adapter.strip_truth(json.loads(artifact_text), judge=True),
+                                   ensure_ascii=False)
+    except (ValueError, TypeError):
+        if artifact_text.lstrip().startswith(("{", "[")):
+            raise ValueError("malformed structured artifact; truth exclusion cannot be established")
     span_block = "\n".join(f"- {s}" for s in spans)
     return (
         "You are an impartial judge. Score ONLY the assertions tied to the "
@@ -46,67 +40,72 @@ def build_judge_prompt(artifact_text: str, spans: list[str]) -> str:
 
 
 def _parse_span_scores(raw: str, spans: list[str]) -> dict:
-    """Extract span_scores from judge raw output; degrade gracefully on parse error.
+    """Reject invalid evidence; omitted spans receive zero in the aggregate."""
+    expected = set(spans)
+    unavailable = {"available": False, "span_scores": [], "aggregate": 0.0,
+                   "unspanned_penalized": len(expected), "error": "invalid or empty judge evidence"}
+    obj = llm_adapter.parse_object(raw)
+    entries = obj.get("span_scores") if obj is not None else None
+    if not expected or not isinstance(entries, list) or not entries:
+        return unavailable
+    seen = set()
+    valid = []
+    for item in entries:
+        if not isinstance(item, dict):
+            return unavailable
+        span, value = item.get("span"), item.get("score")
+        if (not isinstance(span, str) or span not in expected or span in seen
+                or isinstance(value, bool) or not isinstance(value, (int, float))
+                or not 0 <= value <= 1 or not math.isfinite(value)):
+            return unavailable
+        seen.add(span)
+        valid.append({"span": span, "score": float(value)})
+    return {"available": True, "span_scores": valid,
+            "aggregate": sum(item["score"] for item in valid) / len(expected),
+            "unspanned_penalized": len(expected - seen), "error": None}
 
-    If raw is not parseable JSON or lacks span_scores, returns empty list with
-    aggregate=0.0 and unspanned_penalized=len(spans).  No exception is raised.
-    """
-    try:
-        obj = json.loads(raw[raw.index("{"): raw.rindex("}") + 1])
-        ss = obj.get("span_scores", [])
-    except (ValueError, json.JSONDecodeError):
-        ss = []
-    valid = [
-        x for x in ss
-        if isinstance(x, dict) and "span" in x and "score" in x
-        and isinstance(x["score"], (int, float))
-    ]
-    agg = sum(float(x["score"]) for x in valid) / len(valid) if valid else 0.0
-    # Unspanned penalty: spans the judge did not score get no credit.
-    # len(spans) - len(valid) reflects spans missing from judge output.
-    return {
-        "span_scores": valid,
-        "aggregate": agg,
-        "unspanned_penalized": max(0, len(spans) - len(valid)),
-    }
 
-
-def score(artifact_path: str, anchors_visible: list[dict], family: str) -> dict:
-    """Score an artifact against visible anchors using the specified judge family.
+def score(artifact_path: str, anchors_visible: list[dict], family: str, *,
+          avoid: str | None = None) -> dict:
+    """Score an artifact against visible spans using current llmcall judge policy.
 
     Args:
         artifact_path: Path to the artifact file (UTF-8 text).
         anchors_visible: List of anchor dicts; only ``span`` field is used.
-        family: Judge family, one of {"codex", "claude"}.
+        family: Legacy entrypoint alias. Returned family comes from actual provider metadata.
+        avoid: Optional actual provider to avoid for an independent second opinion.
 
     Returns:
         Result dict with keys: family, available, span_scores, aggregate,
         unspanned_penalized.  When available=False, aggregate=0.0 and
         unspanned_penalized=len(spans).
     """
-    artifact_text = Path(artifact_path).read_text(encoding="utf-8")
-    spans = [a.get("span", "") for a in anchors_visible if a.get("span")]
-    prompt = build_judge_prompt(artifact_text, spans)
-
-    if family == "codex":
-        res = judge_codex.invoke_codex_judge(prompt, timeout_s=600)
-    elif family == "claude":
-        res = judge_claude.invoke_claude_judge(prompt, timeout_s=600)
-    else:
+    if family not in ("codex", "codexg", "claude", "cc"):
         raise ValueError(f"unknown judge family: {family!r}")
-
+    spans = list(dict.fromkeys(a["span"] for a in anchors_visible if isinstance(a, dict)
+                 and isinstance(a.get("span"), str) and a["span"].strip()))
+    unavailable = {"family": None, "requested_family": family, "provider": None,
+                   "attempts": [], **_parse_span_scores("", spans)}
+    try:
+        artifact_text = Path(artifact_path).read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        return {**unavailable, "error": f"artifact unavailable: {type(exc).__name__}"}
+    if not artifact_text.strip() or not spans:
+        return {**unavailable, "error": "empty artifact or scoring evidence"}
+    try:
+        prompt = build_judge_prompt(artifact_text, spans)
+    except ValueError as exc:
+        return {**unavailable, "error": str(exc)}
+    invoke = (judge_codex.invoke_codex_judge if family in ("codex", "codexg")
+              else judge_claude.invoke_claude_judge)
+    kwargs = {"avoid": avoid} if avoid else {}
+    res = invoke(prompt, timeout_s=600, **kwargs)
+    metadata = {key: res.get(key) for key in ("provider", "family", "attempts")}
+    metadata.update({key: res[key] for key in llm_adapter.POLICY_FIELDS if key in res})
+    metadata["requested_family"] = family
     if not res.get("available"):
-        return {
-            "family": family,
-            "available": False,
-            "span_scores": [],
-            "aggregate": 0.0,
-            "unspanned_penalized": len(spans),
-        }
-
-    parsed = _parse_span_scores(res["raw"], spans)
-    parsed.update({"family": family, "available": True})
-    return parsed
+        return {**unavailable, **metadata, "error": res.get("error") or "judge unavailable"}
+    return {**_parse_span_scores(res.get("raw", ""), spans), **metadata}
 
 
 # ── M3.2: 位置/长度去偏 + 判官一致性度量 ──────────────────────────────────

@@ -14,7 +14,7 @@ import os
 import subprocess
 import pathlib
 import pytest
-from tools.sie import selfboot
+from tools.sie import selfboot, runtime_data
 
 
 # ---------------------------------------------------------------------------
@@ -25,12 +25,8 @@ def _init_self_repo(tmp_path):
     root = tmp_path / "self_repo"
     sie = root / "tools" / "sie"
     sie.mkdir(parents=True)
-    for m in [
-        "acceptor.py", "verifiable.py", "gate_human.py", "judges.py",
-        "selfdeception.py", "anchors.py", "statemachine.py",
-        "profile.py", "sandbox.py", "supervisor.py", "immutable.py",
-        "patch.py", "proxy.py", "events.py",
-    ]:
+    from tools.sie.immutable import IMMUTABLE_RELPATHS
+    for m in IMMUTABLE_RELPATHS:
         (sie / m).write_text(f"# {m}\nMARK='{m}'\n", encoding="utf-8")
     env = {
         **os.environ,
@@ -53,7 +49,7 @@ def _init_self_repo(tmp_path):
 def test_selfboot_frozen_outside_candidate_worktree(tmp_path):
     """frozen 必须不在 candidate worktree 内（candidate 改不到裁决基线）。"""
     repo = _init_self_repo(tmp_path)
-    runs = str(tmp_path / "runs")
+    runs = str(runtime_data.private_root() / tmp_path.name / "runs")
     boot = selfboot.selfboot_init(repo, "HEAD", "run_self_1", runs)
 
     cw = pathlib.Path(boot["candidate_worktree"]).resolve()
@@ -71,7 +67,7 @@ def test_selfboot_frozen_outside_candidate_worktree(tmp_path):
 def test_selfboot_verifies_and_isolates(tmp_path):
     """candidate worktree 的 sie root 不在解析路径上，supervisor 非 None。"""
     repo = _init_self_repo(tmp_path)
-    runs = str(tmp_path / "runs")
+    runs = str(runtime_data.private_root() / tmp_path.name / "runs")
     boot = selfboot.selfboot_init(repo, "HEAD", "run_self_2", runs)
 
     from tools.sie import supervisor as sup
@@ -84,7 +80,7 @@ def test_selfboot_verifies_and_isolates(tmp_path):
 def test_selfboot_candidate_worktree_is_independent(tmp_path):
     """candidate worktree 路径含 self__ 前缀，与普通 run worktree 区分。"""
     repo = _init_self_repo(tmp_path)
-    runs = str(tmp_path / "runs")
+    runs = str(runtime_data.private_root() / tmp_path.name / "runs")
     boot = selfboot.selfboot_init(repo, "HEAD", "run_self_3", runs)
     cw = boot["candidate_worktree"]
     # 路径包含 self__ 前缀（make_worktree 内部用 run_id="self__run_self_3"）
@@ -94,7 +90,7 @@ def test_selfboot_candidate_worktree_is_independent(tmp_path):
 def test_selfboot_frozen_dir_inside_runs_root(tmp_path):
     """frozen_dir 应在 runs_root/<run_id>/_frozen 路径。"""
     repo = _init_self_repo(tmp_path)
-    runs = str(tmp_path / "runs")
+    runs = str(runtime_data.private_root() / tmp_path.name / "runs")
     boot = selfboot.selfboot_init(repo, "HEAD", "run_self_4", runs)
     expected = os.path.join(runs, "run_self_4", "_frozen")
     assert os.path.normcase(os.path.realpath(boot["frozen_dir"])) == \
@@ -186,6 +182,9 @@ def _stub_run_loop_infra(tmp_path, monkeypatch):
     import tools.sie.archive as _arch
 
     sandbox = str(tmp_path / "sandbox")
+    os.makedirs(sandbox)
+    from tools.make_fixtures import repair_samples
+    monkeypatch.setattr(_sm, '_parent_baseline', lambda *a: repair_samples()['supervisor_baseline'])
     monkeypatch.setattr(_sm, "make_worktree", lambda *a, **k: sandbox)
     monkeypatch.setattr(_sm, "run_profile",
                         lambda *a, **k: {"tier": "A", "anchors_visible": []})
@@ -379,7 +378,7 @@ def test_selfboot_tampered_candidate_raises(tmp_path):
     from tools.sie import immutable as im
 
     repo = _init_self_repo(tmp_path)
-    runs = str(tmp_path / "runs")
+    runs = str(runtime_data.private_root() / tmp_path.name / "runs")
 
     # 注入：verify_immutable 强制抛 ImmutableViolation（模拟 candidate 篡改）
     original_verify = im.verify_immutable

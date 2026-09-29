@@ -86,7 +86,7 @@ worktree 永不进 sys.path、不能自评 / 自打分）。见 [`modules/self-b
 ## 4. 实现要点
 
 事件溯源（`events.jsonl` 唯一真相源、计数器经 delta、崩溃可 replay）；生成式接缝走本机
-`cc`/`codex exec`（默认确定性 builtin 不调外部、供测试）；三正交计数器 + drift 熔断防空转。
+installed `llmcall.call`（默认确定性 builtin 不调外部、供测试）；三正交计数器 + drift 熔断防空转。
 
 ## 5. 实证
 

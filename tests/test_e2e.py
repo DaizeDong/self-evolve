@@ -125,8 +125,9 @@ def test_e2e_accept_and_rollback(tmp_path):
                        "target_failure": "mul a-b should be a*b"},
     )
     assert summary["accepted_versions"], summary
+    assert not os.path.exists(os.path.join(tgt, '.sie'))
 
-    arch = os.path.join(tgt, ".sie", "runs", "rune2e", "archive")
+    arch = os.path.join(summary['run_dir'], "archive")
     lin = archive.lineage(arch)
     assert lin, "lineage should have at least one accepted version"
 
@@ -143,12 +144,12 @@ def test_e2e_crash_replay_consistent(tmp_path):
 
     tgt = _broken_repo(tmp_path)
     fix = "def add(a, b):\n    return a + b\ndef mul(a, b):\n    return a * b\n"
-    run_loop(
+    summary = run_loop(
         tgt, "HEAD", "runcrash", max_rounds=1, mode="auto",
         _injected_fix={"file_rel": "mod.py", "fix_content": fix,
                        "target_failure": "fix mul"},
     )
-    run_dir = os.path.join(tgt, ".sie", "runs", "runcrash")
+    run_dir = summary['run_dir']
     saved = load_state(run_dir)
     # Simulate crash: delete state.json
     os.remove(os.path.join(run_dir, "state.json"))

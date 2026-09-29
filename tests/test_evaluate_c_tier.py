@@ -49,8 +49,8 @@ def test_evaluate_c_tier_regression(tmp_path):
 def test_inject_judge_scores_independent(monkeypatch, tmp_path):
     art = tmp_path / "a.md"; art.write_text("body\n", encoding="utf-8")
     # Two judges give identical scores -> alpha=1.0; harness computes, not candidate
-    def fake_score(p, av, family):
-        return {"family": family, "available": True,
+    def fake_score(p, av, family, **kwargs):
+        return {"family": family, "provider": family, "available": True,
                 "span_scores": [{"span": "s1", "score": 0.7}], "aggregate": 0.7,
                 "unspanned_penalized": 0}
     monkeypatch.setattr(judges, "score", fake_score)
@@ -93,7 +93,7 @@ def test_inject_judge_scores_alpha_none(monkeypatch, tmp_path):
 
 def test_inject_judge_scores_codex_unavailable_falls_back_to_claude(monkeypatch, tmp_path):
     art = tmp_path / "d.md"; art.write_text("text\n", encoding="utf-8")
-    def fake_score(p, av, family):
+    def fake_score(p, av, family, **kwargs):
         if family == "codex":
             return {"family": "codex", "available": False,
                     "span_scores": [], "aggregate": 0.0, "unspanned_penalized": 1}
@@ -125,9 +125,9 @@ def test_inject_judge_scores_codex_unavailable_falls_back_to_claude(monkeypatch,
 def test_inject_judge_scores_calls_both_families(monkeypatch, tmp_path):
     art = tmp_path / "e.md"; art.write_text("text\n", encoding="utf-8")
     called_families = []
-    def fake_score(p, av, family):
+    def fake_score(p, av, family, **kwargs):
         called_families.append(family)
-        return {"family": family, "available": True,
+        return {"family": family, "provider": family, "available": True,
                 "span_scores": [{"span": "s1", "score": 0.5}], "aggregate": 0.5,
                 "unspanned_penalized": 0}
     monkeypatch.setattr(judges, "score", fake_score)

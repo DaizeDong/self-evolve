@@ -23,6 +23,10 @@ from __future__ import annotations
 
 import json
 import os
+import hashlib
+from pathlib import Path
+
+from . import runtime_data
 
 TARGET_FILE = "target.json"
 
@@ -57,7 +61,7 @@ def _exec_signal(target: str, base_ref: str) -> dict | None:
         # longer collide.
         ref = _resolve_ref(target, base_ref)
         sandbox_root = make_worktree(target, ref, "profile_probe_%s" % ref[:12])
-        return run_exec_probe(sandbox_root)
+        return {**run_exec_probe(sandbox_root), 'base_ref': ref, 'worktree': sandbox_root}
     except Exception as e:
         # Returning None here means "no exec signal", which the caller turns into a tier downgrade.
         # Swallowing the reason made an infrastructure failure indistinguishable from a target that
@@ -105,6 +109,11 @@ def run_profile(target: str, base_ref: str, run_dir: str | None = None) -> dict:
     from .probes import fact_probe as _fact_probe
     from . import anchors as _anchors
 
+    # Prove the runtime destination before the exec probe can create a worktree.
+    profile_run = (runtime_data.runtime_directory(run_dir) if run_dir is not None else
+                   runtime_data.run_directory(target, 'profile-'+hashlib.sha256(
+                       str(base_ref).encode('utf-8')).hexdigest()[:16]))
+
     tiers: set[str] = set()
 
     # --- A 维: exec 探针 ---
@@ -143,15 +152,8 @@ def run_profile(target: str, base_ref: str, run_dir: str | None = None) -> dict:
         anchors_visible = visible
 
         # 铁律5: holdout 真值物理隔离, 写独立目录, target.json 只存指针
-        # holdout_dir: inside run_dir if provided, else sibling _run/_holdout of target
-        if run_dir is not None:
-            holdout_dir = os.path.join(run_dir, "_holdout")
-        else:
-            holdout_dir = os.path.join(target, "_run", "_holdout")
-        os.makedirs(holdout_dir, exist_ok=True)
-        holdout_path = os.path.join(holdout_dir, "holdout.json")
-        with open(holdout_path, "w", encoding="utf-8") as fh:
-            json.dump(holdout, fh, ensure_ascii=False, indent=2)
+        holdout_path = str(profile_run/'_holdout'/'holdout.json')
+        runtime_data.write_json(holdout_path, holdout)
 
         holdout_ref = {
             "path": holdout_path,
@@ -190,12 +192,7 @@ def run_profile(target: str, base_ref: str, run_dir: str | None = None) -> dict:
 
 def freeze_target(run_dir: str, prof: dict) -> None:
     """铁律4: tier 在 run 首次 PROFILE 冻结，resume 不重跑。原子写。"""
-    os.makedirs(run_dir, exist_ok=True)
-    final = os.path.join(run_dir, TARGET_FILE)
-    tmp = final + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(prof, fh, ensure_ascii=False, indent=2)
-    os.replace(tmp, final)
+    runtime_data.write_json(Path(run_dir)/TARGET_FILE, prof)
 
 
 def load_target(run_dir: str) -> dict:

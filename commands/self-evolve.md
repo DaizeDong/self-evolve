@@ -12,8 +12,10 @@
 
 ## 步骤
 
-1. 调用 `python -m tools.sie.cli init --target <target>` 取 run_id。
-2. 调用 `python -m tools.sie.cli run --target <target> --run-id <run_id> --base-ref HEAD`
+先运行 `doctor --target <target>` 检查私有伴生仓与证据需求。
+
+1. 调用 `python <skill绝对路径>/tools/sie_cli.py init --target <target>` 取 run_id。
+2. 调用 `python <skill绝对路径>/tools/sie_cli.py run --target <target> --run-id <run_id> --base-ref HEAD`
    启动闭环（PROFILE → REFLECT → PROPOSE → PATCH → EVALUATE → ACCEPT/ARCHIVE）。
 3. 采纳的版本进 archive lineage；沙箱内全自动，出沙箱的动作（`land` / `push` / `merge_main`
    / `send` 等）一律判为 gated，进人审队列，harness 自己不落地。
@@ -35,7 +37,7 @@
   "run_id": "<run_id>",
   "accepted_versions": ["v1", "v2"],
   "final_phase": "REFLECT",
-  "run_dir": "<target>/.sie/runs/<run_id>"
+  "run_dir": "<private-data>/targets/<target-id>/runs/<run_id>"
 }
 ```
 

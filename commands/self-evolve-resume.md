@@ -13,7 +13,7 @@
 ## 底层命令
 
 ```
-python -m tools.sie.cli run --target <target> --run-id <run_id> --base-ref HEAD
+python <skill绝对路径>/tools/sie_cli.py run --target <target> --run-id <run_id> --base-ref HEAD
 ```
 
 ## 适用场景
@@ -28,7 +28,7 @@ python -m tools.sie.cli run --target <target> --run-id <run_id> --base-ref HEAD
 再 `save_state`（state.json）。崩溃时 state.json 可能落后，但删除后执行：
 
 ```
-python -m tools.sie.cli replay --target <target> --run-id <run_id>
+python <skill绝对路径>/tools/sie_cli.py replay --target <target> --run-id <run_id>
 ```
 
 可从 events.jsonl 重建出与崩溃前一致的 RunState。续跑直接调用 `sie run` 即可，

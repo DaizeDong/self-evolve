@@ -3,6 +3,10 @@
 All tests mock subprocess/invoke — no real claude calls."""
 import json
 import subprocess
+import sys
+from types import SimpleNamespace
+import pytest
+from tools.make_fixtures import llm_samples
 
 import pytest
 
@@ -120,98 +124,37 @@ def test_debias_order_empty():
 
 # ── invoke_claude_judge ──────────────────────────────────────────────────────
 
+@pytest.mark.parametrize("kind", ["timeout", "missing", "error", "failed", "empty"])
+def test_invoke_claude_judge_unavailable(monkeypatch, kind):
+    sample = llm_samples()
+    def call(prompt, **kwargs):
+        if kind == "timeout":
+            raise TimeoutError()
+        if kind == "missing":
+            raise ImportError()
+        if kind == "error":
+            raise OSError()
+        return SimpleNamespace(text="", provider=None, attempts=sample["attempts"],
+                               error="synthetic unavailable" if kind == "failed" else None)
+    monkeypatch.setitem(sys.modules, "llmcall", SimpleNamespace(call=call))
+    result = judge_claude.invoke_claude_judge(sample["prompt"], timeout_s=1)
+    assert not result["available"] and result["raw"] == ""
+    assert result["error"] and "attempts" in result
+
+
 def test_invoke_claude_judge_success(monkeypatch):
-    """returncode=0 with stdout → available=True, raw=stdout."""
-    raw = '{"span_scores":[]}'
+    sample = llm_samples()
+    calls = []
+    def call(prompt, **kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(text=sample["text"], provider="cc", error=None,
+                               attempts=sample["attempts"])
+    monkeypatch.setitem(sys.modules, "llmcall", SimpleNamespace(call=call))
+    result = judge_claude.invoke_claude_judge(sample["prompt"], timeout_s=1)
+    assert result["available"] and result["raw"] == sample["text"]
+    assert result["provider"] == "cc" and result["family"] == "claude"
+    assert calls == [{}]
 
-    class FakeProc:
-        returncode = 0
-        stdout = raw
-        stderr = ""
-
-    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: FakeProc())
-    result = judge_claude.invoke_claude_judge("hello", timeout_s=1)
-    assert result == {"available": True, "raw": raw}
-
-
-def test_invoke_claude_judge_timeout(monkeypatch):
-    """subprocess.TimeoutExpired → available=False, no raise."""
-    def fake_run(*args, **kwargs):
-        raise subprocess.TimeoutExpired(cmd=args[0], timeout=1)
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    result = judge_claude.invoke_claude_judge("hello", timeout_s=1)
-    assert result == {"available": False, "raw": ""}
-
-
-def test_invoke_claude_judge_file_not_found(monkeypatch):
-    """FileNotFoundError (node missing) → available=False, no raise."""
-    def fake_run(*args, **kwargs):
-        raise FileNotFoundError("node not found")
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    result = judge_claude.invoke_claude_judge("hello", timeout_s=1)
-    assert result == {"available": False, "raw": ""}
-
-
-def test_invoke_claude_judge_os_error(monkeypatch):
-    """OSError → available=False, no raise."""
-    def fake_run(*args, **kwargs):
-        raise OSError("permission denied")
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    result = judge_claude.invoke_claude_judge("hello", timeout_s=1)
-    assert result == {"available": False, "raw": ""}
-
-
-def test_invoke_claude_judge_nonzero_exit(monkeypatch):
-    """Non-zero returncode → available=False, no raise."""
-    class FakeProc:
-        returncode = 1
-        stdout = ""
-        stderr = "rate limit"
-
-    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: FakeProc())
-    result = judge_claude.invoke_claude_judge("hello", timeout_s=1)
-    assert result == {"available": False, "raw": ""}
-
-
-def test_invoke_claude_judge_empty_stdout(monkeypatch):
-    """returncode=0 but empty stdout → available=False."""
-    class FakeProc:
-        returncode = 0
-        stdout = "   "
-        stderr = ""
-
-    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: FakeProc())
-    result = judge_claude.invoke_claude_judge("hello", timeout_s=1)
-    assert result == {"available": False, "raw": ""}
-
-
-def test_invoke_claude_judge_argv_contains_web_search(monkeypatch):
-    """invoke_claude_judge 命令行必须含 --tools web_search（judge 隔离规则）。"""
-    captured = {}
-
-    def fake_run(cmd, **kwargs):
-        captured["cmd"] = cmd
-
-        class FakeProc:
-            returncode = 0
-            stdout = '{"span_scores":[]}'
-            stderr = ""
-
-        return FakeProc()
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    judge_claude.invoke_claude_judge("test prompt", timeout_s=10)
-
-    cmd = captured["cmd"]
-    assert "--tools" in cmd, f"--tools missing in {cmd}"
-    tools_idx = cmd.index("--tools")
-    assert cmd[tools_idx + 1] == "web_search", f"expected web_search after --tools, got {cmd[tools_idx+1]}"
-
-
-# ── score() family="claude" 走真 invoke（mock）──────────────────────────────
 
 def test_score_family_claude_available(monkeypatch, tmp_path):
     """score() family=claude 走 invoke_claude_judge(mock) 返回完整契约。"""
@@ -227,7 +170,7 @@ def test_score_family_claude_available(monkeypatch, tmp_path):
     art.write_text("Revenue grew 12% in FY2024.", encoding="utf-8")
     out = judges.score(str(art), [{"span": "Revenue grew 12%"}], family="claude")
     assert out["available"] is True
-    assert out["family"] == "claude"
+    assert out["requested_family"] == "claude"
     assert abs(out["aggregate"] - 0.85) < 1e-9
     assert out["unspanned_penalized"] == 0
     assert len(out["span_scores"]) == 1
@@ -243,7 +186,7 @@ def test_score_family_claude_unavailable(monkeypatch, tmp_path):
     art.write_text("body", encoding="utf-8")
     out = judges.score(str(art), [{"span": "s1"}, {"span": "s2"}], family="claude")
     assert out["available"] is False
-    assert out["family"] == "claude"
+    assert out["requested_family"] == "claude"
     assert out["aggregate"] == 0.0
     assert out["span_scores"] == []
     assert out["unspanned_penalized"] == 2

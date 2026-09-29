@@ -1,11 +1,11 @@
 # self-evolve
 
-Point an agent at any skill / repo / project and have it self-iterate, behind an un-gameable acceptance gate so "accepted = real improvement," not a self-deceiving score-up-but-capability-flat curve.
+Improve a skill or repository through proposed changes, isolated evaluation and evidence-based acceptance. Passing a gate establishes only the capability measured by that gate.
 
 [![Claude Code Skill](https://img.shields.io/badge/Claude%20Code-Skill-orange?style=flat)](https://docs.anthropic.com/en/docs/claude-code)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-555%20under%20tests%2F-green?style=flat)](tests/)
-[![Anti-self-deception](https://img.shields.io/badge/anti--self--deception-6%20paths%20closed-green?style=flat)](SKILL.md)
+[![Tests](https://img.shields.io/badge/tests-local%20suite-blue?style=flat)](tests/)
+[![Anti-self-deception](https://img.shields.io/badge/acceptance-evidence%20gates-blue?style=flat)](SKILL.md)
 [![Languages](https://img.shields.io/badge/Languages-EN%20%2F%20CN-blue?style=flat)](#languages)
 [![Roadmap](https://img.shields.io/badge/Roadmap-v0.1.0-purple?style=flat)](ROADMAP.md)
 
@@ -20,26 +20,26 @@ Most self-improving-agent work succeeds only in **verifiable domains**, code, ma
 self-evolve is built for exactly that gap. Its guiding stance:
 
 - **The methodology is constant; the signal source adapts.** The loop is always `reflect → propose → evaluate → judge → accept`. The only thing that changes per target is *where the evaluation signal comes from*.
-- **Run it if you can, verify it if you can, otherwise generate scenarios and let heterogeneous judges score, so no target is un-evolvable.** Three signal providers (A program adjudication, B anchor verification, C generative evaluation) implement the same `evaluate` contract; you take the strongest available and fall back downward, the floor always exists.
+- **Choose observable evidence.** Use A program adjudication or B independently verified anchors where available. C can consume supplied regression and consistency evidence; automatic scenario generation is not implemented. Missing evidence cannot establish improvement.
 - **LLM proposes, code adjudicates.** Accept / reject / rollback / signal-source selection are all decided by deterministic harness code. The model never grades its own output.
-- **Anti-self-deception is the whole point.** Six concrete cheating paths are closed (see the table below), because in a long fully-automatic loop "accepted" must mean real, not self-flattering.
+- **Keep acceptance attributable.** Record candidate hashes, tests, source evidence and actual provider metadata. Review the limitations of each gate before interpreting its result.
 
 Full philosophy: [`docs/philosophy.md`](docs/philosophy.md) · design specs and rationale in [`docs/superpowers/`](docs/superpowers/).
 
 ## What it is (and isn't)
 
-A **methodology skill + lightweight deterministic harness** that lets an agent self-iterate any skill / repo / project inside a `git worktree` sandbox over multiple rounds, with an un-gameable commit gate. It belongs to the **Self-Evolving / Self-Improving Agents** family (the "agent improves its own skill / scaffolding" branch), stitching together ideas from **DGM + SICA + MARS + OMNI + PACE** and adding the guardrails the literature lacks for open, no-ground-truth generation domains: verification-anchor + anytime-valid acceptor + heterogeneous judges + adversarial co-evolution.
+A **methodology skill + lightweight deterministic harness** that lets an agent self-iterate any skill / repo / project inside a `git worktree` sandbox over multiple rounds, with deterministic acceptance gates. It belongs to the **Self-Evolving / Self-Improving Agents** family (the "agent improves its own skill / scaffolding" branch), stitching together ideas from **DGM + SICA + MARS + OMNI + PACE** and adding the guardrails the literature lacks for open, no-ground-truth generation domains: verification-anchor + anytime-valid acceptor + heterogeneous judges + adversarial co-evolution.
 
 It is **not** a magic "make my repo better" button, and **not** a tool that ships changes for you. Everything fully automatic happens inside the sandbox; anything that leaves the sandbox (push / merge to main / outbound send) goes through a separate human-review subflow.
 
-**Anti-self-deception (six paths closed):**
+**Acceptance controls:**
 
 | candidate self-deception path | defense |
 |---|---|
 | edit the grader / judge to grade itself | IMMUTABLE decision-code manifest + frozen materialization + startup-hash fail-closed + patch hard-reject gate + supervisor dual-process adjudication (candidate never enters `sys.path`, never adjudicates / grades itself) |
 | inject an un-verifiable "anchor" | `verify_anchor` (programmatic EDGAR check) + `marginal_gain` is 0 until verified |
-| overfit the holdout | holdout ground truth physically isolated (iron law 5) + deterministic split + divergence gate + cumulative drift budget |
-| judge collusion | heterogeneous judges (Claude + Codex, forced different model families) + `pairwise_agreement` + judge↔anchor calibration (holdout anchors only) |
+| overfit the holdout | holdout values excluded from prompts; filesystem isolation requires a separately verified deployment boundary + deterministic split + divergence gate + cumulative drift budget |
+| judge collusion | judges with known, distinct families derived from actual returned providers + `pairwise_agreement` + judge↔anchor calibration (holdout anchors only) |
 | inflated e-value from correlated anchors | `effective_independent_count` same-source de-correlation (8→4) + independence floor gate |
 | covert outbound exfil channel | proxy harness relays sends (candidate has no URL-construction power) + entropy / encoding / sequence anomaly review |
 
@@ -52,12 +52,12 @@ It is **not** a magic "make my repo better" button, and **not** a tool that ship
 Or clone manually:
 
 ```bash
-git clone https://github.com/DaizeDong/self-evolve.git ~/.claude/plugins/self-evolve
+git clone --recursive https://github.com/DaizeDong/self-evolve.git ~/.claude/plugins/self-evolve
 ```
 
 ## Quick start
 
-Run one self-iteration round against any git-history target repo (fully automatic inside the sandbox):
+Configure the private companion as described below, then run these commands from the skill repository against a target with Git history:
 
 ```bash
 # initialize a run (returns a run_id)
@@ -75,7 +75,39 @@ python -m tools.sie.cli rollback --target <target> --run-id <id> --vid <vid>
 python -m tools.sie.cli run --target <self-evolve itself> --run-id <id> --self --enforce-immutable
 ```
 
-Default mode is `builtin` / `serial` (deterministic, no external calls), which is what the harness test suite exercises: **555 tests under `tests/`**, i.e. what `pytest tests` collects from the repo root. Note that a bare `pytest` at the repo root collects **669**, because it also picks up the 114 tests under `tools/` (the vendored `pii_guard` suite). Always state which of the two you mean. `--live` (= `--proposer llm --reflect-mode parallel`) opens the real-agent closed loop: proposer / reflector / two judges go through the local `cc` gateway (split-billing, fallback `claude`) + the `codex` CLI.
+Default `builtin` / `serial` behavior uses supplied deterministic evidence. Run
+`python -m pytest tests` for the business suite; pinned guard tests are separate.
+`--live` selects model-backed proposals and reflections through installed
+`llmcall.call(..., mode="agent")`; judges use default judge mode. Routing, model,
+timeout and fallback choices belong to llmcall. A requested provider alias does
+not establish independence. Agent calls use separate disposable directories in
+the private companion, leaving the caller's working directory unchanged.
+
+## Configuration and first-run diagnosis
+
+Set `SELF_EVOLVE_CONFIG` to an existing PRIVATE Git companion, or set
+`SELF_EVOLVE_DATA_DIR` to an absolute directory inside it. Keep the companion
+versioned. Runtime writes require its GitHub origin to have a current PRIVATE
+entry in `~/.pii-guard/visibility.json`; `_refreshed` must include a timezone and
+be no older than 30 days. Missing, stale, public or unknown proof blocks writes.
+Refresh the fleet visibility registry after creating or changing the companion.
+Ordinary SSH aliases resolve through local `Host` and `HostName` rules without
+running SSH or configuration commands. Dynamic Include, Match and canonicalization
+rules are refused; literal HTTPS origins do not read SSH configuration.
+
+From the skill repository, run `python -m tools.sie.cli doctor --target <target>`
+before `init`. From another directory or an installation alias, use
+`python <absolute-skill-path>/tools/sie_cli.py doctor --target <target>`; the
+same entrypoint supports every subcommand. Doctor reports configuration and
+capability gaps without calling a model or creating runtime directories.
+
+Run state is stored under the private data root, namespaced by canonical target
+identity. `init` reports its exact path. Both ordinary runs and `--self` use this
+resolver; foreign public targets receive no runtime directory. Use a nonempty
+single-component run ID. `status` and `replay` explicitly report uninitialized
+state when there is no record. Scratch cwd containment is not an operating-system
+sandbox against deliberate absolute-path writes.
+
 
 ## How to invoke
 

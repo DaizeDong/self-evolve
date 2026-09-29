@@ -14,6 +14,7 @@ import os
 import shutil
 import subprocess
 import sys
+from tools.sie.sandbox import native_cwd
 import tempfile
 
 # ---------------------------------------------------------------------------
@@ -133,7 +134,8 @@ def minimal_env() -> dict:
     # Create an empty jail directory for HOME/USERPROFILE.
     # tempfile.mkdtemp returns a directory only readable by the current user,
     # but more importantly it is empty, no .credentials.json can exist there.
-    jail = tempfile.mkdtemp(prefix="sie_home_")
+    from tools.sie.runtime_data import temporary_directory
+    jail = temporary_directory('sie_home_')
     # Note: jail is readable/writable to allow subprocess to create temp files.
     # The security model depends on the jail being initially empty, not on permissions.
     base["HOME"] = jail
@@ -152,8 +154,9 @@ def _grader_env(sandbox_root: str) -> tuple[dict, str, str]:
 
     # Write sitecustomize.py into a temporary directory that precedes sandbox
     # on PYTHONPATH, so Python loads it before any user code.
-    site_dir = tempfile.mkdtemp(prefix="sie_site_")
-    with open(os.path.join(site_dir, "sitecustomize.py"), "w", encoding="utf-8") as fh:
+    from tools.sie.runtime_data import temporary_directory, private_file_path
+    site_dir = temporary_directory('sie_site_')
+    with private_file_path(os.path.join(site_dir, "sitecustomize.py")).open("w", encoding="utf-8") as fh:
         fh.write(_SITE)
 
     # PYTHONPATH: site_dir first (loads sitecustomize), then sandbox_root
@@ -202,7 +205,7 @@ def grade_pytest(sandbox_root: str) -> dict:
 
         proc = subprocess.run(
             [sys.executable, "-m", "pytest", "-q", "--no-header"],
-            cwd=sandbox_root,
+            cwd=native_cwd(sandbox_root),
             capture_output=True,
             text=True, encoding="utf-8", errors="replace",
             env=grader_env,

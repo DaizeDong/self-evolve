@@ -10,16 +10,16 @@ self-evolve 的方法论恒定为 reflect → propose → evaluate → judge →
 
 ## method
 
-### 1. 异质：两个不同来源的判官，物理隔离
+### 1. Actual-provider independence
 
-判官有两家，分别由独立子进程调用，与被评测的候选物理隔离（候选进程拿不到判官、也改不了判官的打分）：
+Both compatibility wrappers use installed llmcall in its default judge mode.
+They retain terminal result metadata and return unavailable on malformed or failed
+transport. The runtime does not pin a model or launch provider CLIs. See
+[runtime.md](runtime.md) for routing and isolation boundaries.
 
-- **Codex 判官**（`judge_codex.invoke_codex_judge`）：走 `workflows/codex-judge.js`，内部用当下最强的 codex 模型（具体型号 pin 在 `tools/sie/judge_codex.py` 的 `_CODEX_MODEL`/`_CODEX_EFFORT`，2026-07 = `gpt-5.6-sol` + `max`），**关掉 browser/playwright，只留 web_search**。
-- **Claude 判官**（`judge_claude.invoke_claude_judge`）：走 `workflows/claude-judge.js`，同样**只开 web_search**。
-
-两家用的是不同公司、不同训练的模型,这就是"异质"的含义。同质判官会犯一样的错、一起被同一个漂亮但空洞的产物骗过去；异质判官各自的盲区不一样，它们之间的**分歧**本身就是一个有用的信号。
-
-两个适配函数行为完全镜像，且都**绝不抛异常**：超时、找不到 node、OSError、退出码非 0、输出为空,任何一种失败都降级成 `{"available": False, "raw": ""}`。这是关键设计：判官不可用是常态（限速、网络），不可用必须被显式表达成一个状态值往下传，让下游做"不可信处理"，而不是炸掉整条流水线，更不能被悄悄当成低分混进去。子进程统一用 `encoding="utf-8"` 解码（在 Windows 上不能让 locale 的 GBK 去解 UTF-8 输出）。
+Independence uses actual returned providers. Two aliases from the same family,
+or unknown families, cannot supply independent agreement. A second judge can
+avoid the actual first provider using llmcall's central policy.
 
 ### 2. prompt 无真值（铁律 5）
 
@@ -29,9 +29,9 @@ self-evolve 的方法论恒定为 reflect → propose → evaluate → judge →
 
 ### 3. 打分与优雅降级
 
-`score(artifact_path, anchors_visible, family)` 是单家判官的打分入口：读产物全文，从可见锚里抽 span 文本，构造提示词，按 `family`（"codex" / "claude"）路由到对应判官子进程。
+`score(artifact_path, anchors_visible, family)` 是单家判官的打分入口：读产物全文，从可见锚里抽 span 文本，构造提示词，保留兼容的 `family` 参数，实际路由由 llmcall 决定，返回的 provider 决定家族。
 
-判官返回的原始 JSON 由 `_parse_span_scores` 解析，同样**绝不抛**：解析失败或缺 `span_scores` 时返回空列表、aggregate=0.0，并把所有跨度都计入"未被打分而受罚"。只接受结构合法（含 span + 数值 score）的条目，aggregate 是这些有效分的均值。
+判官返回的原始 JSON 由 `_parse_span_scores` 解析，同样**绝不抛**：解析失败或缺 `span_scores` 时返回空列表、aggregate=0.0，并把所有跨度都计入"未被打分而受罚"。只接受已知且不重复的 span，以及有限、位于 0 到 1 的数值 score。畸形条目不能贡献正分，缺失跨度不能补分。
 
 这里有个反加水的细节：**未被判官打分的跨度不会被补默认分**。`unspanned_penalized` 记录"有多少跨度判官没给分"（`len(spans) - len(valid)`）。判官漏掉跨度 = 这些跨度拿不到信用，而不是被填一个中间值蒙混过去。
 

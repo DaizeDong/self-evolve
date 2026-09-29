@@ -145,7 +145,7 @@ run_loop(target, base_ref, run_id, max_rounds=3, mode="auto",
   -> {"run_id": str,
       "accepted_versions": list[str],   # ["v1","v2",...] 谱系采纳序列
       "final_phase": str,               # 终态 RunState.phase
-      "run_dir": str}                   # <target>/.sie/runs/<run_id>
+      "run_dir": str}                   # <private-data>/targets/<target-id>/runs/<run_id>
 ```
 
 - `mode`：`"auto"` | `"gated"`。auto 才触发纯 C 强制人审。

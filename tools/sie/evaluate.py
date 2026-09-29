@@ -21,8 +21,10 @@ from tools.sie.verifiable import grade_pytest, minimal_env
 from . import anchors as _anchors
 
 import os
+import math
 import subprocess
 import sys
+from tools.sie.sandbox import native_cwd
 
 
 def _grade_pytest_per_task(sandbox_root: str) -> dict:
@@ -44,7 +46,7 @@ def _grade_pytest_per_task(sandbox_root: str) -> dict:
     try:
         proc = subprocess.run(
             [sys.executable, "-m", "pytest", "-v", "--tb=no", "--no-header"],
-            cwd=sandbox_root,
+            cwd=native_cwd(sandbox_root),
             capture_output=True,
             text=True, encoding="utf-8", errors="replace",
             env=grader_env,
@@ -284,15 +286,7 @@ def evaluate(sandbox_root_or_ctx, tier: str = "A",
     # Build per-task paired list
     if base_result and base_result.get("dimensions"):
         base_dims = base_result["dimensions"]
-        # Align by index (same test order); truncate to shorter list
-        n = min(len(after_dims), len(base_dims))
-        paired = [
-            (float(base_dims[i]["score"]), float(after_dims[i]["score"]))
-            for i in range(n)
-        ]
-        # If lengths differ, append remaining after_dims against 0.0 baseline
-        for i in range(n, len(after_dims)):
-            paired.append((0.0, float(after_dims[i]["score"])))
+        paired = pair_parent_dimensions(base_dims, after_dims)
     else:
         # 冷启动: before=0.0 for all tasks (全 fail 基线)
         paired = [(0.0, float(d["score"])) for d in after_dims]
@@ -310,6 +304,15 @@ def evaluate(sandbox_root_or_ctx, tier: str = "A",
         "paired": paired,
         "coverage": after.get("verifiable_coverage", 0.0),
     }
+
+
+def pair_parent_dimensions(before, after):
+    """Compare measured parent tasks by identity; removed tasks cannot disappear."""
+    if len(before) == 1 and before[0]['name'] == 'pytest':
+        # Legacy aggregate baselines remain aggregate, including failed descendants.
+        return [(float(before[0]['score']), min((float(d['score']) for d in after), default=0.0))]
+    current = {item['name']: item['score'] for item in after}
+    return [(float(item['score']), float(current.get(item['name'], 0.0))) for item in before]
 
 
 # ---------------------------------------------------------------------------
@@ -338,10 +341,22 @@ def evaluate_c_tier(artifact_path: str, regression_replay: list[dict],
             "coverage": 0.0,                  # C 档无可验证锚，恒 0.0
         }
     """
+    replay_valid = (isinstance(regression_replay, list) and bool(regression_replay)
+                    and all(isinstance(item, dict) and type(item.get("before")) is bool
+                            and type(item.get("after")) is bool for item in regression_replay))
+    consistency_valid = (isinstance(internal_consistency, (list, tuple)) and bool(internal_consistency)
+                         and all(isinstance(pair, (list, tuple)) and len(pair) == 2
+                                 and all(type(value) in (int, float) and 0 <= value <= 1
+                                         and math.isfinite(value) for value in pair)
+                                 for pair in internal_consistency))
+    available = bool(replay_valid and consistency_valid)
     return {
-        "no_regression": c_tier_no_regression(regression_replay),
-        "consistency_paired": list(internal_consistency),
-        "coverage": 0.0,
+        "no_regression": available and c_tier_no_regression(regression_replay),
+        "consistency_paired": list(internal_consistency) if consistency_valid else [],
+        "coverage": 0.0, "available": available,
+        "regression_evidence": "available" if replay_valid else "missing_or_invalid",
+        "consistency_evidence": "available" if consistency_valid else "missing_or_invalid",
+        "scenario_eval": "not_implemented",
     }
 
 
@@ -349,9 +364,9 @@ def inject_judge_scores(artifact_path: str, anchors_visible: list[dict],
                         holdout: list[dict]) -> dict:
     """Contract 外注入 judge 主观分（spec §8）——candidate 不能自报 judge 分.
 
-    Judge 走独立联网进程（codex / claude）由 harness 独立调用；alpha 由 harness
-    计算，候选人无法干预。candidate 提供的任何 judge 字段均被忽略——此函数是
-    judge 主观分进入评测系统的唯一入口。
+    The harness invokes llmcall's default judge mode and computes agreement only
+    when successful results identify distinct known actual provider families.
+    Candidate-supplied judge fields are ignored.
 
     Args:
         artifact_path: Path to artifact file (UTF-8 text).
@@ -369,10 +384,13 @@ def inject_judge_scores(artifact_path: str, anchors_visible: list[dict],
         }
     """
     codex = _judges.score(artifact_path, anchors_visible, "codex")
-    claude = _judges.score(artifact_path, anchors_visible, "claude")
+    previous = codex.get("provider") if codex.get("available") else None
+    kwargs = {"avoid": previous} if previous else {}
+    claude = _judges.score(artifact_path, anchors_visible, "claude", **kwargs)
 
-    # alpha: pairwise agreement; None if either judge unavailable (下游 alpha_gate 处理 None)
-    alpha = _judges.pairwise_agreement(codex, claude)
+    from tools.sie.llm_adapter import independent
+    sufficient = independent([codex, claude])
+    alpha = _judges.pairwise_agreement(codex, claude) if sufficient else None
 
     # 主 judge=codex 优先；不可用→claude；双不可用→零分 degenerate
     if codex.get("available"):
@@ -391,4 +409,5 @@ def inject_judge_scores(artifact_path: str, anchors_visible: list[dict],
         "alpha": alpha,
         "calibration": calibration,
         "judge_gain": judge_gain,
+        "independence": "independent" if sufficient else "insufficient_independence",
     }
