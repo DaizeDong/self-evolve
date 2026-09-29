@@ -19,6 +19,13 @@ IMMUTABLE_RELPATHS: tuple[str, ...] = (
     "patch.py",          # AST 危险调用拒绝门（决策码自身、漏列则 candidate 可白名单任意危险 import）
     "proxy.py",          # 出站 harness 代发+熵/序列异常审查（漏列则 candidate 可开隐蔽 exfiltration）
     "events.py",         # 状态机 _apply 实现熔断/活性计数清零/delta 归约（漏列则 candidate 可破坏熔断）
+    "runtime_data.py",   # PRIVATE runtime paths and disposable agent cwd
+    "business_tree.py",  # selected snapshot identity and exact restoration
+    "archive.py",        # accepted lineage and snapshots
+    "evaluate.py",       # selected-parent score pairing
+    "state.py",          # durable state projection
+    "llm_adapter.py",    # actual-provider validation and independence
+    "llm_agent_child.py",  # inherited model policy and serialized agent results
 )
 
 _IMMUTABLE_SET = frozenset(IMMUTABLE_RELPATHS)
@@ -76,7 +83,8 @@ def materialize_frozen(base_ref: str, sie_root: str, frozen_dir: str) -> dict[st
     防被改后的 IMMUTABLE 入 frozen。
     frozen_dir 由调用方放在 candidate 不可写区（supervisor 主进程私有）。
     """
-    os.makedirs(frozen_dir, exist_ok=True)
+    from tools.sie.runtime_data import make_directory, private_file_path
+    frozen_dir = str(make_directory(frozen_dir))
     # 找到 sie_root 所在仓库的根，算出 IMMUTABLE 在仓库中的 git 路径前缀。
     repo_root = subprocess.run(
         ["git", "rev-parse", "--show-toplevel"], cwd=sie_root,
@@ -92,11 +100,12 @@ def materialize_frozen(base_ref: str, sie_root: str, frozen_dir: str) -> dict[st
         except subprocess.CalledProcessError:
             # base ref 尚无该文件（新文件未提交）：跳过物化（不入 digests），supervisor 待启动门才发现缺口。
             continue
-        out = os.path.join(frozen_dir, rp)
+        out = str(private_file_path(os.path.join(frozen_dir, rp)))
         with open(out, "wb") as f:
             f.write(content)
         os.chmod(out, 0o444)  # 设置为只读（POSIX 去写权、Windows 只读属性）
-        digests[rp] = hash_file(out)
+        # Preserve committed bytes, but use the same canonical hash as verification.
+        digests[rp] = hash_file(out, normalize_crlf=True)
     return digests
 
 
@@ -110,7 +119,7 @@ def verify_immutable(candidate_sie_root: str, frozen_digests: dict[str, str]) ->
     任一文件缺失、哈希不符或 frozen_digests 为空，raise ImmutableViolation。
     fail-closed：绝无静默通过的异常路径。
 
-    处理跨平台行尾差异：通过 hash_file(normalize_crlf=True) 统一规范化，与 frozen 的 git show 产物保持一致。
+    Frozen and candidate digests both normalize CRLF to LF.
     """
     if not frozen_digests:
         raise ImmutableViolation("frozen 哈希记录为空，拒绝在无基线下运行 IMMUTABLE 锁")

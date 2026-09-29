@@ -11,6 +11,7 @@ import os
 from .sandbox import make_worktree
 from .immutable import materialize_frozen, verify_immutable, ImmutableViolation
 from .supervisor import Supervisor, candidate_path_is_isolated
+from . import runtime_data
 
 
 def is_self_run(args) -> bool:
@@ -52,15 +53,25 @@ def selfboot_init(
         ImmutableViolation: verify_immutable 不通过，或 candidate 隔离断言失败。
         subprocess.CalledProcessError: git worktree 创建失败。
     """
-    run_dir = os.path.join(runs_root, run_id)
+    runtime_data.validate_run_id(run_id)
+    root = runtime_data.runtime_directory(runs_root)
+    _, repository = runtime_data.verify_directory(root)
+    run_path, _ = runtime_data.verify_directory(root/run_id, expected_repo=repository)
+    if run_path.parent != root or run_path.name != run_id:
+        raise runtime_data.DataBoundaryError('Selfboot run escaped its PRIVATE root')
+    frozen_path, _ = runtime_data.verify_directory(run_path/'_frozen', expected_repo=repository)
+    if frozen_path.parent != run_path:
+        raise runtime_data.DataBoundaryError('Selfboot frozen directory escaped its run')
+    run_dir = str(run_path)
     os.makedirs(run_dir, exist_ok=True)
+    runtime_data.verify_directory(run_dir, expected_repo=repository)
 
     # 1) 独立 candidate worktree（前缀 self__ 区分递归隔离）
     candidate_worktree = make_worktree(self_repo_root, base_ref, f"self__{run_id}")
 
     # 2) frozen 裁决基线（内容取自 base ref，不读 candidate 工作区）
     self_sie_root = os.path.join(self_repo_root, "tools", "sie")
-    frozen_dir = os.path.join(run_dir, "_frozen")
+    frozen_dir = str(frozen_path)
     frozen_digests = materialize_frozen(base_ref, self_sie_root, frozen_dir)
 
     # 3) 立刻校验 candidate 内 IMMUTABLE == frozen（首轮应一致；fail-closed）

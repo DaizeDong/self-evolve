@@ -24,12 +24,44 @@ from tools.sie.state import load_state
 from tools.sie import archive, gate_human
 
 
-def main(argv: list[str] | None = None) -> int:
+def doctor(target):
+    """Inspect local prerequisites without creating run state or calling a model."""
+    from pathlib import Path
+    from tools.sie.runtime_data import DataBoundaryError, private_root
+    path = Path(target).expanduser().resolve()
+    exists = path.is_dir()
+    private = {'available': False}
+    try:
+        private = {'available': True, 'path': str(private_root())}
+    except (DataBoundaryError, OSError, ValueError) as exc:
+        private['reason'] = str(exc)
+    return {
+        'target': str(path), 'target_exists': exists,
+        'evidence_providers': {'A': 'executable tests', 'B': 'independent factual anchors',
+                               'C': 'supplied regression and consistency evidence'},
+        'patchable_scope': {'python': 'mutable files passing import and AST gates',
+                            'artifacts': 'validated JSON artifacts',
+                            'immutable_decision_paths': 'protected'},
+        'required_inputs': ['target directory', 'base Git revision', 'run ID',
+                            'verified PRIVATE companion', 'nonempty evaluation evidence'],
+        'live_call_policy': {'interface': 'llmcall.call', 'routing': 'installed defaults',
+                             'agents': 'disposable private cwd', 'judges': 'default judge mode',
+                             'actual_provider_independence': 'checked after each call',
+                             'live_readiness': 'not tested'},
+        'scenario_eval': {'status': 'not_implemented', 'coverage': 0},
+        'private_data': private,
+    }
+
+
+def _main(argv: list[str] | None = None) -> int:
     """Entry point. Returns exit code (0 = success, non-zero = error)."""
     argv = list(sys.argv[1:] if argv is None else argv)
 
     ap = argparse.ArgumentParser(prog="sie", description="Self-Improving Engine CLI")
     sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p_doctor = sub.add_parser('doctor', help='Read-only local capability report')
+    p_doctor.add_argument('--target', required=True)
 
     # init
     p_init = sub.add_parser("init", help="Initialise a run directory")
@@ -78,6 +110,11 @@ def main(argv: list[str] | None = None) -> int:
 
     args = ap.parse_args(argv)
 
+    if args.cmd == 'doctor':
+        report = doctor(args.target)
+        print(json.dumps(report, ensure_ascii=False))
+        return 0 if report['target_exists'] else 1
+
     # ------------------------------------------------------------------
     if args.cmd == "init":
         rid = args.run_id or uuid.uuid4().hex[:12]
@@ -95,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.self_mode:
             from tools.sie import selfboot as _selfboot
             import os as _os
-            _runs_root = _os.path.join(_os.path.abspath(args.target), ".sie", "runs")
+            _runs_root = _os.path.dirname(_run_dir(args.target, args.run_id))
             _boot = _selfboot.selfboot_init(
                 args.target,
                 args.base_ref,
@@ -133,7 +170,15 @@ def main(argv: list[str] | None = None) -> int:
 
     # ------------------------------------------------------------------
     if args.cmd == "status":
-        rd = _run_dir(args.target, args.run_id)
+        from tools.sie.runtime_data import DataBoundaryError
+        try:
+            rd = _run_dir(args.target, args.run_id)
+        except DataBoundaryError as exc:
+            print(json.dumps({'status': 'uninitialized', 'reason': str(exc)}))
+            return 0
+        if not os.path.isdir(rd):
+            print(json.dumps({'status': 'uninitialized', 'run_id': args.run_id}))
+            return 0
         st = load_state(rd)
         arch = os.path.join(rd, "archive")
         out = {
@@ -151,7 +196,15 @@ def main(argv: list[str] | None = None) -> int:
 
     # ------------------------------------------------------------------
     if args.cmd == "replay":
-        rd = _run_dir(args.target, args.run_id)
+        from tools.sie.runtime_data import DataBoundaryError
+        try:
+            rd = _run_dir(args.target, args.run_id)
+        except DataBoundaryError as exc:
+            print(json.dumps({'status': 'uninitialized', 'reason': str(exc)}))
+            return 0
+        if not os.path.isfile(os.path.join(rd, 'events.jsonl')):
+            print(json.dumps({'status': 'uninitialized', 'run_id': args.run_id}))
+            return 0
         st = replay(rd)
         print(json.dumps(st.__dict__, ensure_ascii=False))
         return 0
@@ -164,6 +217,15 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     return 1
+
+
+def main(argv: list[str] | None = None) -> int:
+    from tools.sie.runtime_data import DataBoundaryError
+    try:
+        return _main(argv)
+    except (DataBoundaryError, OSError, ValueError) as exc:
+        print(json.dumps({'status': 'failed', 'error': str(exc)}), file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

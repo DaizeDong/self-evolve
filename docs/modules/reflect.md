@@ -1,5 +1,7 @@
 # reflect, 并行反思去重
 
+Current transport and failure semantics: [runtime.md](runtime.md). Agent calls use installed llmcall and a disposable private cwd.
+
 ## 职责
 
 reflect 是 self-evolve 一轮自进化的**第一个阶段**。整条 pipeline 恒定为：
@@ -42,7 +44,7 @@ reflect → propose → evaluate → judge → accept   （全程反自欺）
    - 编码上有个 Windows 中文坑：subprocess 显式用 `encoding="utf-8"` 解码 Node 的输出，绝不能让它退回系统 locale（GBK）去解，否则中文 trace 会乱码。
    - 子进程**首轮无历史**直接返回空 findings,没有失败信号就没有可反思的东西，保持管线能跑通而不是报错。
    - 有历史时，`reflect-fanout.js` 组装一段 prompt 喂给**真 Claude**（经 `_claude_launch` 的 `launchClaude`，模型 `sonnet`，只放开 `WebSearch` 工具）。prompt 里把这个反思者定位成"独立多 agent 反思中的第 #idx 号"，明确要求：历史是只读证据、**此刻不准提代码、只准诊断**、要具体并引用真实失败、最多给 0 to 5 条 findings、只返回 `{"findings":[...]}` 这样的纯 JSON。
-   - 任何失败都**降级为空 findings**而非抛错：Claude 启动失败、返回非预期内容、JSON 解析不出来,都让这一个反思者安静地交白卷，绝不让单个反思者的故障拖垮整个 fanout。这是 fanout 的容错设计：N 选其有效的即可。
+   - 失败返回空 findings 并保留错误与 backend 元数据；启动失败、非终态响应或 JSON schema 错误不能冒充一次成功反思。这是 fanout 的容错设计：N 选其有效的即可。
 
 3. **meta 去重（`meta_aggregate`）**：把 N 份反思的 findings 平铺成一条流，用一个 `seen` 集合做**保序去重**,按出现顺序保留首次见到的每条 finding，重复的丢掉。产出 `{"merged_findings": [...], "n_reflectors": N}`。
 

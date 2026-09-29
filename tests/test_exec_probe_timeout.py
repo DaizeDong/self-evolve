@@ -26,11 +26,11 @@ from tools.sie.probes import exec_probe as EP
 
 
 # --------------------------------------------------------------------------- the timeout sentinel
-def test_timeout_is_not_reported_as_a_failing_exit_code(monkeypatch):
+def test_timeout_is_not_reported_as_a_failing_exit_code(monkeypatch, tmp_path):
     def boom(*a, **k):
         raise subprocess.TimeoutExpired(cmd="pytest", timeout=1)
     monkeypatch.setattr(EP.subprocess, "run", boom)
-    rc = EP._run_pytest("/tmp/whatever")
+    rc = EP._run_pytest(str(tmp_path))
     assert rc == EP.TIMEOUT_CODE
     assert rc != 1, "a timeout is still masquerading as a test failure"
     assert rc not in (0, 5), "the sentinel collides with a real pytest exit code"
@@ -42,13 +42,13 @@ def test_the_sentinel_cannot_collide_with_any_pytest_exit_code():
     assert EP.TIMEOUT_CODE not in range(0, 6)
 
 
-def test_a_real_exit_code_is_passed_through_unchanged(monkeypatch):
+def test_a_real_exit_code_is_passed_through_unchanged(monkeypatch, tmp_path):
     """Over-rejection control: the fix must not turn genuine failures into timeouts."""
     for code in (0, 1, 5):
         monkeypatch.setattr(EP.subprocess, "run",
                             lambda *a, _c=code, **k: subprocess.CompletedProcess(
                                 args=[], returncode=_c, stdout="", stderr=""))
-        assert EP._run_pytest("/tmp/whatever") == code
+        assert EP._run_pytest(str(tmp_path)) == code
 
 
 # --------------------------------------------------------------------------- the budget

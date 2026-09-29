@@ -38,7 +38,7 @@ from tools.sie.propose import propose
 from tools.sie.patch import apply_patch
 from tools.sie.evaluate import evaluate
 from tools.sie.acceptor import decide
-from tools.sie import archive
+from tools.sie import archive, business_tree, runtime_data
 
 
 # ---------------------------------------------------------------------------
@@ -250,7 +250,7 @@ def resolve_accept(st: RunState, eval_out: dict, params: dict,
         eval_out: B 档 evaluate 输出 dict (含 tier/b_paired/coverage_floor_violation/
                   visible_anchor_gain/holdout_gain/anchors_visible_verified 等).
         params:   参数字典 (含 alpha/n_min/effective_independent_anchor_min 等).
-        run_dir:  run 目录 (用于 gate_human.enqueue 写文件); None 时用临时目录兜底.
+        run_dir:  run 目录 (用于 gate_human.enqueue 写文件); None 时使用已验证的私有 review 目录.
 
     Returns:
         {
@@ -323,10 +323,8 @@ def resolve_accept(st: RunState, eval_out: dict, params: dict,
     force = cov_violation or sd["force_human"] or ("low_anchor_gain" in sd.get("alerts", []))
 
     if not_rejected and force:
-        import tempfile as _tempfile
-        _enqueue_dir = run_dir or os.path.join(
-            _tempfile.gettempdir(), "sie_gate_human_fallback"
-        )
+        _enqueue_dir = run_dir or str(runtime_data.private_root()/'human-review'/
+                                     runtime_data.validate_run_id(st.run_id))
         st.forced_review += 1
         _gate_human.enqueue(_enqueue_dir, {
             "run_id": st.run_id,
@@ -393,35 +391,9 @@ def _resolve_accept_legacy(st: RunState, eval_out: dict, params: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 def _run_dir(target: str, run_id: str) -> str:
-    """The absolute run directory. `<target>/.sie/runs/<run_id>`, EXCEPT when target is this repo.
-
-    A foreign target legitimately owns its own `.sie` directory: the run is about that repository,
-    the transcript belongs beside it, and nothing here should relocate somebody else's output.
-
-    The headline use case is different. Self iteration points --target at THIS repository, and this
-    repository is PUBLIC. Every run then wrote its state, events, targets and pending actions into
-    the public work tree, held back by one .gitignore line, which this fleet's own boundary guard
-    calls advisory. 127 such files had accumulated by 2026-08-30. The manifest's `_audited` note
-    admitted the shape and nothing acted on it, because prose is not a control.
-
-    So when the target IS this repo, the run goes to the private companion instead. That is not a
-    special case bolted on: it is the same rule the rest of the fleet already follows, arriving in
-    the one place that had been exempt from it by accident.
-
-    If the companion cannot be resolved, this RAISES rather than falling back into the repo.
-    A fallback into the repo is not a convenience, it is the leak.
-    """
-    tgt = os.path.abspath(target)
-    if not _target_is_own_repo(tgt):
-        return os.path.join(tgt, ".sie", "runs", run_id)
-    dd = _load_datadir()
-    if dd is None:
-        raise RuntimeError(
-            "target is this public repo and guards/tools/datadir.py is missing, so the run directory "
-            "cannot be resolved to the private companion. Refusing to write run output into a "
-            "public repository. Check out the guards submodule (git submodule update --init), or "
-            "pass a --target outside this repo.")
-    return str(dd.data_path("self-evolve", os.path.join("runs", run_id), create=True))
+    """All target run records belong in a verified PRIVATE companion."""
+    from tools.sie.runtime_data import run_directory
+    return str(run_directory(target, run_id))
 
 
 def _load_datadir():
@@ -517,45 +489,72 @@ def select_parent(run_dir: str, st: RunState) -> str:
 
 
 
-def _discard_rejected_changes(sandbox_root: str) -> None:
-    """Throw away the working-tree edits of a proposal the evidence just refused.
-
-    THIS WAS NOT HAPPENING, and it is a real behavior change rather than a bug fix, so it is worth
-    saying plainly what the old behavior was and why it is being changed.
-
-    run_loop had no rollback of any kind. A REJECT wrote its event, incremented no_progress, and
-    moved on with the refused edits still sitting in the sandbox. The next round then reflected,
-    proposed and evaluated on top of them. So "rejected" did not mean "this change does not stay",
-    it only meant "this change gets no version number".
-
-    Nobody saw it for five calibration runs because the A-tier gate was accepting unconditionally
-    and never rejected anything. Fixing that gate is what made this visible: the very next run
-    accepted ZERO proposals across 11 rounds, and its sandbox still held 330 changed lines across
-    five files. Worse, the calibration harness grades the sandbox, so it scored those refused edits
-    as 6 repaired defects. A number produced entirely by changes the loop had rejected.
-
-    The spec is silent here: docs/pipeline.md 态9 says only "拒绝本轮, no_progress++" and says
-    nothing about the tree. This is therefore a judgement call, recorded as one. It rests on A-tier
-    being two-state with CONTINUE forbidden, which makes REJECT terminal rather than "keep the work
-    and gather more evidence", and on select_parent already resolving the next round's starting
-    point to the lineage tail. Accumulating refused edits contradicts both.
-
-    Discarding is safe because the sandbox is a git worktree and a proposal is never committed:
-    `git checkout -- .` restores exactly the last accepted state. Failure to restore is reported and
-    not swallowed, because continuing on a tree in an unknown state is worse than a loud stop.
-    """
-    if not sandbox_root or not os.path.isdir(sandbox_root):
-        return                      # no tree to restore (tests drive run_loop with a stub root)
-    try:
-        r = subprocess.run(["git", "-c", "core.hooksPath=", "checkout", "--", "."],
-                           cwd=sandbox_root, capture_output=True, text=True, encoding="utf-8", errors="replace")
-    except OSError as e:
-        print("sie: could not run git to discard the rejected changes in %s: %s"
-              % (sandbox_root, e), file=sys.stderr)
+def _discard_rejected_changes(sandbox_root: str, snapshot: str | None = None) -> None:
+    """Restore the selected snapshot; retain the standalone tracked-edit helper."""
+    snapshot = snapshot or business_tree._SELECTED_SNAPSHOT.get()
+    if snapshot is not None:
+        business_tree.restore(snapshot, sandbox_root)
         return
-    if r.returncode != 0:
-        print("sie: could not discard the rejected changes in %s: %s"
-              % (sandbox_root, (r.stderr or "").strip()[:300]), file=sys.stderr)
+    # Legacy callers have no accepted-version context. The loop always supplies it.
+    if not sandbox_root or not os.path.isdir(sandbox_root):
+        return
+    result = subprocess.run(['git', 'checkout', '--', '.'], cwd=sandbox_root,
+                            capture_output=True, text=True, encoding='utf-8',
+                            env={**os.environ, 'GIT_OPTIONAL_LOCKS': '0'})
+    if result.returncode != 0:
+        print('sie: standalone tracked-edit discard unavailable: '+result.stderr.strip()[:300],
+              file=sys.stderr)
+
+
+class BaselineUnavailable(RuntimeError):
+    def __init__(self, status, detail=''):
+        super().__init__(detail or status)
+        self.status = status
+
+
+def _usable_baseline(result):
+    import math
+    if not isinstance(result, dict) or result.get('available') is False:
+        raise BaselineUnavailable('unavailable')
+    if result.get('grader_exit_code', 0) != 0:
+        raise BaselineUnavailable('grader_failed')
+    dimensions = result.get('dimensions')
+    if not isinstance(dimensions, list) or not dimensions:
+        raise BaselineUnavailable('empty')
+    names = set()
+    for dimension in dimensions:
+        if not isinstance(dimension, dict):
+            raise BaselineUnavailable('invalid_dimensions')
+        score, name = dimension.get('score'), dimension.get('name')
+        if (not isinstance(name, str) or not name or name in names
+                or type(score) not in (int, float) or not 0 <= score <= 1
+                or not math.isfinite(score)):
+            raise BaselineUnavailable('invalid_dimensions')
+        names.add(name)
+    return result
+
+
+def _restore_failed(run_dir, parent, error):
+    return _step(run_dir, {
+        'type': 'RESTORE_FAILED', 'phase': 'STOP', 'parent_vid': parent,
+        'reason': 'restore_failed', 'restore_error': {
+            'type': type(error).__name__, 'message': str(error)[:600]},
+    })
+
+
+def _pause_for_baseline(run_dir, sandbox_root, parent, snapshot, status, detail):
+    try:
+        with business_tree.selected_snapshot(snapshot):
+            _discard_rejected_changes(sandbox_root)
+    except Exception as exc:
+        return _restore_failed(run_dir, parent, exc), 'restore_failed'
+    state = _step(run_dir, {
+        'type': 'BASELINE_UNAVAILABLE', 'phase': 'PAUSE_FOR_HUMAN',
+        'parent_vid': parent, 'available': False,
+        'baseline_status': status, 'reason': detail,
+        'forced_review_delta': 1,
+    })
+    return state, 'baseline_unavailable'
 
 
 def _base_ref_worktree(run_dir: str) -> str | None:
@@ -564,72 +563,63 @@ def _base_ref_worktree(run_dir: str) -> str | None:
     Named `profile_probe_<sha12>` by profile.py. Nothing else writes there, and it sits at the exact
     commit the sandbox was branched from, which makes it the honest "before" for round 1.
     """
-    wt = os.path.join(os.path.dirname(os.path.dirname(run_dir)), "worktrees")
+    target_file = os.path.join(run_dir, 'target.json')
+    if os.path.isfile(target_file):
+        try:
+            prof = load_target(run_dir)
+            evidence = prof.get('probes', {}).get('exec', {})
+            path, ref = evidence.get('worktree'), evidence.get('base_ref')
+            if not path or not ref or not os.path.isdir(path):
+                return None
+            from tools.sie.profile import _resolve_ref
+            return path if _resolve_ref(path, 'HEAD') == ref else None
+        except (OSError, ValueError, RuntimeError):
+            return None
+    # Compatibility for callers inspecting an unfrozen, single-probe run.
+    wt = os.path.join(os.path.dirname(os.path.dirname(run_dir)), 'worktrees')
     if not os.path.isdir(wt):
         return None
-    cands = sorted(d for d in os.listdir(wt) if d.startswith("profile_probe_"))
-    if not cands:
-        return None
-    path = os.path.join(wt, cands[-1])
-    return path if os.path.isdir(path) else None
+    candidates = [os.path.join(wt, name) for name in os.listdir(wt)
+                  if name.startswith('profile_probe_') and os.path.isdir(os.path.join(wt, name))]
+    return candidates[0] if len(candidates) == 1 else None
 
 
 def _parent_baseline(run_dir: str, parent_vid: str) -> dict | None:
-    """The parent version's own per-test scores, shaped as evaluate()'s `base_result`.
-
-    WHY. run_loop used to call `evaluate(..., base_result=None)`, which sends the A-tier path down
-    its cold-start branch where `before = 0.0` for every task. Two things followed, both measured
-    across five calibration runs rather than reasoned about:
-
-      1. Every passing test scored as an improvement over an "everything failed" baseline. With 1160
-         tests the e-value came out as literal inf, so ACCEPT was unconditional. Fifty one accepted
-         versions were compared against their parents test by test: FIFTY ONE of them changed not a
-         single score, and every one was accepted.
-      2. The no-regression hard gate tests `before >= 1.0 > after`. With before pinned at 0.0 it can
-         never fire. A proposal turning three tests RED measured at e-value inf and ACCEPT.
-
-    The acceptor was never the problem; tests/test_acceptor.py drives `decide()` with hand written
-    pairs and covers both gates correctly. Nothing covered what the production path FED it. That is
-    the fourth defect of this exact shape found in this codebase in one session: a gate correct in
-    its unit test and inert in production, because the test supplied its own input.
-
-    The parent's scores are already on disk. archive.add_version stores each accepted version's full
-    per-test dimensions in lineage.json, which is what made the fifty one version audit possible in
-    the first place. Nothing needs re-running; the baseline just has to be handed over.
-
-    Returns None only for a genuinely cold start (no parent yet), which is the one case where
-    "before = 0.0" is the honest answer.
-    """
-    if not parent_vid or parent_vid == "base":
-        # ROUND 1. There is no accepted version to compare against, but there IS a truthful
-        # baseline: the base ref itself. PROFILE already built a worktree at that commit to run its
-        # exec probe, so grading it costs one pytest run and no extra checkout.
-        #
-        # Leaving this as None was measured, not theorized. In the first run with a real baseline
-        # wired up the loop accepted exactly one change, in round 1, while parent was still "base",
-        # and that change broke bandit.py's cold-arm exploration; the target's own suite caught it
-        # afterwards (1 failed, 1159 passed). Rounds 2 through 10, with v1 as parent, REJECTED all
-        # eight proposals. The gate worked everywhere it had something to compare against, and round
-        # 1 was the one window where it still could not refuse anything.
+    """Read only the selected parent's usable scores; missing data stays missing."""
+    if not parent_vid or parent_vid == 'base':
         probe = _base_ref_worktree(run_dir)
         if not probe:
             return None
         try:
             from tools.sie.evaluate import _grade_pytest_per_task
             graded = _grade_pytest_per_task(probe)
-        except Exception:
-            return None                      # readers may degrade; a missing baseline is round 1's
-        dims = graded.get("dimensions") or []
-        return {"dimensions": dims} if dims else None
+        except Exception as exc:
+            raise BaselineUnavailable('grader_failed', str(exc)) from exc
+        return _usable_baseline(graded)
     try:
-        lin = archive.lineage(os.path.join(run_dir, "archive"))
-    except (OSError, ValueError):
-        return None
-    for entry in reversed(lin):
-        if entry.get("vid") == parent_vid:
-            dims = entry.get("scores") or []
-            return {"dimensions": dims} if dims else None
+        entries = archive.lineage(os.path.join(run_dir, 'archive'))
+    except (OSError, ValueError) as exc:
+        raise BaselineUnavailable('lineage_unreadable', str(exc)) from exc
+    for entry in reversed(entries):
+        if entry.get('vid') == parent_vid:
+            return _usable_baseline({'dimensions': entry.get('scores')})
     return None
+
+
+def _record_model_stage(run_dir, filename, record):
+    """Persist caller evidence in its PRIVATE run; failed writes stop the caller."""
+    from pathlib import Path
+    from tools.sie import runtime_data
+
+    directory = Path(run_dir).resolve()
+    path = runtime_data.private_file_path(directory/filename)
+    if path.parent != directory:
+        raise runtime_data.DataBoundaryError('Model evidence escaped its run directory')
+    line = json.dumps(record, ensure_ascii=False) + '\n'
+    with path.open('a', encoding='utf-8') as stream:
+        stream.write(line)
+        stream.flush()
+        os.fsync(stream.fileno())
 
 
 def run_loop(
@@ -673,8 +663,7 @@ def run_loop(
       {"run_id": str, "accepted_versions": list[str],
        "final_phase": str, "run_dir": str}
     """
-    run_dir = _run_dir(target, run_id)
-    os.makedirs(run_dir, exist_ok=True)
+    run_dir = str(runtime_data.make_directory(_run_dir(target, run_id)))
 
     params: dict = {
         "alpha": 0.05,
@@ -689,6 +678,7 @@ def run_loop(
     if _extra_params:
         params.update(_extra_params)
     accepted: list[str] = []
+    halt_reason = None
 
     # ------------------------------------------------------------------
     # 态0 INIT, worktree + initial event
@@ -723,11 +713,16 @@ def run_loop(
     # Main loop: max_rounds iterations over states 2-9
     # ------------------------------------------------------------------
     history: list[dict] = []
+    base_snapshot = os.path.join(run_dir, 'base-snapshot')
+    if not os.path.exists(base_snapshot) and not archive.lineage(os.path.join(run_dir, 'archive')):
+        business_tree.snapshot(sandbox_root, base_snapshot)
 
     for rnd in range(1, max_rounds + 1):
 
         # 态2 SELECT_PARENT
         parent = select_parent(run_dir, st)
+        parent_snapshot = (base_snapshot if parent == 'base' else
+                           os.path.join(run_dir, 'archive', 'versions', parent, 'snapshot'))
         st = _step(run_dir, {
             "type": "ROUND_BEGIN",
             "phase": "REFLECT",
@@ -735,13 +730,27 @@ def run_loop(
             "parent_vid": parent,
         })
 
+        # A resumed or differently selected parent must be the tree reflection sees.
+        try:
+            if business_tree.manifest(sandbox_root) != business_tree.manifest(parent_snapshot):
+                with business_tree.selected_snapshot(parent_snapshot):
+                    _discard_rejected_changes(sandbox_root)
+        except Exception as exc:
+            st = _restore_failed(run_dir, parent, exc)
+            halt_reason = 'restore_failed'
+            break
+
         # 态3 REFLECT, serial(M1a 默认) 或 parallel(MARS fanout)
         # dual 开 → 反思阶段 codex&claude 双家族异质并跑; 关 → 仅 claude。
+        reflector_outcomes = []
         if reflect_mode == "parallel":
             from tools.sie.reflect import run_reflections_parallel, meta_aggregate
             _fams = ["claude", "codex"] if dual else ["claude"]
-            agg = meta_aggregate(run_reflections_parallel(
-                run_dir, history, n_reflectors=len(_fams), families=_fams))
+            reflector_outcomes = run_reflections_parallel(
+                run_dir, history, n_reflectors=len(_fams), families=_fams)
+            _record_model_stage(run_dir, 'reflector-outcomes.jsonl',
+                                {'round': rnd, 'backend_outcomes': reflector_outcomes})
+            agg = meta_aggregate(reflector_outcomes)
             # merged_findings(list[str]) 经统一 reflection dict 传给 propose(llm 提取 findings)
             refs = [{"merged_findings": agg.get("merged_findings", [])}]
             if not agg.get("merged_findings"):
@@ -762,13 +771,9 @@ def run_loop(
         # already gone, and the cause had to be established by elimination from the source instead of
         # read off an artifact. This file is append-only and sits beside events.jsonl; it is what
         # makes a future "the reflectors said nothing" claim checkable rather than assumed.
-        try:
-            with open(os.path.join(run_dir, "reflections.jsonl"), "a", encoding="utf-8") as _fh:
-                _fh.write(json.dumps({"round": rnd, "mode": reflect_mode,
-                                      "reflections": refs}, ensure_ascii=False) + "\n")
-        except (OSError, TypeError, ValueError) as _e:
-            # A record we could not write is worth a line of noise, never a dead run.
-            print("sie: could not record this round's reflections: %s" % _e, file=sys.stderr)
+        _record_model_stage(run_dir, 'reflections.jsonl',
+            {'round': rnd, 'mode': reflect_mode, 'reflections': refs,
+             'backend_outcomes': reflector_outcomes})
 
         # 态3b CHECK_REFLECTION, weak validation gate
         _before_gate = list(refs)
@@ -805,6 +810,10 @@ def run_loop(
 
         # 态4 PROPOSE, backend: builtin(确定性,默认) 或 llm(真 Claude proposer)
         props = propose(sandbox_root, refs, backend=proposer)
+        _record_model_stage(run_dir, 'proposals.jsonl',
+            {'round': rnd, 'backend': proposer, 'proposals': list(props),
+             'backend_outcomes': getattr(props, 'backend_outcomes', []),
+             'diagnostics': getattr(props, 'diagnostics', [])})
         if not props:
             note_static_reject(st)   # in-memory counter update
             st = _step(run_dir, {
@@ -833,7 +842,14 @@ def run_loop(
             st = _step(run_dir, {
                 "type": "DUAL_REVIEW", "phase": "REVIEW",
                 "verdicts": _rv.get("verdicts"), "agree": _rv.get("agree"),
+                "status": _rv.get("status"), "raw": _rv.get("raw"),
             })
+            if _rv.get('status') != 'independent' or _rv.get('agree') is None:
+                halt_reason = 'insufficient_independence'
+                st = _step(run_dir, {'type': 'INSUFFICIENT_INDEPENDENCE', 'phase': 'REVIEW',
+                                    'reason': halt_reason})
+                history.append(_round_record(rnd, 'insufficient_independence', False, phase='REVIEW'))
+                break
             _got = [v for v in (_rv.get("verdicts") or {}).values() if v]
             if _got and all(v == "reject" for v in _got) and len(_got) >= 2:
                 note_static_reject(st)
@@ -900,6 +916,19 @@ def run_loop(
                 "请用非自举流程（supervisor=None）处理 B/C 档目标。"
             )
 
+        baseline = None
+        if 'A' in _tier_str and 'B' not in _tier_str:
+            try:
+                baseline = _parent_baseline(run_dir, parent)
+                if baseline is None:
+                    raise BaselineUnavailable('missing_base_probe' if parent == 'base' else 'unknown_parent')
+                _usable_baseline(baseline)
+            except Exception as exc:
+                st, halt_reason = _pause_for_baseline(
+                    run_dir, sandbox_root, parent, parent_snapshot,
+                    getattr(exc, 'status', 'reader_failed'), str(exc))
+                break
+
         if "B" in _tier_str:
             # B 档: 构造 evaluate ctx dict (B-tier dispatch 要求首参为含 tier:"B" 的 dict)
             # holdout 抽检: round % K == 0 时从 holdout.json 读并算均值
@@ -935,6 +964,21 @@ def run_loop(
             from tools.sie import evaluate as _ev_mod
             from tools.sie import anchors as _anc_mod
             from tools.sie.probes import fact_probe as _fp_mod
+            _base_anchors = prof.get('anchors_visible', [])
+            if parent != 'base':
+                _base_anchors = []
+                try:
+                    for _ap in _fp_mod._find_artifacts(parent_snapshot):
+                        _base_anchors.extend(_anc_mod.extract_anchors(_ap))
+                except (OSError, ValueError) as exc:
+                    st, halt_reason = _pause_for_baseline(
+                        run_dir, sandbox_root, parent, parent_snapshot, 'reader_failed', str(exc))
+                    break
+            if not _base_anchors:
+                st, halt_reason = _pause_for_baseline(
+                    run_dir, sandbox_root, parent, parent_snapshot, 'empty_anchors',
+                    'The selected parent has no usable anchor baseline')
+                break
             _cand_anchors: list[dict] = []
             for _ap in _fp_mod._find_artifacts(sandbox_root):
                 try:
@@ -942,13 +986,13 @@ def run_loop(
                 except Exception:
                     pass
             _bsc = _ev_mod.build_btier_scores(
-                prof.get("anchors_visible", []), _cand_anchors, fetcher)
+                _base_anchors, _cand_anchors, fetcher)
             ev_ctx: dict = {
                 "tier": prof["tier"],
                 "round": rnd,
                 "K": _K,
                 # anchors_visible = candidate 锚(已 verify); 空则回退 baseline(无候选产物时)
-                "anchors_visible": _bsc["anchors_visible"] or prof.get("anchors_visible", []),
+                "anchors_visible": _bsc["anchors_visible"] or _base_anchors,
                 # base/with: baseline vs candidate 真 verify(0/1), 经 build_btier_scores
                 "base_scores": _bsc["base_scores"],
                 "with_scores": _bsc["with_scores"],
@@ -967,31 +1011,10 @@ def run_loop(
             from tools.sie import evaluate as _ev_mod
             _c_artifact = sandbox_root  # artifact 路径 (信息性)
 
-            # M3.11 fix #1: 不退化门 fail-safe 构造
-            # 正确比较需要"当前候选对历史任务的重评结果"(after)，
-            # 但当前 infra 不对历史任务重新运行当前候选,history 中只有历史轮的 passed 字段，
-            # 无法得到当前候选 per-task 结果，故 before==after 哑构造永远不触发退化。
-            # Fail-safe 策略: 若存在历史 passed=True 的轮次（有退化风险），
-            # 不能盲目判 no_regression=True；改为 no_regression=False（保守），
-            # 强制走人审路径，并在 ev_result 中标记 regression_unverified=True。
-            # 「完整 historical-replay-under-candidate 重评」是已知 infra 待补项。
+            # History records decisions, not candidate replay measurements. No replay or
+            # paired-consistency provider exists here yet; report both as unavailable.
             _c_regression_replay: list[dict] = []
-            _c_has_prior_passed = any(h.get("passed") for h in history)
-            for h in history:
-                # before = 该轮历史结果(已知); after = 当前候选对同任务的结果(未知/无法重评)
-                # 无法真比较时保守标记: before=True 的历史任务 after 设 False(强制触发退化检测)
-                _h_passed = bool(h.get("passed", False))
-                _c_regression_replay.append({
-                    "task": h.get("summary", ""),
-                    "before": _h_passed,
-                    # after: 当前候选对历史任务的重评结果,infra 未实现，无法得知。
-                    # 保守 fail-safe: 一律置 False。
-                    # c_tier_no_regression 仅在 before=True AND after=False 时触发，
-                    # 所以历史 passed=True 的任务会保守触发退化检测 → no_regression=False
-                    # → 强制人审（不静默放行）。历史 passed=False 的任务不触发（正确）。
-                    "after": False,
-                })
-            _c_internal_consistency: list[tuple] = []  # 内部一致性配对 (本轮由 judge 填充)
+            _c_internal_consistency: list[tuple] = []
 
             # judge 主观分注入 (独立进程, 测试可 monkeypatch)
             _c_anchors_visible = prof.get("anchors_visible", [])
@@ -1001,9 +1024,7 @@ def run_loop(
                 anchors_visible=_c_anchors_visible,
                 holdout=_c_holdout,
             )
-            # 一致性配对: (before_judge_gain, after_judge_gain) 若两轮均有 judge 打分
             _cj_gain = float(_judge_scores.get("judge_gain", 0.0))
-            _c_internal_consistency = [(_cj_gain, _cj_gain)]  # 单轮: 一致性配对退化为相同值
 
             _c_ev = _ev_mod.evaluate_c_tier(
                 artifact_path=_c_artifact,
@@ -1011,22 +1032,18 @@ def run_loop(
                 internal_consistency=_c_internal_consistency,
             )
             ev_result = {
+                **_c_ev,
                 "tier": "C",
-                "no_regression": _c_ev["no_regression"],
-                "consistency_paired": _c_ev["consistency_paired"],
-                "coverage": _c_ev["coverage"],   # 恒 0.0 (C 档无可验证锚)
                 "judge_scores": _judge_scores,
                 "judge_gain": _cj_gain,
                 "alpha": _judge_scores.get("alpha"),
-                # M3.11 fix #1: 若存在历史 passed=True 轮次，no_regression 由保守 fail-safe 判定
-                # (不是真比较，而是「无法重评→强制不通过」)，标记供报告说明
-                "regression_unverified": _c_has_prior_passed,
+                "regression_unverified": _c_ev.get("regression_evidence") != "available",
             }
         else:
             # M4.6: 自举时跳过 evaluate（grade 由 supervisor.grade 在态7 内替代）
             if supervisor is None:
                 ev_result = evaluate(sandbox_root, prof["tier"],
-                                     base_result=_parent_baseline(run_dir, parent))
+                                     base_result=baseline)
             else:
                 ev_result = {}  # 自举：ev_result 未使用（supervisor.grade 直接在决策块中调）
 
@@ -1048,12 +1065,12 @@ def run_loop(
 
             if ra_next == "8":
                 # 态8 ACCEPT
-                vid = f"v{len(accepted) + 1}"
+                vid = archive.next_version_id(run_dir)
+                arch_dir = os.path.join(run_dir, "archive")
+                archive.snapshot_version(arch_dir, vid, sandbox_root)
                 archive.add_version(run_dir, vid,
                                     ev_result.get("result", {}).get("dimensions", []),
                                     parent)
-                arch_dir = os.path.join(run_dir, "archive")
-                archive.snapshot_version(arch_dir, vid, sandbox_root)
                 accepted.append(vid)
                 st = _step(run_dir, {
                     "type": "ACCEPT",
@@ -1100,7 +1117,13 @@ def run_loop(
 
             else:
                 # 态9 REJECT, resolve_accept 已 no_progress++
-                _discard_rejected_changes(sandbox_root)
+                try:
+                    with business_tree.selected_snapshot(parent_snapshot):
+                        _discard_rejected_changes(sandbox_root)
+                except Exception as exc:
+                    st = _restore_failed(run_dir, parent, exc)
+                    halt_reason = 'restore_failed'
+                    break
                 st = _step(run_dir, {
                     "type": "REJECT",
                     "phase": "REFLECT",
@@ -1125,10 +1148,43 @@ def run_loop(
             from . import gate_human as _gate_human
             from .acceptor import alpha_gate as _alpha_gate, judge_degrade as _judge_degrade
 
+            if ev_result.get("available") is False:
+                # Missing measurements are not an observed regression or a score of zero.
+                # Stop this run with an inspectable review request and no accepted version.
+                try:
+                    with business_tree.selected_snapshot(parent_snapshot):
+                        _discard_rejected_changes(sandbox_root)
+                except Exception as exc:
+                    st = _restore_failed(run_dir, parent, exc)
+                    halt_reason = 'restore_failed'
+                    break
+                _gate_human.enqueue(run_dir, {
+                    "run_id": run_id, "round": rnd, "action_type": "human_review",
+                    "payload": {"reason": "C tier measurements unavailable",
+                                "evaluation": ev_result},
+                })
+                st = _step(run_dir, {
+                    "type": "PAUSE_FOR_HUMAN", "phase": "PAUSE_FOR_HUMAN",
+                    "forced_review_delta": 1, "reason": "C tier measurements unavailable",
+                    "available": False,
+                    "regression_evidence": ev_result.get("regression_evidence"),
+                    "consistency_evidence": ev_result.get("consistency_evidence"),
+                    "scenario_eval": ev_result.get("scenario_eval"),
+                })
+                history.append({"round": rnd, "summary": "C tier measurements unavailable",
+                                "passed": False})
+                break
+
             # no_regression 硬门: 退化直接 REJECT, 跳过后续多闸
             if not ev_result.get("no_regression", True):
                 st.no_progress += 1
-                _discard_rejected_changes(sandbox_root)
+                try:
+                    with business_tree.selected_snapshot(parent_snapshot):
+                        _discard_rejected_changes(sandbox_root)
+                except Exception as exc:
+                    st = _restore_failed(run_dir, parent, exc)
+                    halt_reason = 'restore_failed'
+                    break
                 st = _step(run_dir, {
                     "type": "REJECT",
                     "phase": "REFLECT",
@@ -1228,10 +1284,10 @@ def run_loop(
 
             if _c_route == "ARCHIVE":
                 # 态8 ACCEPT (纯 C 在 auto 模式下不会到达此处: coverage=0 → PAUSE_FOR_HUMAN)
-                vid = f"v{len(accepted) + 1}"
-                archive.add_version(run_dir, vid, [], parent)
+                vid = archive.next_version_id(run_dir)
                 arch_dir = os.path.join(run_dir, "archive")
                 archive.snapshot_version(arch_dir, vid, sandbox_root)
+                archive.add_version(run_dir, vid, [], parent)
                 accepted.append(vid)
                 st.no_progress = 0
                 st.forced_review = 0
@@ -1279,7 +1335,13 @@ def run_loop(
             else:
                 # 态9 REJECT, C 档拒绝
                 st.no_progress += 1
-                _discard_rejected_changes(sandbox_root)
+                try:
+                    with business_tree.selected_snapshot(parent_snapshot):
+                        _discard_rejected_changes(sandbox_root)
+                except Exception as exc:
+                    st = _restore_failed(run_dir, parent, exc)
+                    halt_reason = 'restore_failed'
+                    break
                 st = _step(run_dir, {
                     "type": "REJECT",
                     "phase": "REFLECT",
@@ -1304,12 +1366,9 @@ def run_loop(
                 # 自举: 用 frozen Supervisor.grade 取代 evaluate（candidate 不能给自己打分）
                 _sb_root = candidate_worktree if candidate_worktree else sandbox_root
                 _grade = supervisor.grade({}, _sb_root, self_mode=True)
-                # 构造 paired（与 evaluate A 档冷启动一致：before=0.0 基线）
-                _dims = _grade.get("dimensions", [])
-                if _dims:
-                    _sv_paired = [(0.0, float(d["score"])) for d in _dims]
-                else:
-                    _sv_paired = [(0.0, 1.0 if _grade.get("task_passed") else 0.0)]
+                _dims = _grade.get('dimensions', [])
+                from tools.sie.evaluate import pair_parent_dimensions
+                _sv_paired = pair_parent_dimensions(baseline['dimensions'], _dims)
                 # 用 frozen Supervisor.decide 裁决（不从 candidate import acceptor）
                 dec = supervisor.decide(_sv_paired, prof["tier"], st, params)
             else:
@@ -1319,15 +1378,15 @@ def run_loop(
 
             if nxt == "ARCHIVE":
                 # 态8 ACCEPT: add lineage entry + snapshot
-                vid = f"v{len(accepted) + 1}"
+                vid = archive.next_version_id(run_dir)
                 # NOTE: add_version receives run_dir (internally joins "archive"),
                 #       snapshot_version receives arch_dir (pre-joined).
                 # M4.6: 自举时 ev_result={}, 用 _grade（supervisor.grade 返回值）的 dimensions
                 _a_dims = (_grade.get("dimensions", []) if supervisor is not None
                            else ev_result["result"]["dimensions"])
-                archive.add_version(run_dir, vid, _a_dims, parent)
                 arch_dir = os.path.join(run_dir, "archive")
                 archive.snapshot_version(arch_dir, vid, sandbox_root)
+                archive.add_version(run_dir, vid, _a_dims, parent)
                 accepted.append(vid)
 
                 st = _step(run_dir, {
@@ -1384,7 +1443,13 @@ def run_loop(
 
             else:
                 # 态9 REJECT: no_progress already incremented by apply_acceptor_outcome
-                _discard_rejected_changes(sandbox_root)
+                try:
+                    with business_tree.selected_snapshot(parent_snapshot):
+                        _discard_rejected_changes(sandbox_root)
+                except Exception as exc:
+                    st = _restore_failed(run_dir, parent, exc)
+                    halt_reason = 'restore_failed'
+                    break
                 st = _step(run_dir, {
                     "type": "REJECT",
                     "phase": "REFLECT",
@@ -1403,6 +1468,7 @@ def run_loop(
     return {
         "run_id": run_id,
         "accepted_versions": accepted,
+        **({'halt_reason': halt_reason} if halt_reason else {}),
         "final_phase": st.phase,
         "run_dir": run_dir,
     }

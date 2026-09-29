@@ -1,11 +1,13 @@
 import os, hashlib, subprocess, pathlib, pytest
 from tools.sie import immutable as im
+from tools.make_fixtures import immutable_samples
 
 EXPECTED = {
     "statemachine.py", "acceptor.py", "judges.py", "verifiable.py",
     "anchors.py", "selfdeception.py", "gate_human.py", "profile.py",
     "sandbox.py", "supervisor.py", "immutable.py",
     "patch.py", "proxy.py", "events.py",
+    "runtime_data.py", "llm_adapter.py", "llm_agent_child.py",
 }
 
 def test_immutable_relpaths_cover_spec_decision_set():
@@ -23,20 +25,22 @@ def test_is_immutable_relpath_normalizes_and_rejects_bypass():
     assert im.is_immutable_relpath("propose.py") is False
     assert im.is_immutable_relpath("reflect.py") is False
 
-def _init_repo_with_sie(tmp_path):
+def _init_repo_with_sie(tmp_path, line_ending=b"\n"):
+    sample = immutable_samples()
     root = tmp_path / "repo"
     sie = root / "tools" / "sie"
     sie.mkdir(parents=True)
     # 造两个 IMMUTABLE + 一个非 IMMUTABLE
-    (sie / "acceptor.py").write_text("ACCEPTOR_V1 = 1\n", encoding="utf-8")
-    (sie / "gate_human.py").write_text("GATE_V1 = 1\n", encoding="utf-8")
-    (sie / "propose.py").write_text("PROPOSE_V1 = 1\n", encoding="utf-8")
-    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
-           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+    for name, content in sample['files'].items():
+        (sie / name).write_bytes(content.replace(b"\n", line_ending))
+    env = {**os.environ, "GIT_AUTHOR_NAME": sample['git_name'],
+           "GIT_AUTHOR_EMAIL": sample['git_email'],
+           "GIT_COMMITTER_NAME": sample['git_name'],
+           "GIT_COMMITTER_EMAIL": sample['git_email']}
     subprocess.run(["git", "init", "-q"], cwd=root, check=True, env=env)
-    subprocess.run(["git", "config", "core.safecrlf", "false"], cwd=root, check=True, env=env)
+    subprocess.run(["git", "config", "core.autocrlf", "false"], cwd=root, check=True, env=env)
     subprocess.run(["git", "add", "-A"], cwd=root, check=True, env=env)
-    subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=root, check=True, env=env)
+    subprocess.run(["git", "commit", "-q", "-m", sample["git_message"]], cwd=root, check=True, env=env)
     return root
 
 def test_materialize_frozen_writes_only_immutable_with_base_ref_content(tmp_path):
@@ -65,12 +69,15 @@ def test_verify_immutable_raises_on_tamper(tmp_path):
         im.verify_immutable(sie_root, digests)
     assert "acceptor.py" in str(ei.value)
 
-def test_verify_immutable_passes_when_intact(tmp_path):
-    root = _init_repo_with_sie(tmp_path)
+@pytest.mark.parametrize("case,line_ending", immutable_samples()["line_endings"])
+def test_verify_immutable_passes_when_intact(tmp_path, case, line_ending):
+    root = _init_repo_with_sie(tmp_path, line_ending)
     sie_root = str(root / "tools" / "sie")
     frozen = str(tmp_path / "frozen")
     digests = im.materialize_frozen("HEAD", sie_root, frozen)
-    im.verify_immutable(sie_root, digests)  # 未篡改 → 不抛
+    for name in ('acceptor.py', 'gate_human.py'):
+        assert (pathlib.Path(frozen) / name).read_bytes() == (pathlib.Path(sie_root) / name).read_bytes()
+    im.verify_immutable(sie_root, digests)
 
 def test_verify_immutable_raises_on_missing_file(tmp_path):
     root = _init_repo_with_sie(tmp_path)

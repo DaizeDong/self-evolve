@@ -82,7 +82,7 @@ profile 还承担了一个反自欺的关键动作：在判定"A 路信号可用
   proposer 没法靠"反复重试碰运气"刷过隐藏集。
 - **visible 锚**写进 `target.json` 的 `anchors_visible`，供后续 evaluate 计分。
 - **holdout 锚的真值**被**物理隔离**到一个独立目录的文件里：
-  有 run_dir 时落 `<run_dir>/_holdout/holdout.json`，否则落 `<target>/_run/_holdout/holdout.json`。
+  Holdouts use the verified PRIVATE run directory. Without `run_dir`, profiling resolves its own target namespace in the configured companion.
 - `target.json` 里**只存一个指针** `anchors_holdout_ref = {path, count, ref: "isolated"}`,
   **绝不存 holdout 真值本身**。proposer 读 `target.json` 永远看不到隐藏答案。
 

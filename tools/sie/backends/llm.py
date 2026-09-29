@@ -1,15 +1,14 @@
-"""LLM proposer 后端：用真 Claude（cc 优先, claude fallback）据 findings 生成代码改动。
-
-铁律1: proposer 只生成提议；采纳由确定性 harness 裁决。生成内容经 apply_patch 的
-import 白名单 + AST 危险门 + 沙箱边界(+自举 IMMUTABLE 硬拒)全门控，proposer 无法绕过。
-失败/超时/空 → 返回 []（propose.py 回退 builtin / run_loop 走 static_reject）。绝不抛。
-"""
+"""Proposers using current llmcall agent policy and validated private scratch space."""
 from __future__ import annotations
+import copy
 import glob
 import json
+import math
 import os
-import subprocess
+from pathlib import Path
 import sys
+
+from tools.sie import llm_adapter
 
 # proposer 输入的源码上限（防 prompt 过大 / 控成本）
 #
@@ -29,50 +28,24 @@ _MAX_TOTAL_BYTES = 400_000
 _MAX_ARTIFACT_BYTES = 200_000
 
 
-# The workflow scripts, resolved from THIS file rather than from the process working directory.
-_PKG_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__)))))
+class ProposalBatch(list):
+    """List-compatible proposals retaining call evidence, including empty results."""
+
+    def __init__(self, proposals=(), *, backend_outcomes=(), diagnostics=()):
+        super().__init__(proposals)
+        self.backend_outcomes = copy.deepcopy(list(backend_outcomes))
+        self.diagnostics = list(diagnostics)
 
 
-def _script(name: str) -> str:
-    return os.path.join(_PKG_ROOT, "workflows", name)
-
-
-def _scratch_cwd() -> str:
-    """A throwaway working directory for the proposer subprocess.
-
-    The proposer is a Claude Code agent with file-writing tools, and it was inheriting this
-    repository as its working directory. Over four rounds on 2026-08-20 it left
-    `proposal_tmp.json`, `proposal_folded.txt`, `proposal_output.json`, `.proposer_out.json`,
-    `tools/_tmp_head_pii_guard.py` and `tools/_tmp_output.json` in the repo -- each one a full or
-    partial copy of the target's source -- and it also EDITED a real vendored file in place. None
-    of that is in the contract; the contract is a JSON object on stdout.
-
-    Adding each new name to .gitignore is chasing it. Giving the subprocess a working directory
-    that is not a repository is the fix, and it costs one temp dir per call.
-    """
-    import tempfile
-    return tempfile.mkdtemp(prefix="sie-proposer-")
-
-
-def _empty(why: str, child_stderr: str = "") -> list:
-    """Return [] and SAY WHY on stderr.
-
-    Every one of the callers of this used to be a bare `return []`, and `[]` is also what the
-    function returns when the model genuinely had no suggestion. One value, two meanings, and only
-    the innocent one appears in the run report.
-
-    `child_stderr` matters as much as `why`. claude-propose.js distinguishes four different failures
-    and explains each on its own stderr, but this layer captured that stream and dropped it on the
-    one path that matters most, the child exiting 0 with an empty object. The diagnosis was written
-    and then thrown away one frame up, which reads exactly like never having written it.
-    """
+def _empty(why: str, child_stderr: str = "", *, backend=None) -> list:
+    """Preserve the legacy empty-list interface without dropping failure diagnostics."""
     print("sie: proposer produced nothing -- %s" % why, file=sys.stderr)
     tail = (child_stderr or "").strip()
     if tail:
         for line in tail.splitlines()[-12:]:
             print("sie:   child: %s" % line, file=sys.stderr)
-    return []
+    return ProposalBatch(backend_outcomes=[backend] if backend is not None else [],
+                         diagnostics=[why])
 
 
 def _patchable(sandbox_root: str, rel: str, content: str) -> tuple[bool, str]:
@@ -83,8 +56,11 @@ def _patchable(sandbox_root: str, rel: str, content: str) -> tuple[bool, str]:
     set, which would turn "the gate is strict" into "the proposer had nothing to look at".
     """
     try:
+        from tools.sie.immutable import is_immutable_relpath
         from tools.sie.patch import (DEFAULT_IMPORT_ALLOW, import_gate,
                                      scan_ast_dangerous)
+        if is_immutable_relpath(rel):
+            return False, "protected decision path"
         ok, why = import_gate(content, set(DEFAULT_IMPORT_ALLOW),
                               sandbox_root=sandbox_root, file_rel=rel)
         if not ok:
@@ -175,60 +151,33 @@ def _extract_findings(reflections: list[dict]) -> list[str]:
 
 
 def generate(sandbox_root: str, reflections: list[dict], timeout_s: int = 600) -> list[dict]:
-    """调 workflows/claude-propose.js 生成一个 {file_rel, new_content} 提议。
-
-    Returns [] on any failure (launch/timeout/non-zero/empty/parse) — never raises.
-    """
+    """Propose one supplied source file through the shared disposable agent transport."""
     skipped: list = []
     files = _gather_sources(sandbox_root, skipped)
     if not files:
-        # 空输入不是空提议。静默返回 [] 会让上游把「proposer 没东西可看」记成「proposer 看过了没
-        # 想法」，而这个 run 的最终报告只有后者。说出来，再返回。
-        print("sie: proposer gathered 0 source files from %s%s"
-              % (sandbox_root,
-                 (" -- skipped: " + "; ".join("%s (%s)" % t for t in skipped[:5]))
-                 if skipped else ""),
-              file=sys.stderr)
-        return []
-    payload = json.dumps({"findings": _extract_findings(reflections), "files": files})
-    try:
-        proc = subprocess.run(
-            ["node", _script("claude-propose.js")],
-            input=payload,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",      # 勿用 locale(GBK)解码 UTF-8 输出
-            errors="replace",
-            timeout=timeout_s,
-            cwd=_scratch_cwd(),    # not this repo: see _scratch_cwd
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
-        return _empty("proposer subprocess failed: %s" % type(e).__name__)
-    if proc.returncode != 0:
-        return _empty("proposer exited %d: %s"
-                      % (proc.returncode, (proc.stderr or "").strip()[:300]))
-    if not proc.stdout.strip():
-        return _empty("proposer produced no stdout at all", proc.stderr)
-    try:
-        obj = json.loads(proc.stdout)
-    except (ValueError, json.JSONDecodeError):
-        # This is NOT "no proposal". Observed 2026-08-20 on a 106 KB target: the agent decided a
-        # hundred kilobytes of new_content was too much to emit inline, wrote it to a file in the
-        # working directory instead, and printed prose. The contract only reads stdout, so the
-        # loop recorded STATIC_REJECT while a complete, usable proposal sat on disk.
-        return _empty("proposer stdout was not JSON (first 200 chars: %r). If the target file is "
-                      "large the agent may have written the content to a file instead of "
-                      "returning it inline; the contract only reads stdout."
-                      % proc.stdout.strip()[:200], proc.stderr)
-    fr, nc = obj.get("file_rel"), obj.get("new_content")
-    if not isinstance(fr, str) or not isinstance(nc, str):
-        return _empty("proposer JSON lacked file_rel/new_content strings (keys: %s)"
-                      % (sorted(obj) if isinstance(obj, dict) else "not an object"),
-                      proc.stderr)
-    if fr not in files:
-        return _empty("proposer named %r, which was not one of the files it was given" % fr,
-                      proc.stderr)
-    return [{"file_rel": fr, "new_content": nc, "fixes": "llm-proposer"}]
+        return _empty("gathered 0 source files; skipped: " + repr(skipped[:5]))
+    prompt = (
+        "You are a proposer in a self-improvement loop. Produce one minimal change "
+        "addressing the findings. Choose only a supplied file; return its complete "
+        "new content. Do not edit files, add dangerous imports or perform I/O. "
+        'Return only JSON: {"file_rel":"supplied path","new_content":"complete content"}. '
+        "Return {} if no useful change is possible.\n\n"
+        + json.dumps({"findings": _extract_findings(llm_adapter.strip_truth(reflections)),
+                      "files": files}, ensure_ascii=False)
+    )
+    result = llm_adapter.invoke_agent(prompt)
+    if not result["ok"]:
+        return _empty(result["error"], result.get("diagnostic", ""), backend=result)
+    obj = llm_adapter.parse_object(result["result"])
+    if obj is None:
+        return _empty("proposer output was not a JSON object", backend=result)
+    rel, content = obj.get("file_rel"), obj.get("new_content")
+    if not isinstance(rel, str) or rel not in files:
+        return _empty("proposer named a file outside the supplied source set", backend=result)
+    if not isinstance(content, str) or not content.strip():
+        return _empty("proposer omitted nonempty new_content", backend=result)
+    return ProposalBatch([{"file_rel": rel, "new_content": content, "fixes": "llm-proposer",
+                           "backend": result}], backend_outcomes=[result])
 
 
 # ---------------------------------------------------------------------------
@@ -268,58 +217,98 @@ def _find_target_artifact(sandbox_root: str, artifact_rel: str | None) -> str | 
     return best_rel if best_n > 0 else None
 
 
+def _artifact_anchors(document: dict) -> list[dict]:
+    """Validate containers and required anchor text without inspecting truth."""
+    if not isinstance(document, dict) or not isinstance(document.get("sections"), list):
+        raise ValueError("artifact must contain a sections list")
+    anchors = []
+    for section in document["sections"]:
+        if not isinstance(section, dict) or not isinstance(section.get("anchors", []), list):
+            raise ValueError("artifact sections must be objects with anchor lists")
+        for anchor in section.get("anchors", []):
+            if not isinstance(anchor, dict) or any(
+                    not isinstance(anchor.get(key), str) or not anchor[key].strip()
+                    for key in ("claim", "span", "source_url")):
+                raise ValueError("anchors require nonempty claim, span and source_url strings")
+            anchors.append(anchor)
+    return anchors
+
+
+def _numeric_anchor(anchor: dict) -> bool:
+    return any(key in anchor for key in ("metric", "cik", "period", "expected"))
+
+
+def _valid_numeric_anchor(anchor: dict) -> bool:
+    """Check numeric lookup syntax; factual correctness belongs to verification."""
+    if any(not isinstance(anchor.get(key), str) or not anchor[key].strip()
+           for key in ("metric", "period")):
+        return False
+    cik = anchor.get("cik")
+    if not ((isinstance(cik, str) and cik.strip()) or (type(cik) is int and cik >= 0)):
+        return False
+    expected = anchor.get("expected")
+    try:
+        return type(expected) in (int, float) and math.isfinite(expected)
+    except OverflowError:
+        return False
+
+
 def generate_artifact(sandbox_root: str, reflections: list[dict],
                       artifact_rel: str | None = None,
                       timeout_s: int = 600) -> list[dict]:
-    """调 workflows/claude-propose-artifact.js 改进研究产物 JSON。
-
-    定位目标产物 → 读当前文本 → 调 JS（cc 优先）→ 返回 [{file_rel, new_content}]。
-    铁律5: 真值字段(expected/verified/...)由 JS 在 prompt 前剥离，proposer 看不到。
-    Returns [] on any failure — never raises.
-    """
+    """Propose a structured artifact after recursively removing truth fields."""
     target_rel = _find_target_artifact(sandbox_root, artifact_rel)
     if not target_rel:
-        return []
-    ap = os.path.join(sandbox_root, target_rel)
+        return _empty("artifact file is missing or no anchored artifact was found")
+    path = Path(sandbox_root).resolve() / target_rel
     try:
-        if os.path.getsize(ap) > _MAX_ARTIFACT_BYTES:
-            return []
-        artifact_text = open(ap, encoding="utf-8").read()
-    except (OSError, UnicodeDecodeError):
-        return []
-
-    payload = json.dumps({
-        "findings": _extract_findings(reflections),
-        "artifact_path": target_rel,
-        "artifact": artifact_text,
-    })
+        if not path.resolve().is_relative_to(Path(sandbox_root).resolve()):
+            return _empty("artifact path escapes the target")
+        if path.stat().st_size > _MAX_ARTIFACT_BYTES:
+            return _empty("artifact exceeds the input size limit")
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError) as exc:
+        return _empty("artifact unavailable: " + type(exc).__name__)
     try:
-        proc = subprocess.run(
-            ["node", _script("claude-propose-artifact.js")],
-            input=payload,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",      # 勿用 locale(GBK)解码 UTF-8 输出
-            errors="replace",
-            timeout=timeout_s,
-            cwd=_scratch_cwd(),    # not this repo: see _scratch_cwd
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
-        return _empty("artifact proposer subprocess failed: %s" % type(e).__name__)
-    if proc.returncode != 0 or not proc.stdout.strip():
-        return []
+        original_anchors = _artifact_anchors(document)
+    except ValueError as exc:
+        return _empty(str(exc))
+    payload = {"findings": _extract_findings(llm_adapter.strip_truth(reflections)),
+               "artifact_path": target_rel, "artifact": llm_adapter.strip_truth(document)}
+    prompt = (
+        "Improve the supplied research artifact using the findings. Keep its JSON shape "
+        "and preserve its anchors. sections must be a list of objects; each anchors collection "
+        "must be a list of objects with nonempty claim, span and source_url strings. Numeric "
+        "anchors must also include nonempty metric and period strings, a nonempty cik string "
+        "or nonnegative integer, and a finite numeric expected value. Original truth values "
+        "have been withheld: independently infer and supply expected for every numeric anchor. "
+        "Do not use a boolean, null or string for expected, or remove numeric lookup fields. "
+        "Schema validity is not factual verification. Do not edit files. "
+        "Return only JSON containing file_rel and the complete new_content "
+        "as a JSON string. Return {} if no useful change is possible.\n\n"
+        + json.dumps(payload, ensure_ascii=False)
+    )
+    result = llm_adapter.invoke_agent(prompt)
+    if not result["ok"]:
+        return _empty(result["error"], result.get("diagnostic", ""), backend=result)
+    obj = llm_adapter.parse_object(result["result"])
+    if obj is None or obj.get("file_rel") != target_rel or not isinstance(obj.get("new_content"), str):
+        return _empty("artifact proposal lacks the requested file and new_content", backend=result)
     try:
-        obj = json.loads(proc.stdout)
-    except (ValueError, json.JSONDecodeError):
-        return []
-    fr, nc = obj.get("file_rel"), obj.get("new_content")
-    if not isinstance(fr, str) or not isinstance(nc, str) or fr != target_rel:
-        return []
-    # new_content 必须是合法 JSON 产物（结构门，与 JS 侧一致的二次防御）
+        parsed = json.loads(obj["new_content"])
+    except ValueError:
+        return _empty("proposed artifact content must be standalone JSON", backend=result)
     try:
-        parsed = json.loads(nc)
-    except (ValueError, json.JSONDecodeError):
-        return []
-    if not isinstance(parsed, dict) or not isinstance(parsed.get("sections"), list):
-        return []
-    return [{"file_rel": fr, "new_content": nc, "fixes": "llm-artifact-proposer"}]
+        proposed_anchors = _artifact_anchors(parsed)
+    except ValueError as exc:
+        return _empty("proposed " + str(exc), backend=result)
+    if len(proposed_anchors) < len(original_anchors):
+        return _empty("proposed artifact removed anchors", backend=result)
+    numeric = [anchor for anchor in proposed_anchors if _numeric_anchor(anchor)]
+    if len(numeric) < sum(_numeric_anchor(anchor) for anchor in original_anchors):
+        return _empty("proposed artifact removed numeric anchor schema", backend=result)
+    if any(not _valid_numeric_anchor(anchor) for anchor in numeric):
+        return _empty("numeric anchors require metric, cik, period and finite numeric expected", backend=result)
+    return ProposalBatch([{"file_rel": target_rel, "new_content": obj["new_content"],
+                           "fixes": "llm-artifact-proposer", "backend": result}],
+                         backend_outcomes=[result])

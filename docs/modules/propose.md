@@ -75,21 +75,16 @@ returncode 非 0 / stdout 空 / JSON 解析失败 / `file_rel` 不是字符串 /
 **`file_rel` 不在我们给它的文件清单里** → 一律返回 `[]`。proposer 不能凭空新建路径。
 全程**绝不抛异常**，任何失败都收敛成空列表。
 
-#### subagent 侧（claude-propose.js）
+#### Agent transport
 
-JS 侧读 stdin 的 `{findings, files}`，把每个文件拼成 `--- FILE: <rel> ---` 块，组装 prompt：
-要求 Claude 据 findings + 当前源码，产出**一个**最有影响的文件的**完整新内容**（非 diff），
-不得引入危险 import 或 I/O，只返回 `{"file_rel":..., "new_content":...}` JSON；无可改则返回 `{}`。
+`backends/llm.py` builds a structured prompt and calls the shared `llm_adapter`.
+The packaged Python child invokes installed llmcall in agent mode from a fresh
+PRIVATE working directory. The parent never changes cwd. Returned proposals must
+name an input file and provide complete new content; malformed output remains an
+explicit no-proposal outcome. Backend metadata follows the proposal.
+The former JavaScript launchers are disabled. See [runtime.md](runtime.md).
 
-调用经共享启动器 `_claude_launch.js` 的 `launchClaude(['--model','sonnet'], prompt)`：
-**cc 优先（走 split-billing 网关），claude 作 fallback**；fallback 仅在 cc **启动失败**
-（ENOENT / cmd 9009 / sh 127）时触发，cc 已启动但 agent 报错不回退（避免重复计费）。
-prompt 同样经 stdin 传入（`shell:true` 解析 .cmd，但 prompt 不进命令行 → 无注入面）。
-
-回包解析时 JS 侧也设了门：从 result 里截 `{...}`，校验 `file_rel` 是字符串、`new_content` 是字符串、
-且 `file_rel ∈ 给定文件清单`（不许凭空新建路径）；否则回 `{}`。这与 Python 侧形成二次防御。
-
-### llm-artifact：研究产物提议（backends/llm.py → claude-propose-artifact.js）
+### llm-artifact：研究产物提议（backends/llm.py → llm_adapter）
 
 这是 llm 路线的 B 档变体：proposer 改的不是 `.py` 代码，而是研究产物 JSON
 （一份事实断言锚定到 SEC/EDGAR 的报告）。目标是让产物里的断言更可被核验
@@ -193,6 +188,6 @@ propose 作为"生成式"环节，是闭环里最容易被一个聪明的 agent 
 - `workflows/claude-propose.js`, 代码提议 subagent（prompt 走 stdin，file_rel 限给定清单）。
 - `workflows/claude-propose-artifact.js:stripTruth`, 真值剥离（铁律5）。
 - `workflows/claude-propose-artifact.js`, 产物提议 subagent（脱敏 + 锚数不减门）。
-- `workflows/_claude_launch.js:launchClaude`, 共享启动器（cc 优先 claude fallback，prompt 走 stdin）。
+- `tools/sie/llm_adapter.py`, shared installed llmcall policy and validated results.
 - `tools/sie/patch.py:apply_patch`, 下游门控（IMMUTABLE / 沙箱边界 / import 白名单 / AST 危险门）。
 - `tools/sie/statemachine.py:run_loop`, 态4 调 propose、态5 调 apply_patch、空提议走 note_static_reject。

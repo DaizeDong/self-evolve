@@ -75,7 +75,7 @@ def test_find_target_artifact_none_when_no_anchors(tmp_path):
 
 def _fake_run_factory(stdout, returncode=0):
     def _fake_run(cmd, **kw):
-        return types.SimpleNamespace(returncode=returncode, stdout=stdout, stderr="")
+        return {"ok": returncode == 0, "result": stdout, "provider": "cc", "family": "claude", "attempts": [], "error": None if returncode == 0 else "synthetic failure"}
     return _fake_run
 
 
@@ -84,7 +84,7 @@ def test_generate_artifact_success(tmp_path, monkeypatch):
     new_doc = _artifact(3)
     new_doc["sections"][0]["anchors"][0]["expected"] = 999  # proposer 改了值
     out = {"file_rel": "report.json", "new_content": json.dumps(new_doc)}
-    monkeypatch.setattr(subprocess, "run", _fake_run_factory(json.dumps(out)))
+    monkeypatch.setattr(_llm.llm_adapter, "invoke_agent", _fake_run_factory(json.dumps(out)))
     props = _llm.generate_artifact(root, [{"merged_findings": ["fix it"]}],
                                    artifact_rel="report.json")
     assert len(props) == 1
@@ -97,14 +97,14 @@ def test_generate_artifact_node_missing_returns_empty(tmp_path, monkeypatch):
     root = _write(tmp_path, _artifact(3))
 
     def _boom(*a, **k):
-        raise FileNotFoundError("node not found")
-    monkeypatch.setattr(subprocess, "run", _boom)
+        return _llm.llm_adapter.failure("synthetic unavailable")
+    monkeypatch.setattr(_llm.llm_adapter, "invoke_agent", _boom)
     assert _llm.generate_artifact(root, [], artifact_rel="report.json") == []
 
 
 def test_generate_artifact_invalid_json_stdout_returns_empty(tmp_path, monkeypatch):
     root = _write(tmp_path, _artifact(3))
-    monkeypatch.setattr(subprocess, "run", _fake_run_factory("not json at all"))
+    monkeypatch.setattr(_llm.llm_adapter, "invoke_agent", _fake_run_factory("not json at all"))
     assert _llm.generate_artifact(root, [], artifact_rel="report.json") == []
 
 
@@ -112,14 +112,14 @@ def test_generate_artifact_new_content_not_artifact_returns_empty(tmp_path, monk
     """new_content 是合法 JSON 但缺 sections → 结构门拒。"""
     root = _write(tmp_path, _artifact(3))
     out = {"file_rel": "report.json", "new_content": json.dumps({"foo": 1})}
-    monkeypatch.setattr(subprocess, "run", _fake_run_factory(json.dumps(out)))
+    monkeypatch.setattr(_llm.llm_adapter, "invoke_agent", _fake_run_factory(json.dumps(out)))
     assert _llm.generate_artifact(root, [], artifact_rel="report.json") == []
 
 
 def test_generate_artifact_wrong_file_rel_returns_empty(tmp_path, monkeypatch):
     root = _write(tmp_path, _artifact(3))
     out = {"file_rel": "other.json", "new_content": json.dumps(_artifact(3))}
-    monkeypatch.setattr(subprocess, "run", _fake_run_factory(json.dumps(out)))
+    monkeypatch.setattr(_llm.llm_adapter, "invoke_agent", _fake_run_factory(json.dumps(out)))
     assert _llm.generate_artifact(root, [], artifact_rel="report.json") == []
 
 
@@ -130,7 +130,7 @@ def test_generate_artifact_no_artifact_in_sandbox_returns_empty(tmp_path, monkey
     def _track(*a, **k):
         called["n"] += 1
         return types.SimpleNamespace(returncode=0, stdout="{}", stderr="")
-    monkeypatch.setattr(subprocess, "run", _track)
+    monkeypatch.setattr(_llm.llm_adapter, "invoke_agent", _track)
     assert _llm.generate_artifact(str(tmp_path), [], artifact_rel=None) == []
     assert called["n"] == 0
 
@@ -142,7 +142,7 @@ def test_generate_artifact_no_artifact_in_sandbox_returns_empty(tmp_path, monkey
 def test_propose_llm_artifact_dispatch(tmp_path, monkeypatch):
     root = _write(tmp_path, _artifact(3))
     out = {"file_rel": "report.json", "new_content": json.dumps(_artifact(3))}
-    monkeypatch.setattr(subprocess, "run", _fake_run_factory(json.dumps(out)))
+    monkeypatch.setattr(_llm.llm_adapter, "invoke_agent", _fake_run_factory(json.dumps(out)))
     props = propose(root, [{"merged_findings": ["x"]}], backend="llm-artifact")
     assert len(props) == 1
     assert props[0]["file_rel"] == "report.json"
@@ -153,8 +153,8 @@ def test_propose_llm_artifact_empty_does_not_fallback_builtin(tmp_path, monkeypa
     root = _write(tmp_path, _artifact(3))
 
     def _boom(*a, **k):
-        raise FileNotFoundError("node not found")
-    monkeypatch.setattr(subprocess, "run", _boom)
+        return _llm.llm_adapter.failure("synthetic unavailable")
+    monkeypatch.setattr(_llm.llm_adapter, "invoke_agent", _boom)
     # 若回退 builtin 会试图改 .py；这里目录无 .py，且我们断言结果为 []
     assert propose(root, [], backend="llm-artifact") == []
 
@@ -174,49 +174,20 @@ def test_propose_builtin_unaffected(tmp_path):
 # 铁律5: claude-propose-artifact.js 给 Claude 的内容绝不含 expected 真值
 # ---------------------------------------------------------------------------
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
-def test_js_strips_truth_values_from_prompt(tmp_path, monkeypatch):
-    """以 dry-run 模式跑 JS：注入一个假 launcher 把收到的 prompt 落盘，
-    断言 prompt 不含任何 expected 真值，但保留 claim/span/source_url。"""
-    repo = os.getcwd()
-    js = os.path.join(repo, "workflows", "claude-propose-artifact.js")
-    assert os.path.isfile(js)
-
-    # 用一个 stub 的 _claude_launch，把 prompt 写到文件并返回 ok=false（不真调）。
-    spy = tmp_path / "prompt_seen.txt"
-    stub_dir = tmp_path / "workflows"
-    stub_dir.mkdir()
-    # 复制真 JS 到 stub 目录，旁边放一个假的 _claude_launch.js
-    shutil.copy(js, stub_dir / "claude-propose-artifact.js")
-    (stub_dir / "_claude_launch.js").write_text(
-        "const fs=require('fs');\n"
-        "module.exports={launchClaude:(a,p)=>{fs.writeFileSync("
-        + json.dumps(str(spy)) + ",p,'utf-8');return {ok:false};}};\n",
-        encoding="utf-8",
-    )
-
-    doc = _artifact(3, with_expected=True)
-    payload = json.dumps({
-        "findings": ["fix wrong numbers"],
-        "artifact_path": "report.json",
-        "artifact": json.dumps(doc),
-    })
-    proc = subprocess.run(
-        ["node", str(stub_dir / "claude-propose-artifact.js")],
-        input=payload, capture_output=True, text=True,
-        encoding="utf-8", errors="replace",
-    )
-    assert proc.returncode == 0
-    prompt = spy.read_text(encoding="utf-8")
-    # 真值绝不外泄: expected 数值 / verified 真值在脱敏后的产物块里不得出现。
-    # (注: prompt 指令文本里会出现 "expected"/"verified" 这两个词,那是要求 Claude
-    #  自己填值的说明，不是真值；故只断言真值本身不外泄。)
-    assert "1000000000" not in prompt          # expected 真值数字
-    # 脱敏产物块（从 "CURRENT ARTIFACT" 之后）里不得含真值字段
-    art_block = prompt.split("CURRENT ARTIFACT", 1)[-1]
-    assert '"expected"' not in art_block
-    assert '"verified"' not in art_block
-    # 非真值线索保留
-    assert "claim 0" in prompt
-    assert "span text 0" in prompt
-    assert "us-gaap:Assets" in prompt
+def test_python_strips_truth_values_from_prompt(tmp_path, monkeypatch):
+    """The actual Python proposer removes truth before crossing the model boundary."""
+    from tools.make_fixtures import llm_samples
+    sample = llm_samples()
+    root = _write(tmp_path, sample["document"], name=sample["artifact_path"])
+    prompts = []
+    def invoke(prompt):
+        prompts.append(prompt)
+        return _llm.llm_adapter.failure("synthetic unavailable")
+    monkeypatch.setattr(_llm.llm_adapter, "invoke_agent", invoke)
+    assert _llm.generate_artifact(root, [], sample["artifact_path"]) == []
+    assert len(prompts) == 1
+    prompt = prompts[0]
+    anchor = sample["document"]["sections"][0]["anchors"][0]
+    for key in ("expected", "observed", "marginal_gain"):
+        assert str(anchor[key]) not in prompt
+    assert anchor["claim"] in prompt and anchor["span"] in prompt

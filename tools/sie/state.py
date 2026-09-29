@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json, os
 from dataclasses import dataclass, asdict, fields
+from tools.sie.runtime_data import write_json
 
 STATE_FILE = "state.json"
 
@@ -20,14 +21,7 @@ class RunState:
 
 
 def save_state(rs: RunState, run_dir: str) -> None:
-    os.makedirs(run_dir, exist_ok=True)
-    final = os.path.join(run_dir, STATE_FILE)
-    tmp = final + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(asdict(rs), fh, ensure_ascii=False, indent=2)
-        fh.flush()
-        os.fsync(fh.fileno())
-    os.replace(tmp, final)  # 原子 rename(Win/Posix 均原子)
+    write_json(os.path.join(run_dir, STATE_FILE), asdict(rs))
 
 
 def load_state(run_dir: str) -> RunState:

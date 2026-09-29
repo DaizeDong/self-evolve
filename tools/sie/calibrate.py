@@ -97,17 +97,14 @@ def _make_repo(root: str) -> None:
     fake .git makes that command answer "not ignored" for everything. So the copy gets a real, empty
     `git init`. It has no objects and no remote, which is all the resolver and check-ignore need.
     """
+    from tools.sie.runtime_data import runtime_directory
+    root = str(runtime_directory(root))
     if (Path(root) / ".git").exists():
         return
-    # hooksPath is emptied for THIS repo only. The machine-level hook chain would otherwise run
-    # pii_guard against a throwaway that has no remote at all, and an unknown remote is fail-closed
-    # by design, so every commit here would be refused. This is not a --no-verify: nothing in this
-    # tree can ever be pushed, it lives in TEMP and is deleted when the run ends. The guard exists to
-    # stop real data reaching a public remote, and there is no remote to reach.
+    # Synthetic calibration commits still obey the installed Git hooks.
     steps = [["git", "init", "-q"],
-             ["git", "-c", "core.hooksPath=", "add", "-A"],
-             ["git", "-c", "core.hooksPath=",
-              "-c", "user.name=calibration", "-c", "user.email=calibration@example.com",
+             ["git", "add", "-A"],
+             ["git", "-c", "user.name=calibration", "-c", "user.email=calibration@example.com",
               "commit", "-q", "-m", "calibration baseline"]]
     for cmd in steps:
         r = subprocess.run(cmd, cwd=root, capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -123,12 +120,14 @@ def seed_copy(target: str, defects: list, dest: str) -> dict:
     silently seeded 14 of 20 defects would report a repair rate against the wrong denominator, which
     is the same class of defect this whole exercise exists to catch.
     """
+    from tools.sie import business_tree, runtime_data
+    dest = str(business_tree._private_tree(dest))
     if os.path.exists(dest):
-        shutil.rmtree(dest, ignore_errors=True)
+        shutil.rmtree(dest)
     materialize(target, PINNED_REF, dest)
     applied = {}
     for d in defects:
-        p = Path(dest) / d["file_rel"]
+        p = runtime_data.private_file_path(Path(dest) / d["file_rel"])
         if not p.is_file():
             raise CalibrationError("defect %s targets a missing file %s" % (d["id"], d["file_rel"]))
         src = p.read_text(encoding="utf-8")
@@ -186,9 +185,11 @@ def run_suite(root: str, timeout_s: float = 1800) -> tuple:
 def run_oracle(root: str, oracle_src: str, timeout_s: float = 300) -> tuple:
     """Run one hidden oracle against a tree. The oracle is written to a temp file OUTSIDE the tree,
     so a proposer inspecting its own sandbox can never see the grading criterion."""
-    with tempfile.TemporaryDirectory(prefix="sie-oracle-") as td:
+    from tools.sie.runtime_data import make_directory, private_root, private_file_path
+    scratch = make_directory(private_root()/'calibration-checks')
+    with tempfile.TemporaryDirectory(prefix="sie-oracle-", dir=scratch) as td:
         f = Path(td) / "test_oracle.py"
-        f.write_text(oracle_src, encoding="utf-8", newline="\n")
+        private_file_path(f).write_text(oracle_src, encoding="utf-8", newline="\n")
         env = dict(os.environ)
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         env["PYTHONIOENCODING"] = "utf-8"
@@ -212,9 +213,10 @@ def validate(target: str, defects: list, workdir: str) -> dict:
     (it can fire) and PASS on the clean tree (it does not fire on nothing). A defect failing either
     clause is excluded with its reason, never silently kept.
     """
-    clean = os.path.join(workdir, "clean")
+    from tools.sie import business_tree
+    clean = str(business_tree._private_tree(os.path.join(workdir, "clean")))
     if os.path.exists(clean):
-        shutil.rmtree(clean, ignore_errors=True)
+        shutil.rmtree(clean)
     materialize(target, PINNED_REF, clean)
     _make_repo(clean)
 
@@ -300,7 +302,8 @@ def read_events(root: str, run_id: str) -> dict:
     A loop that ran zero rounds and a loop that ran twenty and accepted nothing produce the same
     repair score, and they mean opposite things. Only the event log separates them.
     """
-    ev = Path(root) / ".sie" / "runs" / run_id / "events.jsonl"
+    from tools.sie.runtime_data import run_directory
+    ev = run_directory(root, run_id) / "events.jsonl"
     out = {"events_path": str(ev), "present": ev.is_file(), "kinds": {}, "rounds_seen": 0,
            "accepted": 0, "static_rejected": 0, "rejected": 0}
     if not out["present"]:
@@ -364,7 +367,8 @@ def scoring_root(root: str, run_id: str) -> str:
     experiment's answer rather than as a harness fault. It resolves the sandbox or it raises; there
     is no fallback to the root, because the fallback is precisely the silent wrong answer.
     """
-    w = Path(root) / ".sie" / "worktrees" / run_id
+    from tools.sie.runtime_data import worktree_directory
+    w = worktree_directory(root, run_id)
     if not w.is_dir():
         raise CalibrationError(
             "the loop's sandbox worktree is missing at %s, so there is nothing to grade. Grading "
@@ -378,7 +382,8 @@ def scoring_root(root: str, run_id: str) -> str:
     # So the grade is refused unless the lineage agrees the sandbox is a state the loop ACCEPTED. A
     # run with no accepted version has produced nothing, and "nothing" is a real result that must be
     # reportable as 0, never as whatever happens to be lying in the tree.
-    lineage = Path(root) / ".sie" / "runs" / run_id / "archive" / "lineage.json"
+    from tools.sie.runtime_data import run_directory
+    lineage = run_directory(root, run_id) / "archive" / "lineage.json"
     n_accepted = 0
     if lineage.is_file():
         try:
@@ -428,7 +433,8 @@ def materialize(target: str, ref: str, dest: str) -> None:
     runs used and its suite was measured green in every one of them, so pinning to it also makes the
     old and new numbers comparable.
     """
-    os.makedirs(dest, exist_ok=True)
+    from tools.sie import runtime_data
+    dest = str(runtime_data.make_directory(dest))
     r = subprocess.run(["git", "-C", target, "rev-parse", "--verify", "%s^{commit}" % ref],
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0:
@@ -442,7 +448,13 @@ def materialize(target: str, ref: str, dest: str) -> None:
                                % (sha[:12], (tar.stderr or b"").decode("utf-8", "replace")[:200]))
     import tarfile, io as _io
     with tarfile.open(fileobj=_io.BytesIO(tar.stdout)) as tf:
-        tf.extractall(dest)
+        for member in tf.getmembers():
+            destination = Path(dest)/member.name
+            if member.isdir():
+                runtime_data.runtime_directory(destination)
+            else:
+                runtime_data.private_file_path(destination)
+        tf.extractall(dest, filter='data')
 
 
 def _same_file(a: str, b: str, rel: str) -> bool:
@@ -504,7 +516,8 @@ def attribute_decisions(root: str, run_id: str, defects: list) -> dict:
 
     It adjudicates nothing and can accept nothing, so it violates no iron law. It only reports.
     """
-    arch = os.path.join(root, ".sie", "runs", run_id, "archive")
+    from tools.sie.runtime_data import run_directory
+    arch = str(run_directory(root, run_id) / "archive")
     lin = []
     lp = os.path.join(arch, "lineage.json")
     if os.path.isfile(lp):
@@ -591,7 +604,15 @@ def main(argv=None) -> int:
 
     only = {x.strip() for x in a.only.split(",") if x.strip()} or None
     defects = load_defects(only)
-    workdir = a.workdir or tempfile.mkdtemp(prefix="sie-calibrate-")
+    from tools.sie.runtime_data import private_root, runtime_directory, private_file_path
+    if a.out:
+        a.out = str(private_file_path(a.out))
+    if a.workdir:
+        workdir = str(runtime_directory(a.workdir))
+    else:
+        parent = runtime_directory(private_root() / 'calibration')
+        parent.mkdir(parents=True, exist_ok=True)
+        workdir = tempfile.mkdtemp(prefix='run-', dir=parent)
     os.makedirs(workdir, exist_ok=True)
 
     t0 = time.time()
@@ -609,7 +630,7 @@ def main(argv=None) -> int:
         if not r["usable"]:
             print("  UNUSABLE %-28s %s" % (r["id"], r["why"][:150]))
     if a.out:
-        Path(a.out).write_text(json.dumps(rep, ensure_ascii=False, indent=1), encoding="utf-8")
+        private_file_path(a.out).write_text(json.dumps(rep, ensure_ascii=False, indent=1), encoding="utf-8")
         print("report: %s" % a.out)
     if a.validate_only:
         return 0 if usable else 2
@@ -648,7 +669,7 @@ def main(argv=None) -> int:
     # stderr. Refusing to produce a NUMBER and refusing to produce a RECORD are different things, and
     # only the first was intended.
     if a.out:
-        Path(a.out).write_text(json.dumps(rep, ensure_ascii=False, indent=1), encoding="utf-8")
+        private_file_path(a.out).write_text(json.dumps(rep, ensure_ascii=False, indent=1), encoding="utf-8")
 
     # Attribute every accepted decision BEFORE grading the final tree, and independently of whether
     # grading is even possible. A run that accepted nothing still has a story worth recording.
@@ -659,7 +680,7 @@ def main(argv=None) -> int:
     except Exception as e:
         rep["attribution"] = {"error": "%s: %s" % (type(e).__name__, e)}
     if a.out:
-        Path(a.out).write_text(json.dumps(rep, ensure_ascii=False, indent=1), encoding="utf-8")
+        private_file_path(a.out).write_text(json.dumps(rep, ensure_ascii=False, indent=1), encoding="utf-8")
 
     graded = scoring_root(seeded, a.run_id)
     rep["graded_tree"] = graded
@@ -706,7 +727,7 @@ def main(argv=None) -> int:
         print("  ORACLE-ERR %s (%s)" % (e["id"], e["why"]))
     print("  verdict: %s (pre-registered threshold %d)" % (rep["verdict"], rep["prereg_threshold"]))
     if a.out:
-        Path(a.out).write_text(json.dumps(rep, ensure_ascii=False, indent=1), encoding="utf-8")
+        private_file_path(a.out).write_text(json.dumps(rep, ensure_ascii=False, indent=1), encoding="utf-8")
     return 0
 
 

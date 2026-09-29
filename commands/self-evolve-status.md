@@ -13,7 +13,7 @@
 ## 底层命令
 
 ```
-python -m tools.sie.cli status --target <target> --run-id <run_id>
+python <skill绝对路径>/tools/sie_cli.py status --target <target> --run-id <run_id>
 ```
 
 ## 输出格式（JSON）

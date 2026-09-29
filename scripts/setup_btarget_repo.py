@@ -44,24 +44,18 @@ def _resolve_dest(explicit: str | None) -> str:
     未初始化时抛 DataDirNotInitialized 并带上初始化指引，而不是悄悄退回仓内路径。退回仓内
     不是便利，它就是那个泄漏本身。
     """
-    dd = _load_datadir()
-    if explicit is not None:
-        dest = os.path.abspath(os.path.expanduser(explicit))
-    elif dd is None:
-        raise SystemExit(
-            "找不到 guards/tools/datadir.py，无法解析私有伴生仓，也不会退回仓内路径。\n"
-            "请用 --dest 指定一个本仓之外的目录。")
-    else:
-        # create=True：伴生仓存在但还没有这个子目录时直接建，不存在伴生仓时抛异常。
-        dest = str(dd.data_path("self-evolve", os.path.join("btarget_run", "btarget_repo"),
-                                create=True))
-    inside = os.path.normcase(dest).startswith(os.path.normcase(_REPO) + os.sep)
-    if inside:
-        raise SystemExit(
-            "拒绝把 B 档目标建在本仓内部：\n  %s\n"
-            "公开 skill 仓只装工具；真实运行产出属于旁边那个私有伴生仓。\n"
-            "不带 --dest 即可解析到正确位置，或把 --dest 指向本仓之外。" % dest)
-    return dest
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from tools.sie.runtime_data import private_root, runtime_directory
+    root = private_root()
+    requested = Path(explicit).expanduser() if explicit is not None else root/'btarget_run/btarget_repo'
+    if not requested.is_absolute():
+        raise ValueError('--dest must be absolute')
+    dest = requested.resolve()
+    if dest == root or not dest.is_relative_to(root):
+        raise ValueError('B-target must stay beneath the configured PRIVATE data root')
+    runtime_directory(dest)
+    return str(dest)
 
 
 def _load_datadir():
@@ -76,10 +70,8 @@ def _load_datadir():
     p = os.path.join(_REPO, "guards", "tools", "datadir.py")
     if not os.path.isfile(p):
         raise SystemExit(
-            "找不到 %s，伴生仓解析器根本没有运行。
-"
-            "guards 子模块没有 checkout：请跑 `git submodule update --init`。
-"
+            "找不到 %s，伴生仓解析器根本没有运行。\n"
+            "guards 子模块没有 checkout：请跑 `git submodule update --init`。\n"
             "这跟「没有配置伴生仓」不是一回事，不能当成一回事。" % p)
     import importlib.util
     spec = importlib.util.spec_from_file_location("_dd_for_btarget", p)
@@ -113,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
     shutil.copy(_SRC, os.path.join(dest, "report.json"))
     _git(["init", "-q"], cwd=dest)
     _git(["add", "report.json"], cwd=dest)
-    _git(["commit", "-qm", "B-tier night-run target: real SEC/EDGAR anchors"], cwd=dest)
+    _git(["commit", "-qm", "Initialize the B-tier example target"], cwd=dest)
 
     head = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=dest,
                           capture_output=True, text=True).stdout.strip()

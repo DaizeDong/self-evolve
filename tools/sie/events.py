@@ -2,16 +2,13 @@ from __future__ import annotations
 import json, os
 from dataclasses import replace
 from tools.sie.state import RunState
+from tools.sie.runtime_data import write_json
 
 EVENTS_FILE = "events.jsonl"
 
 
 def append_event(run_dir: str, event: dict) -> None:
-    os.makedirs(run_dir, exist_ok=True)
-    with open(os.path.join(run_dir, EVENTS_FILE), "a", encoding="utf-8") as fh:
-        fh.write(json.dumps(event, ensure_ascii=False) + "\n")
-        fh.flush()
-        os.fsync(fh.fileno())
+    write_json(os.path.join(run_dir, EVENTS_FILE), event, append=True)
 
 
 # 直接覆盖的标量字段
