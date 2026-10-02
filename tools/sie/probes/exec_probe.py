@@ -107,16 +107,17 @@ def run_exec_probe(sandbox_root: str) -> dict:
         out["unavailable_reason"] = "no mutable source file to inject a mutant into"
         return out
 
-    with open(src, "r", encoding="utf-8") as fh:
+    # Keep exact source bytes for restoration, including mixed line endings and BOMs.
+    with open(src, "rb") as fh:
         original = fh.read()
+    original.decode("utf-8")  # Preserve the previous invalid-UTF-8 failure before mutation.
     try:
         with open(src, "a", encoding="utf-8") as fh:
             fh.write("\nraise RuntimeError('SIE_MUTANT')\n")
         mutant_code = _run_pytest(sandbox_root)
-        # 注入 bug 须变红。A TIMEOUT is not a kill: `mutant_code != 0` alone would have counted a
-        # probe that ran out of time as proof that the suite catches bugs, which is a gate passing
-        # because it did not finish checking. The mutant must be observed to fail.
-        out["mutation_killed"] = mutant_code not in (0, TIMEOUT_CODE)
+        # A mutant can fail tests (1) or break collection (2). Internal errors, bad invocation,
+        # no collected tests and timeouts do not establish that the suite caught the mutation.
+        out["mutation_killed"] = mutant_code in (1, 2)
         if mutant_code == TIMEOUT_CODE:
             out["unavailable_reason"] = (
                 "mutation check TIMED OUT after %gs, so the suite was never shown to catch an "
@@ -124,7 +125,10 @@ def run_exec_probe(sandbox_root: str) -> dict:
         elif mutant_code == 0:
             out["unavailable_reason"] = (
                 "the suite stayed GREEN with a mutant injected, so it cannot adjudicate changes")
+        elif not out["mutation_killed"]:
+            out["unavailable_reason"] = (
+                "mutation check exited %s without a test-failure verdict" % mutant_code)
     finally:
-        with open(src, "w", encoding="utf-8") as fh:
+        with open(src, "wb") as fh:
             fh.write(original)
     return out

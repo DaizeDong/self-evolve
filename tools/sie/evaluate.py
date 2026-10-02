@@ -122,7 +122,7 @@ def _verify_visible(anchors: list[dict], ctx: dict) -> list[dict]:
     fetcher = ctx.get("fetcher")
     out: list[dict] = []
     for a in anchors:
-        if a.get("verified"):
+        if a.get("verified") or a.get("verification_complete"):
             out.append(a)
         else:
             out.append(_anchors.verify_anchor(a, fetcher=fetcher))
@@ -137,36 +137,50 @@ def _btier_match_key(a: dict) -> tuple:
 
 def build_btier_scores(prof_visible_anchors: list[dict],
                        candidate_anchors: list[dict],
-                       fetcher=None) -> dict:
-    """从 baseline frozen visible 锚 + candidate(改后)锚, 用真 verify 构造 B 档 per-anchor 打分。
+                       fetcher=None, baseline_anchors: list[dict] | None = None) -> dict:
+    """Score every frozen obligation independently on the parent and candidate.
 
-    每锚 0/1 = 是否经 verify_anchor 核验通过。按 (cik,metric,period) 匹配 baseline↔candidate
-    (保铁律5 frozen visible 集合: 只取 baseline visible 键对应的 candidate 锚)。
-
-    Returns dict:
-      anchors_visible: candidate 锚(已 verify, 带 verified 标记) — 喂 _evaluate_btier;
-      base_scores:     {candidate_anchor_id: baseline 核验 0/1};
-      with_scores:     {candidate_anchor_id: candidate 核验 0/1}.
-    候选修正了某错锚 → base=0/with=1 → marginal_gain 计正增益(candidate verified=True)。
+    Match identities and coverage spans come from the frozen profile. Missing or ambiguous
+    current facts score zero; they never remove a previously observed parent score.
     """
-    cand_by_key = {_btier_match_key(c): c for c in candidate_anchors}
-    anchors_visible: list[dict] = []
-    base_scores: dict[str, float] = {}
-    with_scores: dict[str, float] = {}
-    for a in prof_visible_anchors:
-        key = _btier_match_key(a)
-        cand = cand_by_key.get(key)
-        if cand is None:
-            continue  # 候选删了此锚 → 不计(保守, 不奖励删锚)
-        bv = _anchors.verify_anchor(a, fetcher=fetcher)
-        cv = _anchors.verify_anchor(cand, fetcher=fetcher)
-        cv_with_flag = dict(cand, verified=bool(cv.get("verified")))
-        aid = cv_with_flag.get("anchor_id") or key  # extract_anchors 已带 anchor_id
-        anchors_visible.append(cv_with_flag)
-        base_scores[aid] = 1.0 if bv.get("verified") else 0.0
-        with_scores[aid] = 1.0 if cv.get("verified") else 0.0
-    return {"anchors_visible": anchors_visible,
-            "base_scores": base_scores, "with_scores": with_scores}
+    def index(items):
+        result = {}
+        for item in items:
+            result.setdefault(_btier_match_key(item), []).append(item)
+        return result
+
+    parent_by_key = index(prof_visible_anchors if baseline_anchors is None else baseline_anchors)
+    candidate_by_key = index(candidate_anchors)
+    anchors_visible = []
+    base_scores, with_scores = {}, {}
+    unobserved = []
+    frozen_keys, frozen_ids = set(), set()
+    for obligation in prof_visible_anchors:
+        key = _btier_match_key(obligation)
+        aid = obligation.get("anchor_id")
+        if not aid or key in frozen_keys or aid in frozen_ids:
+            raise ValueError("Frozen B obligations require unique match keys and identities")
+        frozen_keys.add(key)
+        frozen_ids.add(aid)
+        parent_matches = parent_by_key.get(key, [])
+        current_matches = candidate_by_key.get(key, [])
+        before = (_anchors.verify_anchor(parent_matches[0], fetcher=fetcher)
+                  if len(parent_matches) == 1 else None)
+        after = (_anchors.verify_anchor(current_matches[0], fetcher=fetcher)
+                 if len(current_matches) == 1 else None)
+        for label, measured in (("parent", before), ("candidate", after)):
+            if measured is not None and measured.get("observed") is None:
+                unobserved.append({"anchor_id": aid, "side": label})
+        measured = dict(obligation)
+        measured.update(
+            verified=bool(after and after.get("verified")), verification_complete=True,
+            observed=after.get("observed") if after else None,
+            verify_reason=after.get("verify_reason") if after else "missing or ambiguous candidate fact")
+        anchors_visible.append(measured)
+        base_scores[aid] = 1.0 if before and before.get("verified") else 0.0
+        with_scores[aid] = 1.0 if after and after.get("verified") else 0.0
+    return {"anchors_visible": anchors_visible, "base_scores": base_scores,
+            "with_scores": with_scores, "unobserved": unobserved}
 
 
 def _evaluate_btier(ctx: dict) -> dict:
@@ -202,15 +216,16 @@ def _evaluate_btier(ctx: dict) -> dict:
     base = ctx.get("base_scores", {})
     with_ = ctx.get("with_scores", {})
 
-    # ① visible 锚逐个 marginal_gain → 零均值化配对 b_paired
-    # bg = gain(anchor, 0 → base[aid])  wg = gain(anchor, 0 → with[aid])
-    # visible_anchor_gain = mean(wg - bg)  across all anchors (incl. unverified → 0)
+    # Parent and candidate correctness are independent measurements. A current failure
+    # must retain its parent score; the frozen obligation remains in the denominator.
     paired: list[tuple[float, float]] = []
     gains: list[float] = []
     for a in vis:
         aid = a["anchor_id"]
-        bg = _anchors.marginal_gain(a, base_score=0.0, with_score=base.get(aid, 0.0))
-        wg = _anchors.marginal_gain(a, base_score=0.0, with_score=with_.get(aid, 0.0))
+        bg = float(base.get(aid, 0.0))
+        wg = float(with_.get(aid, 0.0)) if a.get("verified") else 0.0
+        if not all(math.isfinite(value) and 0.0 <= value <= 1.0 for value in (bg, wg)):
+            raise ValueError("B scores must be finite correctness values in [0, 1]")
         paired.append((bg, wg))
         gains.append(wg - bg)
     visible_anchor_gain = (sum(gains) / len(gains)) if gains else 0.0
@@ -227,12 +242,20 @@ def _evaluate_btier(ctx: dict) -> dict:
     # ③ holdout 每 K 轮抽检: round % K == 0 → 计算 holdout_gain 喂 selfdeception
     K = int(ctx.get("K", 5))
     rnd = int(ctx.get("round", 0))
+    if K <= 0:
+        raise ValueError("K must be positive")
     holdout_gain: float | None = None
+    holdout_missing = False
     if rnd > 0 and rnd % K == 0:
         hb = ctx.get("holdout_base")
         hw = ctx.get("holdout_with")
-        if hb is not None and hw is not None:
-            delta = float(hw) - float(hb)
+        if hb is None or hw is None:
+            holdout_missing = True
+        else:
+            values = (float(hb), float(hw))
+            if not all(math.isfinite(value) and 0.0 <= value <= 1.0 for value in values):
+                raise ValueError("Holdout scores must be finite correctness values in [0, 1]")
+            delta = values[1] - values[0]
             holdout_gain = delta if delta > 0.0 else 0.0
 
     return {
@@ -240,10 +263,39 @@ def _evaluate_btier(ctx: dict) -> dict:
         "b_paired": paired,
         "visible_anchor_gain": visible_anchor_gain,
         "holdout_gain": holdout_gain,
+        "holdout_missing": holdout_missing,
         "coverage": cov,
         "coverage_floor_violation": coverage_floor_violation,
         "anchors_visible_verified": vis,
+        "archive_scores": {"anchor": sum(after for _, after in paired) / len(paired)} if paired else {},
     }
+
+
+def candidate_grade_error(result, parent_dimensions=None):
+    """Return a reason when candidate observations cannot support acceptance."""
+    if not isinstance(result, dict) or result.get("available") is False:
+        return "unavailable"
+    if (type(result.get("grader_exit_code")) is not int
+            or result["grader_exit_code"] != 0 or result.get("task_passed") is not True):
+        return "grader_failed_or_incomplete"
+    dimensions = result.get("dimensions")
+    if not isinstance(dimensions, list) or not dimensions:
+        return "empty_dimensions"
+    names = set()
+    for item in dimensions:
+        if not isinstance(item, dict):
+            return "invalid_dimensions"
+        name, score = item.get("name"), item.get("score")
+        if (not isinstance(name, str) or not name or name in names
+                or type(score) not in (int, float) or not 0 <= score <= 1
+                or not math.isfinite(score)):
+            return "invalid_dimensions"
+        names.add(name)
+    if parent_dimensions and not (
+            len(parent_dimensions) == 1 and parent_dimensions[0].get("name") == "pytest"):
+        if any(item.get("name") not in names for item in parent_dimensions):
+            return "parent_tasks_missing"
+    return None
 
 
 def evaluate(sandbox_root_or_ctx, tier: str = "A",
@@ -281,7 +333,13 @@ def evaluate(sandbox_root_or_ctx, tier: str = "A",
     # A-tier path (M1a): sandbox_root is a string path
     sandbox_root: str = sandbox_root_or_ctx
     after = _grade_pytest_per_task(sandbox_root)
-    after_dims = after.get("dimensions", [])
+    grade_error = candidate_grade_error(
+        after, base_result.get("dimensions") if isinstance(base_result, dict) else None)
+    if grade_error is not None:
+        coverage = after.get("verifiable_coverage", 0.0) if isinstance(after, dict) else 0.0
+        return {"result": after, "paired": [], "coverage": coverage,
+                "usable": False, "grade_error": grade_error}
+    after_dims = after["dimensions"]
 
     # Build per-task paired list
     if base_result and base_result.get("dimensions"):
@@ -303,6 +361,7 @@ def evaluate(sandbox_root_or_ctx, tier: str = "A",
         "result": after,
         "paired": paired,
         "coverage": after.get("verifiable_coverage", 0.0),
+        "usable": True,
     }
 
 

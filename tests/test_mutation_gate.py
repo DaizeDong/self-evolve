@@ -172,7 +172,8 @@ def test_file_restored_even_after_exception(tmp_path):
             raise RuntimeError("simulated grader crash")
         return True  # baseline passes
 
-    # Gate should not propagate the exception and file should be restored
+    # A grader exception may propagate after successful restoration;
+    # this original test checks that the source content was restored.
     try:
         mutation_validity_gate(wt, [src_rel], run_one)
     except Exception:

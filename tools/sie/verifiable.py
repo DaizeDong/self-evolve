@@ -179,6 +179,37 @@ def _grader_env(sandbox_root: str) -> tuple[dict, str, str]:
     return env, site_dir, jail_dir
 
 
+def _parse_task_results(stdout: str) -> list[dict]:
+    """Parse `pytest -v --tb=no` output to get per-test pass/fail scores.
+
+    Handles:
+      PASSED  → score 1.0 (test assertion passed)
+      FAILED  → score 0.0 (test assertion failed)
+      ERROR   → score 0.0 (collection/fixture error)
+      XFAIL   → score 0.0 (expected-fail, test is not yet passing)
+      XPASS   → score 1.0 (unexpected-pass: fix made a xfail test pass!)
+
+    Returns list of {"name": str, "tier": "A", "score": float, "weight": float}.
+    Returns [] if no parseable per-test lines found.
+    """
+    import re
+    dims = []
+    # Match lines like: "path/test.py::test_name PASSED [ 33%]"
+    # Also: "test.py::test_name XFAIL (reason) [60%]"
+    pattern = re.compile(
+        r"^(.+?)\s+(PASSED|FAILED|ERROR|XFAIL|XPASS)\b"
+    )
+    for line in stdout.splitlines():
+        m = pattern.match(line.strip())
+        if m:
+            name = m.group(1).strip()
+            status = m.group(2)
+            # XPASS = unexpected pass (fix worked!) = 1.0; XFAIL = still failing = 0.0
+            score = 1.0 if status in ("PASSED", "XPASS") else 0.0
+            dims.append({"name": name, "tier": "A", "score": score, "weight": 1.0})
+    return dims
+
+
 def grade_pytest(sandbox_root: str) -> dict:
     """Run pytest in a sandboxed subprocess under minimal_env + sitecustomize network block.
 
@@ -204,7 +235,7 @@ def grade_pytest(sandbox_root: str) -> dict:
         grader_env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
 
         proc = subprocess.run(
-            [sys.executable, "-m", "pytest", "-q", "--no-header"],
+            [sys.executable, "-m", "pytest", "-v", "--tb=no", "--no-header"],
             cwd=native_cwd(sandbox_root),
             capture_output=True,
             text=True, encoding="utf-8", errors="replace",
@@ -218,6 +249,7 @@ def grade_pytest(sandbox_root: str) -> dict:
         return {
             "task_passed": passed,
             "grader_exit_code": code,
+            "task_dimensions": _parse_task_results(proc.stdout),
             "dimensions": [
                 {"name": "pytest", "tier": "A", "score": score, "weight": 1.0}
             ],
@@ -393,8 +425,13 @@ def mutation_validity_gate(
        - Call ``run_one(worktree)``.
        - If False (tests turned red) → mutant killed (good).
        - If True (tests still green) → mutant survived (grader is too weak).
-       - Restore the original file content in a ``try/finally`` block.
-    3. Compute ``kill_ratio = killed / total``.
+       - If grading raises, attempt to restore the original source bytes in the
+         existing ``finally`` block. After successful restoration, propagate the
+         same grading exception without returning a verdict or granting kill credit.
+       - If restoration itself raises while handling a grading exception, propagate
+         the restoration error with the grading exception retained as its exception
+         context. In that case, restored bytes cannot be promised.
+    3. After every grading call completes, compute ``kill_ratio = killed / total``.
        ``valid = total > 0 and kill_ratio >= min_kill_ratio``.
 
     Args:
@@ -433,8 +470,10 @@ def mutation_validity_gate(
 
     for rel in source_files:
         abs_path = os.path.join(worktree, rel)
-        with open(abs_path, encoding="utf-8") as fh:
-            original = fh.read()
+        with open(abs_path, "rb") as fh:
+            original_bytes = fh.read()
+        # Preserve the previous UTF-8/universal-newline parsing view separately.
+        original = original_bytes.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
 
         mutants = inject_mutants(original)
         if not mutants:
@@ -442,23 +481,20 @@ def mutation_validity_gate(
 
         for mut_id, mut_src in mutants:
             total += 1
-            # Write mutant, run, restore, always restore in finally.
+            # Write mutant, run, and always attempt restoration in finally.
             try:
                 with open(abs_path, "w", encoding="utf-8") as fh:
                     fh.write(mut_src)
-                try:
-                    still_green = bool(run_one(worktree))
-                except Exception:
-                    still_green = False  # crash = mutant detected = killed
+                still_green = bool(run_one(worktree))
 
                 if still_green:
                     survivors.append(f"{rel}:{mut_id}")
                 else:
                     killed += 1
             finally:
-                # Unconditionally restore original content.
-                with open(abs_path, "w", encoding="utf-8") as fh:
-                    fh.write(original)
+                # Attempt exact-byte restoration when mutant writing or grading fails.
+                with open(abs_path, "wb") as fh:
+                    fh.write(original_bytes)
 
     kill_ratio = (killed / total) if total > 0 else 0.0
     valid = total > 0 and kill_ratio >= min_kill_ratio

@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import statistics
+import math
 from . import business_tree, runtime_data
 
 LINEAGE = "lineage.json"
@@ -36,6 +37,64 @@ def _arch_dir(run_dir: str) -> str:
     return d
 
 
+
+def _score_record(scores):
+    """Normalize Pareto coordinates while retaining every task identity separately."""
+    def number(value):
+        if type(value) not in (int, float):
+            raise ValueError("Archive scores must be numeric")
+        try:
+            valid = math.isfinite(value)
+        except OverflowError:
+            valid = False
+        if not valid:
+            raise ValueError("Archive scores must be finite")
+        return value
+
+    if isinstance(scores, dict):
+        if any(not isinstance(key, str) or not key for key in scores):
+            raise ValueError("Archive score names must be nonempty strings")
+        result = {key: number(value) for key, value in scores.items()}
+        if "pytest" in result and "A" not in result:
+            result["A"] = result["pytest"]
+        return result, []
+    if not isinstance(scores, list):
+        raise ValueError("Archive scores must be a coordinate mapping or task dimensions")
+    dimensions, groups, names = [], {}, set()
+    for item in scores:
+        if not isinstance(item, dict) or not isinstance(item.get("name"), str) or not item["name"]:
+            raise ValueError("Archive task dimensions require a named record")
+        if item["name"] in names:
+            raise ValueError("Archive task names must be unique")
+        names.add(item["name"])
+        score, weight = number(item.get("score")), number(item.get("weight", 1.0))
+        if not 0.0 <= score <= 1.0 or weight <= 0:
+            raise ValueError("Archive task correctness and weight are invalid")
+        tier = item.get("tier", "A")
+        coordinate = {"A": "A", "B": "anchor", "C": "judge",
+                      "anchor": "anchor", "judge": "judge"}.get(tier)
+        if coordinate is None:
+            raise ValueError("Archive task tier is unsupported")
+        groups.setdefault(coordinate, []).append((score, weight))
+        dimensions.append(dict(item))
+    result = {key: sum(score * weight for score, weight in values) / sum(weight for _, weight in values)
+              for key, values in groups.items()}
+    return result, dimensions
+
+
+def _version_record(entry):
+    """Validate an archive reader record, including legacy dimension-list entries."""
+    if not isinstance(entry, dict) or not isinstance(entry.get("vid"), str) or not entry["vid"]:
+        raise ValueError("Archive version requires a nonempty identity")
+    coordinates, dimensions = _score_record(entry.get("scores"))
+    if "task_dimensions" in entry:
+        task_coordinates, dimensions = _score_record(entry["task_dimensions"])
+        if not isinstance(entry["task_dimensions"], list):
+            raise ValueError("Archive task_dimensions must be a list")
+        if any(coordinates.get(key) != value for key, value in task_coordinates.items()):
+            raise ValueError("Archive task scores disagree with Pareto coordinates")
+    return dict(entry, score_schema=1, scores=coordinates, task_dimensions=dimensions)
+
 def _load_versions(archive_dir: str) -> list[dict]:
     """Load version entries from lineage.json (plain list format)."""
     path = os.path.join(archive_dir, LINEAGE)
@@ -45,9 +104,13 @@ def _load_versions(archive_dir: str) -> list[dict]:
         data = json.load(fh)
     # Support both plain list (M1a add_version format) and
     # dict-with-versions-key (legacy/alt format).
-    if isinstance(data, list):
-        return data
-    return data.get("versions", [])
+    entries = data if isinstance(data, list) else data.get("versions") if isinstance(data, dict) else None
+    if not isinstance(entries, list):
+        raise ValueError("Archive lineage must contain a version list")
+    versions = [_version_record(entry) for entry in entries]
+    if len({entry["vid"] for entry in versions}) != len(versions):
+        raise ValueError("Archive version identities must be unique")
+    return versions
 
 
 def _dominates(a: dict, b: dict, dims: tuple) -> bool:
@@ -76,24 +139,22 @@ def add_version(
     entries are appended.
     """
     runtime_data.validate_run_id(vid)
+    coordinates, dimensions = _score_record(scores)
     arch = os.path.join(run_dir, 'archive')
     runtime_data.private_file_path(os.path.join(arch, LINEAGE))
     current = lineage(arch)
     if any(entry['vid'] == vid for entry in current):
         raise ValueError('An accepted version ID cannot be reused')
     runtime_data.make_directory(os.path.join(arch, 'versions', vid))
-    current.append({"vid": vid, "parent_vid": parent_vid, "scores": scores})
+    current.append({"vid": vid, "parent_vid": parent_vid, "score_schema": 1,
+                    "scores": coordinates, "task_dimensions": dimensions})
 
     runtime_data.write_json(os.path.join(arch, LINEAGE), current)
 
 
 def lineage(archive_dir: str) -> list[dict]:
-    """Return the full ordered list of lineage entries from *archive_dir*."""
-    path = os.path.join(archive_dir, LINEAGE)
-    if not os.path.exists(path):
-        return []
-    with open(path, "r", encoding="utf-8") as fh:
-        return json.load(fh)
+    """Return validated coordinate maps with separate measured task dimensions."""
+    return _load_versions(archive_dir)
 
 
 def snapshot_version(archive_dir: str, vid: str, sandbox_root: str) -> None:

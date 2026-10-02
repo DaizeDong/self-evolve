@@ -58,7 +58,7 @@ save_state(st, run_dir)     # ③ 旁路快照（崩溃可丢，可由 ① 重�
 
 **关键约束：事件里直接写裸计数器字段（如 `no_progress: 3`）会被完全忽略。** 计数器只能经 delta 增量或 reset/ACCEPT 语义修改。这是刻意的,它把「计数器的演化」约束成一串可累加、可重放的增量，杜绝了「某条事件偷偷把计数拍到一个绝对值」这种无法审计的跳变。
 
-**（3）ACCEPT 语义清零。** 当事件 `type == "ACCEPT"`（一次提案被接纳）时，无条件清零 `no_progress` / `forced_review` / `continue_count` 三个计数器,一次成功的接纳意味着「卡住」的状态被解除，这几个「卡了多久」的计数自然归零。`static_reject` 与 `drift_count` **不**在 ACCEPT 时清零（它们记录的是历史累计的风险信号，跨接纳保留）。
+**（3）ACCEPT 语义清零。** 当事件 `type == "ACCEPT"`（一次提案被接纳）时，无条件清零 `no_progress` / `forced_review` / `continue_count` 三个计数器,一次成功的接纳意味着「卡住」的状态被解除，这几个「卡了多久」的计数自然归零。`drift_count` 在 ACCEPT 时保留。到达采纳裁决说明本轮已通过静态门，因此 `static_reject` 在 ACCEPT 和 REJECT 事件中都清零；它统计连续静态拒绝。
 
 ### 三、崩溃容错：半行事件静默跳过
 
@@ -148,3 +148,12 @@ drift_count: int = 0
 - `tools/sie/state.py:load_state`, 读快照并按字段集合过滤
 - `tools/sie/statemachine.py:_step`, 上游：append→replay→save 三步硬不变量的执行处
 - `tools/sie/cli.py`, `status`（load_state）与 `replay`（replay）两个对照入口
+
+## Resume records
+
+The loop appends a ROUND_HISTORY event for each completed reflection record and a
+HOLDOUT_MEASURED event after an actual paired holdout observation. Resume restores
+these records, keeps the existing INIT identity, and starts after the last persisted
+round number. Several short invocations therefore share history and holdout progress.
+A due holdout stays due until measured. Legacy terminal events can supply a minimal
+decision summary; history that older code never persisted cannot be reconstructed.

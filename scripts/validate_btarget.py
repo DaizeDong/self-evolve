@@ -1,134 +1,115 @@
 #!/usr/bin/env python
-"""validate_btarget.py — B 档真 ACCEPT 夜跑实验的 live 自检（跑 1 次，证明可跑）.
+"""Check B-target artifact structure and optionally exercise the installed llmcall proposer.
 
-两段验证:
-  ① profile=B: run_profile(examples/btarget) → 断言 tier 含 "B"、visible+holdout 锚总数 ≥24、
-     effective_independent_count(全部锚, 视作 verified) ≥12。
-  ② artifact-proposer live: 调真 Claude（cc 优先）改进产物 1 次 → 断言产出合法 JSON、锚数不减。
-
-不真跑 EDGAR、不真 ACCEPT —— 那是夜跑实验本身的事。本脚本只证明
-「profile=B + artifact-proposer 能真改产物」。
-
-用法:
-    python scripts/validate_btarget.py            # 全量（含 live Claude 调用）
-    python scripts/validate_btarget.py --no-live  # 只验 profile（跳过 Claude 调用）
+Choose --artifact PATH in the configured PRIVATE companion or --synthetic.
+Profile and proposer scratch stay in that companion. Structural checks do not
+verify facts, establish improvement, or demonstrate an ACCEPT decision.
+--live explicitly enables one proposer call using llmcall's current policy.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
+from pathlib import Path
 import sys
-import tempfile
 
-# 让脚本能从仓库根直接跑
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO not in sys.path:
     sys.path.insert(0, _REPO)
 
-from tools.sie.profile import run_profile          # noqa: E402
-from tools.sie import anchors as _anchors          # noqa: E402
-from tools.sie.backends import llm as _llm         # noqa: E402
+from scripts.setup_btarget_repo import _artifact_content
+from tools.sie.profile import run_profile
+from tools.sie import anchors as _anchors
+from tools.sie.backends import llm as _llm
+from tools.sie.runtime_data import agent_scratch, make_directory, private_file_path
 
-_TARGET = os.path.join(_REPO, "examples", "btarget")
 _ARTIFACT_REL = "report.json"
 
 
-def validate_profile() -> dict:
-    """① run_profile → tier 含 B、锚总数 ≥24、effective_independent ≥12。"""
-    with tempfile.TemporaryDirectory() as run_dir:
-        prof = run_profile(_TARGET, "HEAD", run_dir=run_dir)
-        visible = prof.get("anchors_visible", [])
-        hold_ref = prof.get("anchors_holdout_ref", {})
-        n_visible = len(visible)
-        n_hold = int(hold_ref.get("count", 0))
-        n_total = n_visible + n_hold
-
-        # effective_independent: 用全部锚（visible + holdout）视作 verified 估上界。
-        all_anchors = []
-        for path in [os.path.join(_TARGET, _ARTIFACT_REL)]:
-            all_anchors.extend(_anchors.extract_anchors(path))
-        for a in all_anchors:
-            a["verified"] = True
-        eff = _anchors.effective_independent_count(all_anchors)
-
-        tier = prof.get("tier", "")
-        ok = ("B" in tier) and (n_total >= 24) and (eff >= 12)
-        return {
-            "ok": ok,
-            "tier": tier,
-            "anchors_visible": n_visible,
-            "anchors_holdout": n_hold,
-            "anchors_total": n_total,
-            "effective_independent": eff,
-        }
+def validate_profile(target, run_dir) -> dict:
+    """Check B classification and anchor structure with execution probes disabled."""
+    prof = run_profile(str(target), "artifact-only", run_dir=str(run_dir),
+                       include_exec_probe=False)
+    visible = prof.get("anchors_visible", [])
+    hold_ref = prof.get("anchors_holdout_ref", {})
+    n_visible = len(visible)
+    n_hold = int(hold_ref.get("count", 0))
+    all_anchors = _anchors.extract_anchors(str(Path(target) / _ARTIFACT_REL))
+    hypothetical_verified = [{**anchor, "verified": True} for anchor in all_anchors]
+    upper_bound = _anchors.effective_independent_count(hypothetical_verified)
+    tier = prof.get("tier", "")
+    return {
+        "ok": "B" in tier and n_visible + n_hold >= 24 and upper_bound >= 12,
+        "scope": "artifact structure only; no execution probe or factual verification",
+        "tier": tier,
+        "anchors_visible": n_visible,
+        "anchors_holdout": n_hold,
+        "anchors_total": n_visible + n_hold,
+        "effective_independent_upper_bound": upper_bound,
+        "facts_verified": False,
+    }
 
 
-def validate_proposer() -> dict:
-    """② artifact-proposer live: 真 Claude 改产物 1 次 → 合法 JSON + 锚数不减。"""
+def validate_proposer(target) -> dict:
+    """Check one llmcall proposal for JSON shape and retained anchor count."""
     findings = [
-        "Several 'expected' figures look wrong vs the issuers' SEC filings; "
-        "correct them to the true reported values.",
-        "Make every factual claim verifiable against SEC/EDGAR (metric/cik/period must match).",
+        "Review this selected artifact and propose a well-formed JSON revision.",
+        "Preserve synthetic labels and example.com sources in synthetic input. "
+        "Do not present synthetic values as real financial facts.",
+        "For real input, do not claim factual corrections without independent evidence.",
     ]
-    props = _llm.generate_artifact(_TARGET, [{"merged_findings": findings}],
+    props = _llm.generate_artifact(str(target), [{"merged_findings": findings}],
                                    artifact_rel=_ARTIFACT_REL)
     if not props:
-        return {"ok": False, "reason": "artifact-proposer returned [] (Claude unavailable or no improvement)"}
+        return {"ok": False, "reason": "no proposal returned by the configured llmcall backend"}
+    proposal = props[0]
+    new_doc = json.loads(proposal["new_content"])
+    original = json.loads((Path(target) / _ARTIFACT_REL).read_text(encoding="utf-8"))
 
-    p = props[0]
-    new_doc = json.loads(p["new_content"])  # 合法 JSON（generate_artifact 已门控）
-    n_new = sum(len(s.get("anchors", [])) for s in new_doc.get("sections", []))
+    def anchor_count(document):
+        return sum(len(section.get("anchors", [])) for section in document.get("sections", []))
 
-    orig_doc = json.loads(open(os.path.join(_TARGET, _ARTIFACT_REL), encoding="utf-8").read())
-    n_orig = sum(len(s.get("anchors", [])) for s in orig_doc.get("sections", []))
-
-    # 看 proposer 是否真改了 expected（与原文不同 → 真改产物）
-    def _expected_map(doc):
-        m = {}
-        for s in doc.get("sections", []):
-            for a in s.get("anchors", []):
-                m[a.get("claim", "")] = a.get("expected")
-        return m
-    orig_exp, new_exp = _expected_map(orig_doc), _expected_map(new_doc)
-    changed = sum(1 for k in orig_exp if k in new_exp and new_exp[k] != orig_exp[k])
-
-    ok = (n_new >= n_orig)
+    n_orig, n_new = anchor_count(original), anchor_count(new_doc)
     return {
-        "ok": ok,
-        "file_rel": p["file_rel"],
+        "ok": n_new >= n_orig,
+        "scope": "proposer transport and JSON shape only; improvement not adjudicated",
+        "file_rel": proposal["file_rel"],
         "anchors_orig": n_orig,
         "anchors_new": n_new,
-        "expected_values_changed": changed,
-        "really_modified": changed > 0 or n_new > n_orig,
+        "content_changed": new_doc != original,
+        "facts_verified": False,
+        "accept_tested": False,
     }
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--no-live", action="store_true", help="跳过真 Claude artifact-proposer 调用")
-    args = ap.parse_args(argv)
-
-    print("=== ① profile=B 验证 ===")
-    pr = validate_profile()
-    print(json.dumps(pr, ensure_ascii=False, indent=2))
-    if not pr["ok"]:
-        print("FAIL: profile 不满足 B 档 / 锚数 / 独立数 约束")
-        return 1
-
-    if args.no_live:
-        print("\n(--no-live: 跳过 artifact-proposer live 验证)")
-        print("\nPASS: profile=B 验证通过")
-        return 0
-
-    print("\n=== ② artifact-proposer live 验证（真 Claude）===")
-    pp = validate_proposer()
-    print(json.dumps(pp, ensure_ascii=False, indent=2))
-    if not pp["ok"]:
-        print("FAIL: artifact-proposer 未产出合法改进产物")
-        return 1
-
-    print("\nPASS: profile=B + artifact-proposer 能真改产物")
+    parser = argparse.ArgumentParser(description=__doc__)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--artifact", help="absolute JSON artifact path in the PRIVATE companion")
+    source.add_argument("--synthetic", action="store_true", help="use generated example.com anchors")
+    live = parser.add_mutually_exclusive_group()
+    live.add_argument("--live", action="store_true", help="enable one installed llmcall proposer call")
+    live.add_argument("--no-live", action="store_true", help="explicitly keep the default structural check")
+    args = parser.parse_args(argv)
+    content = _artifact_content(args.artifact, synthetic=args.synthetic)
+    with agent_scratch() as scratch:
+        target = make_directory(scratch / "target")
+        artifact = private_file_path(target / _ARTIFACT_REL)
+        artifact.write_text(content, encoding="utf-8", newline="\n")
+        run_dir = make_directory(scratch / "profile")
+        profile = validate_profile(target, run_dir)
+        print(json.dumps(profile, ensure_ascii=False, indent=2))
+        if not profile["ok"]:
+            print("FAIL: artifact does not meet the B-tier structural thresholds")
+            return 1
+        if args.live:
+            proposed = validate_proposer(target)
+            print(json.dumps(proposed, ensure_ascii=False, indent=2))
+            if not proposed["ok"]:
+                print("FAIL: proposer did not return an adequate JSON artifact")
+                return 1
+    print("PASS: requested structural checks completed; factual improvement and ACCEPT were not tested")
     return 0
 
 

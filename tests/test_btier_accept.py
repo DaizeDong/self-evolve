@@ -92,11 +92,12 @@ def test_btier_no_correction_no_gain():
 
 
 def test_build_btier_scores_empty_candidate_falls_back():
-    """无候选锚 → 空 scores(态6 回退 baseline, 保持旧行为)。"""
+    """An absent candidate retains all frozen obligations and scores each as missing."""
     base, _, fetcher = _build(12)
     bsc = evaluate.build_btier_scores(base, [], fetcher)
-    assert bsc["anchors_visible"] == []
-    assert bsc["base_scores"] == {} and bsc["with_scores"] == {}
+    assert [a["anchor_id"] for a in bsc["anchors_visible"]] == [a["anchor_id"] for a in base]
+    assert len(bsc["base_scores"]) == len(bsc["with_scores"]) == len(base)
+    assert all(score == 0.0 for score in bsc["with_scores"].values())
 
 
 def test_btier_no_spurious_drift_when_positive_gain_no_judge():

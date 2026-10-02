@@ -1,61 +1,86 @@
 #!/usr/bin/env python
-"""setup_btarget_repo.py — 把 B 档目标做成一个独立 git repo，供夜跑 run_loop 用.
+"""Prepare an explicit B-target artifact in a separate PRIVATE Git repository.
 
-run_loop 的 make_worktree 会对 --target 跑 `git worktree add`，要求 target 自身是
-一个 git repo（且 worktree 只含该目标的文件，fact_probe 才能数对锚）。
-examples/btarget/report.json 在父仓库里是普通追踪文件；夜跑前用本脚本把它
-拷成一个独立 repo（默认解析到私有伴生仓，绝不落在本仓内），再把那个目录当 --target。
-
-用法:
-    python scripts/setup_btarget_repo.py                       # 默认输出到私有伴生仓
-    python scripts/setup_btarget_repo.py --dest D:/tmp/btgt    # 自定义输出目录
-脚本结束会打印可直接用的 `python -m tools.sie.cli run ...` 夜跑命令。
+Choose --artifact PATH inside the configured PRIVATE companion, or --synthetic.
+The destination must be beneath that companion's data root. --private-remote
+must identify the destination's own PRIVATE repository; it is never inferred
+from the companion. Visibility is verified before any artifact is written.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import os
+from pathlib import Path
 import shutil
+import stat
 import subprocess
 import sys
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_SRC = os.path.join(_REPO, "examples", "btarget", "report.json")
+if _REPO not in sys.path:
+    sys.path.insert(0, _REPO)
 
 
 def _git(args, cwd):
-    subprocess.run(
-        ["git", "-c", "user.email=sie@local", "-c", "user.name=sie", *args],
-        cwd=cwd, check=True, capture_output=True, text=True,
+    """Use the configured Git identity and all installed commit hooks."""
+    result = subprocess.run(
+        ["git", *args], cwd=cwd, check=True, capture_output=True,
+        text=True, encoding="utf-8", errors="strict",
     )
+    return result.stdout.strip()
+
+
+def _safe_local_path(value):
+    """Check lexical ancestors before resolving a local input or destination."""
+    path = Path(os.path.abspath(value))
+    for part in (*reversed(path.parents), path):
+        try:
+            info = part.lstat()
+        except FileNotFoundError:
+            continue
+        if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 1024:
+            raise ValueError("B-target paths cannot traverse symlinks or reparse points")
+        if stat.S_ISREG(info.st_mode) and info.st_nlink != 1:
+            raise ValueError("B-target paths cannot use hard-linked files")
+    return path
 
 
 def _resolve_dest(explicit: str | None) -> str:
-    """决定 B 档目标 repo 落在哪。默认走私有伴生仓，且绝不允许落在本仓内部。
-
-    这里原来的默认值是 `_REPO/.btarget_run/btarget_repo`，也就是**公开仓内部**。文档里那条
-    无参数命令是被推荐的用法，所以每跑一次就在公开仓里造一个真的 git repo；2026-08-30 实测
-    复现过一次。`guards/tools/datadir.py` 本来会拒绝这种路径（DataDirInsideOwnRepo），但这个脚本
-    从不 import 它，所以从来没被问过。127 个运行产出就是这么攒出来的。
-
-    显式 --dest 仍然优先，因为把目标放在别处是正当用法。但无论来自默认值还是 --dest，只要
-    解析结果落在本仓内部就硬失败：一个入口修好、另一个没修，等于没修。
-
-    未初始化时抛 DataDirNotInitialized 并带上初始化指引，而不是悄悄退回仓内路径。退回仓内
-    不是便利，它就是那个泄漏本身。
-    """
-    from pathlib import Path
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    """Validate containment before creating or replacing a destination."""
     from tools.sie.runtime_data import private_root, runtime_directory
     root = private_root()
-    requested = Path(explicit).expanduser() if explicit is not None else root/'btarget_run/btarget_repo'
+    requested = Path(explicit).expanduser() if explicit is not None else root / "btarget_run/btarget_repo"
     if not requested.is_absolute():
-        raise ValueError('--dest must be absolute')
-    dest = requested.resolve()
+        raise ValueError("--dest must be absolute")
+    dest = _safe_local_path(requested).resolve()
     if dest == root or not dest.is_relative_to(root):
-        raise ValueError('B-target must stay beneath the configured PRIVATE data root')
-    runtime_directory(dest)
+        raise ValueError("B-target must stay beneath the configured PRIVATE data root")
+    # The target becomes a distinct PRIVATE repo, so validate its enclosing
+    # companion here and verify the target's own visibility after Git setup.
+    runtime_directory(dest.parent)
     return str(dest)
+
+
+def _artifact_content(artifact=None, *, synthetic=False):
+    """Read one selected PRIVATE artifact or generate an explicitly synthetic one."""
+    if (artifact is not None) == synthetic:
+        raise ValueError("select exactly one of --artifact PATH or --synthetic")
+    if synthetic:
+        from tools.make_fixtures import synthetic_artifact
+        payload = synthetic_artifact()
+    else:
+        from tools.sie.runtime_data import private_file_path
+        requested = Path(artifact).expanduser()
+        if not requested.is_absolute():
+            raise ValueError("--artifact must be an absolute PRIVATE file path")
+        path = private_file_path(_safe_local_path(requested))
+        if not path.is_file():
+            raise ValueError("--artifact must name an existing PRIVATE JSON file")
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or not isinstance(payload.get("sections"), list):
+        raise ValueError("artifact must be a JSON object with a sections list")
+    return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
 
 
 def _load_datadir():
@@ -83,39 +108,43 @@ def _load_datadir():
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--dest", default=None,
-                    help="独立 repo 输出目录（默认解析到私有伴生仓，见 guards/COMPANION.md）")
-    ap.add_argument("--force", action="store_true", help="若 dest 已存在则先删除重建")
-    args = ap.parse_args(argv)
-    args.dest = _resolve_dest(args.dest)
-
-    if not os.path.isfile(_SRC):
-        print(f"missing source artifact: {_SRC}", file=sys.stderr)
-        return 1
-
-    dest = os.path.abspath(args.dest)
-    if os.path.exists(dest):
+    parser = argparse.ArgumentParser(description=__doc__)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--artifact", help="absolute JSON artifact path in the PRIVATE companion")
+    source.add_argument("--synthetic", action="store_true", help="use generated example.com anchors")
+    parser.add_argument("--dest", help="absolute destination beneath the PRIVATE data root")
+    parser.add_argument("--private-remote", required=True,
+                        help="destination's own PRIVATE GitHub remote; refresh visibility before setup")
+    parser.add_argument("--force", action="store_true", help="replace the validated destination")
+    args = parser.parse_args(argv)
+    dest = Path(_resolve_dest(args.dest))
+    content = _artifact_content(args.artifact, synthetic=args.synthetic)
+    if dest.exists():
         if not args.force:
-            print(f"dest already exists (use --force to overwrite): {dest}", file=sys.stderr)
-            return 1
+            parser.error(f"destination already exists; use --force to replace: {dest}")
+        if not dest.is_dir():
+            parser.error("destination exists and is not a directory")
+        # Check every descendant before recursive removal, including .git.
+        for directory, dirs, files in os.walk(dest, followlinks=False):
+            _safe_local_path(directory)
+            for name in dirs + files:
+                _safe_local_path(Path(directory) / name)
+        _safe_local_path(dest)
         shutil.rmtree(dest)
-    os.makedirs(dest, exist_ok=True)
-
-    shutil.copy(_SRC, os.path.join(dest, "report.json"))
+    dest.mkdir(parents=True, exist_ok=True)
     _git(["init", "-q"], cwd=dest)
+    _git(["remote", "add", "origin", args.private_remote], cwd=dest)
+    from tools.sie.runtime_data import verify_directory
+    verify_directory(dest)  # Missing, PUBLIC or unknown visibility blocks artifact writes.
+    _safe_local_path(dest / "report.json").write_text(content, encoding="utf-8", newline="\n")
     _git(["add", "report.json"], cwd=dest)
-    _git(["commit", "-qm", "Initialize the B-tier example target"], cwd=dest)
-
-    head = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=dest,
-                          capture_output=True, text=True).stdout.strip()
-    print(f"standalone B-target repo ready: {dest} (HEAD={head})")
-    print("\n夜跑启动命令:")
-    print(
-        f'  python -m tools.sie.cli run --target "{dest}" '
-        f'--run-id btier_accept_$(date +%Y%m%d_%H%M%S) '
-        f'--base-ref HEAD --max-rounds 30 --mode auto --proposer llm-artifact'
-    )
+    _git(["commit", "-qm", "Initialize the selected B-tier target"], cwd=dest)
+    head = _git(["rev-parse", "--short", "HEAD"], cwd=dest)
+    print(f"standalone PRIVATE B-target repo ready: {dest} (HEAD={head})")
+    print("Choose a run ID, then run:")
+    print(f'  python -m tools.sie.cli run --target "{dest}" --run-id <run-id> '
+          '--base-ref HEAD --max-rounds 30 --mode auto --proposer llm-artifact')
+    print("Synthetic anchors demonstrate structure only; this does not establish real factual improvement.")
     return 0
 
 

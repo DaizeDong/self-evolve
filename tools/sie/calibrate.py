@@ -246,8 +246,8 @@ def validate(target: str, defects: list, workdir: str) -> dict:
         row["suite_on_seeded_rc"] = s_rc
         if o_seeded_rc == 0:
             row["why"] = "oracle PASSES on the seeded tree, so it does not detect the defect"
-        elif o_seeded_rc == -1:
-            row["why"] = "oracle timed out on the seeded tree"
+        elif o_seeded_rc != 1:
+            row["why"] = "oracle did not produce a test failure on the seeded tree (rc=%s)" % o_seeded_rc
         elif o_clean_rc != 0:
             row["why"] = "oracle FAILS on the clean tree, so it fires on nothing: %s" % o_seeded_tail[:200]
         elif s_rc == -1:
@@ -305,7 +305,7 @@ def read_events(root: str, run_id: str) -> dict:
     from tools.sie.runtime_data import run_directory
     ev = run_directory(root, run_id) / "events.jsonl"
     out = {"events_path": str(ev), "present": ev.is_file(), "kinds": {}, "rounds_seen": 0,
-           "accepted": 0, "static_rejected": 0, "rejected": 0}
+           "accepted": 0, "static_rejected": 0, "rejected": 0, "malformed_records": 0}
     if not out["present"]:
         return out
     out["profile_tier"] = None
@@ -316,6 +316,10 @@ def read_events(root: str, run_id: str) -> dict:
         try:
             rec = json.loads(line)
         except ValueError:
+            out["malformed_records"] += 1
+            continue
+        if not isinstance(rec, dict) or not isinstance(rec.get("type"), str):
+            out["malformed_records"] += 1
             continue
         # The field is `type`. It was read as `kind` first, every counter came back 0, and the run
         # printed "rounds=0" for a loop that had demonstrably run a round. A counter that reads the
@@ -359,43 +363,28 @@ def check_sandbox_baseline(sandbox: str, defects: list) -> int:
 
 
 def scoring_root(root: str, run_id: str) -> str:
-    """The tree to grade. NOT the seeded root: the loop never writes there.
-
-    Accepted patches land in the loop's own sandbox worktree at .sie/worktrees/<run_id>, and the
-    seeded root keeps the injected code untouched for the whole run. Grading the root would have
-    returned 0/20 for a loop that repaired every defect, and that zero would have read as the
-    experiment's answer rather than as a harness fault. It resolves the sandbox or it raises; there
-    is no fallback to the root, because the fallback is precisely the silent wrong answer.
-    """
-    from tools.sie.runtime_data import worktree_directory
+    """Grade the Git worktree only when it matches the latest validated accepted snapshot."""
+    from tools.sie import archive, business_tree
+    from tools.sie.runtime_data import run_directory, validate_run_id, worktree_directory
     w = worktree_directory(root, run_id)
     if not w.is_dir():
-        raise CalibrationError(
-            "the loop's sandbox worktree is missing at %s, so there is nothing to grade. Grading "
-            "the seeded root instead would report 0 repairs for any loop whatsoever." % w)
-
-    # The sandbox is only the loop's OUTPUT if refused proposals do not linger in it. That was not
-    # true: run_loop had no rollback, so a rejected edit stayed on the tree. One run accepted zero
-    # proposals across 11 rounds and this function still scored its sandbox at 6 of 21 repaired,
-    # crediting the loop for six changes its own acceptor had refused.
-    #
-    # So the grade is refused unless the lineage agrees the sandbox is a state the loop ACCEPTED. A
-    # run with no accepted version has produced nothing, and "nothing" is a real result that must be
-    # reportable as 0, never as whatever happens to be lying in the tree.
-    from tools.sie.runtime_data import run_directory
-    lineage = run_directory(root, run_id) / "archive" / "lineage.json"
-    n_accepted = 0
-    if lineage.is_file():
-        try:
-            n_accepted = len(json.loads(lineage.read_text(encoding="utf-8")))
-        except (OSError, ValueError) as e:
-            raise CalibrationError("the lineage at %s is unreadable, so there is no way to tell "
-                                   "whether the sandbox holds accepted work: %s" % (lineage, e))
-    if n_accepted == 0:
-        raise CalibrationError(
-            "the loop accepted nothing (no lineage at %s), so there is no accepted state to grade. "
-            "The sandbox may still hold refused edits; scoring it would credit the loop for changes "
-            "its own acceptor rejected." % lineage)
+        raise CalibrationError("the loop's sandbox worktree is missing; there is no tree to grade")
+    archive_dir = run_directory(root, run_id) / "archive"
+    try:
+        versions = archive.lineage(str(archive_dir))
+        if not versions:
+            raise CalibrationError("the loop accepted nothing; there is no accepted state to grade")
+        vid = validate_run_id(versions[-1]["vid"])
+        accepted = archive_dir / "versions" / vid / "snapshot"
+        if not accepted.is_dir():
+            raise CalibrationError("the latest accepted snapshot is missing; grading is refused")
+        if business_tree.manifest(w) != business_tree.manifest(accepted):
+            raise CalibrationError(
+                "the sandbox differs from the latest accepted snapshot; pending or refused edits "
+                "cannot be credited as accepted repairs")
+    except (OSError, ValueError) as exc:
+        raise CalibrationError("the accepted lineage or business tree could not be verified") from exc
+    # Keep the worktree's Git metadata for check_sandbox_baseline; snapshots exclude .git.
     return str(w)
 
 
@@ -406,10 +395,10 @@ def score(root: str, defects: list) -> dict:
         rc, tail = run_oracle(root, d["oracle"])
         if rc == 0:
             out["repaired"].append(d["id"])
-        elif rc == -1:
-            out["oracle_errors"].append({"id": d["id"], "why": "timeout"})
-        else:
+        elif rc == 1:
             out["still_broken"].append(d["id"])
+        else:
+            out["oracle_errors"].append({"id": d["id"], "why": "unusable oracle exit %s" % rc})
     return out
 
 
@@ -468,9 +457,9 @@ def _same_file(a: str, b: str, rel: str) -> bool:
 def _same_sources(a: str, b: str, defects: list) -> bool:
     """True when every file any defect targets is byte-identical between two snapshots.
 
-    Only the defect-bearing files matter here: an oracle can only move if the code it exercises
-    changed. Comparing whole trees would also drag in caches and generated files and answer "changed"
-    for versions that are behaviorally identical.
+    This legacy comparison is not sufficient for oracle caching: imported code
+    and configuration may change outside this selected set. Attribution reruns
+    every oracle rather than treating this result as behavioral equivalence.
     """
     for d in defects:
         rel = d["file_rel"]
@@ -542,31 +531,15 @@ def attribute_decisions(root: str, run_id: str, defects: list) -> dict:
             row["why"] = "no snapshot at %s" % snap
             out["versions"].append(row)
             continue
-        # COST FIRST, and this is not an optimization, it is the difference between an instrument
-        # that runs and one that does not. 31 versions times 21 oracles is 651 pytest invocations;
-        # the first attempt at this function ran past ten minutes and was killed. A version whose
-        # source is byte-identical to its parent's cannot have moved any oracle, so it is labelled
-        # INERT directly and its 21 runs are skipped. That is exact, not an approximation: identical
-        # source, identical behavior.
-        if prev_snap is not None and _same_sources(prev_snap, snap, defects):
-            row["labels"].append("NO_SEEDED_EFFECT")
-            row["why"] = "source identical to parent version"
-            out["totals"]["NO_SEEDED_EFFECT"] += 1
-            out["versions"].append(row)
-            prev_snap = snap
-            continue
-        # Per DEFECT, not per version. An oracle can only move if the file its defect lives in
-        # changed, so a defect whose file is byte-identical to the parent's inherits the parent's
-        # verdict for free. Measured on a real run: consecutive versions typically differ in ONE
-        # file, so this turns 21 pytest runs per version into one or two. The whole-version fast
-        # path above almost never fires, because the loop does change some file every round; it is
-        # this per-defect one that makes the instrument affordable at all.
+        # Every accepted snapshot is remeasured. A stable defect-bearing file
+        # does not prove stable behavior: imports and configuration can change.
+        # Cache reuse needs a complete oracle dependency contract before it is safe.
         cur = {}
         for d in defects:
-            if prev is not None and prev_snap is not None and _same_file(prev_snap, snap, d["file_rel"]):
-                cur[d["id"]] = prev[d["id"]]
-                continue
             rc, _ = run_oracle(snap, d["oracle"])
+            if rc not in (0, 1):
+                row.setdefault("oracle_errors", []).append(
+                    {"id": d["id"], "why": "unusable oracle exit %s" % rc})
             cur[d["id"]] = (rc == 0)
         if prev is not None:
             row["repaired"] = sorted(k for k in cur if cur[k] and not prev.get(k))
@@ -588,7 +561,73 @@ def attribute_decisions(root: str, run_id: str, defects: list) -> dict:
     return out
 
 
+
+def _usable_suite(rc, tail) -> bool:
+    """A successful pytest exit needs at least one passing test observation."""
+    import re
+    return rc == 0 and isinstance(tail, str) and any(
+        int(count) > 0 for count in re.findall(r"(?<![0-9])([0-9]+) passed\b", tail))
+
+
+def _complete_score(observation, expected_ids) -> bool:
+    if not isinstance(observation, dict) or observation.get("oracle_errors") != []:
+        return False
+    repaired, broken = observation.get("repaired"), observation.get("still_broken")
+    if not isinstance(repaired, list) or not isinstance(broken, list):
+        return False
+    all_ids = repaired + broken
+    return (all(isinstance(key, str) for key in all_ids)
+            and len(all_ids) == len(set(all_ids))
+            and set(all_ids) == set(expected_ids))
+
+
+def _calibration_failures(rep, expected_ids) -> list[str]:
+    failures = []
+    for prefix in ("clean_suite", "combined_suite", "suite_after_loop"):
+        if not _usable_suite(rep.get(prefix + "_rc"), rep.get(prefix + "_tail")):
+            failures.append(prefix + " lacks successful usable observations")
+    if not _complete_score(rep.get("pre_run_score"), expected_ids):
+        failures.append("baseline oracle observations are incomplete or invalid")
+    if not _complete_score(rep.get("post_run_score"), expected_ids):
+        failures.append("final oracle observations are incomplete or invalid")
+    if rep.get("sandbox_base_carried_defects") != len(expected_ids):
+        failures.append("sandbox baseline does not carry every selected defect")
+    loop = rep.get("loop", {})
+    if loop.get("init_rc") != 0 or loop.get("run_rc") != 0:
+        failures.append("loop did not finish successfully")
+    events = rep.get("events", {})
+    if (not events.get("present") or events.get("rounds_seen", 0) < 1
+            or events.get("parser_warning") or events.get("malformed_records", 0)):
+        failures.append("event observations are missing or invalid")
+    attribution = rep.get("attribution", {})
+    versions = attribution.get("versions")
+    if (attribution.get("error") or attribution.get("n_accepted", 0) < 1
+            or not isinstance(versions, list) or not versions
+            or len(versions) != attribution.get("n_accepted")
+            or any(not isinstance(row, dict) or row.get("error") or row.get("oracle_errors")
+                   or "UNMEASURABLE" in row.get("labels", []) for row in versions)):
+        failures.append("accepted-version attribution is incomplete or invalid")
+    if len(rep.get("post_run_score", {}).get("repaired", [])) < rep["prereg_threshold"]:
+        failures.append("repair count is below the preregistered threshold")
+    return failures
+
+
 def main(argv=None) -> int:
+    report = {"prereg_threshold": 4, "verdict": "BROKEN"}
+    try:
+        return _calibration_main(argv, report)
+    except Exception as exc:
+        report["error"] = "%s: %s" % (type(exc).__name__, exc)
+        report["verdict"] = "BROKEN"
+        if report.get("report_path"):
+            from tools.sie.runtime_data import private_file_path
+            private_file_path(report["report_path"]).write_text(
+                json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
+        print("calibrate: %s" % report["error"])
+        return 2
+
+
+def _calibration_main(argv, rep) -> int:
     ap = argparse.ArgumentParser(description="known-answer positive control for the loop")
     ap.add_argument("--target", required=True)
     ap.add_argument("--workdir", default="")
@@ -607,6 +646,7 @@ def main(argv=None) -> int:
     from tools.sie.runtime_data import private_root, runtime_directory, private_file_path
     if a.out:
         a.out = str(private_file_path(a.out))
+        rep["report_path"] = a.out
     if a.workdir:
         workdir = str(runtime_directory(a.workdir))
     else:
@@ -616,7 +656,7 @@ def main(argv=None) -> int:
     os.makedirs(workdir, exist_ok=True)
 
     t0 = time.time()
-    rep = validate(a.target, defects, workdir)
+    rep.update(validate(a.target, defects, workdir))
     rep["seconds"] = round(time.time() - t0, 1)
     rep["workdir"] = workdir
     usable = [r["id"] for r in rep["defects"] if r["usable"]]
@@ -650,12 +690,14 @@ def main(argv=None) -> int:
     comb_rc, comb_tail = run_suite(seeded)
     rep["combined_suite_rc"] = comb_rc
     rep["combined_suite_tail"] = comb_tail
-    if comb_rc != 0:
+    if not _usable_suite(comb_rc, comb_tail):
         raise CalibrationError("with all %d defects seeded together the target's own suite goes red "
-                               "(rc=%s), so the combined baseline is invalid: %s"
+                               "or lacks usable observations (rc=%s), so the combined baseline is invalid: %s"
                                % (len(keep), comb_rc, comb_tail))
     pre = score(seeded, keep)
     rep["pre_run_score"] = pre
+    if not _complete_score(pre, usable):
+        raise CalibrationError("combined baseline oracle observations are incomplete or invalid")
     if pre["repaired"]:
         raise CalibrationError("these oracles already pass on the freshly seeded tree, so they are "
                                "not measuring their defect: %s" % ", ".join(pre["repaired"]))
@@ -704,7 +746,8 @@ def main(argv=None) -> int:
     # Pre-registered, written before the run: below 4 of 20 means the loop is broken and every later
     # design step is premature. Recorded in the report so the threshold cannot be moved afterward.
     rep["prereg_threshold"] = 4
-    rep["verdict"] = ("WORKS" if len(post["repaired"]) >= 4 else "BROKEN")
+    rep["failure_reasons"] = _calibration_failures(rep, usable)
+    rep["verdict"] = "BROKEN" if rep["failure_reasons"] else "WORKS"
 
     att = rep.get("attribution") or {}
     tot = att.get("totals") or {}
@@ -728,7 +771,7 @@ def main(argv=None) -> int:
     print("  verdict: %s (pre-registered threshold %d)" % (rep["verdict"], rep["prereg_threshold"]))
     if a.out:
         private_file_path(a.out).write_text(json.dumps(rep, ensure_ascii=False, indent=1), encoding="utf-8")
-    return 0
+    return 0 if rep["verdict"] == "WORKS" else 1
 
 
 if __name__ == "__main__":

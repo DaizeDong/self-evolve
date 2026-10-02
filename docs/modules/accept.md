@@ -12,8 +12,8 @@ reflect → propose → evaluate → judge → accept
 
 它不重新评测、不重新打分,只消费上游 evaluate/judge 给出的成对证据(每个任务/每个锚的「改之前」和「改之后」),把证据汇总成一个统计决策。它的核心承诺是:
 
-- **可信(type-I 受控)**:用 e-process 序贯检验,保证「实际没变好却被判为变好」的长期概率 ≤ α(默认 0.05),且这个保证在「随时停下来看」的情况下依然成立(anytime-valid),不会因为多看几轮而被偷偷放大假阳性。
-- **不退化(硬门优先)**:任何会让已经能过的任务退回去失败的改动,直接硬 REJECT,统计再漂亮也不采纳。
+- **统计边界有前提**：Ville 不等式控制单条有效非负过程在条件零假设下越过 `1/α` 的概率。当前每次提案评估重算财富，没有跨提案的 α 分配或持续财富账本，因此不承诺整次 run 的误采纳概率 ≤ α。
+- **A 路不退化(硬门优先)**:已经通过的任务改后失败，直接硬 REJECT。B 使用完整冻结事实的正负配对，C 检查已提供的 replay，不能把 A 的逐任务承诺推广到所有信号。
 - **抗自欺(多闸兜底)**:即使统计判 ACCEPT,还要再过一层「自欺检测」,judge 自夸的增益是否被真实可核验的锚增益兑现、是否只在「能看见的」锚上涨而「藏起来的」holdout 锚不涨。任一闸触发就降级为人审或硬拒。
 
 它在 pipeline 里**不直接做最终落地动作**。accept 这层的两个函数(`acceptor.decide` 算统计决策、`selfdeception.index` 算自欺信号)各自吐出一个 dict,真正把它们汇成「归档 / 叫人 / 拒绝」三选一的是状态机里的路由(`statemachine.combine_route` / `resolve_accept`)。也就是说:
@@ -28,7 +28,7 @@ reflect → propose → evaluate → judge → accept
 
 ### 一、评测策略(A/B/C)是什么,别误读成等级
 
-accept 对三种**信号来源**(代码里叫 tier "A"/"B"/"C",可叠加如 "A+B")走不同的判定路径。要强调:**A/B/C 不是「目标难度等级」,而是「证据从哪来、有多硬」的分类**(权威定义见 `reference/signal-providers.md`):
+accept 对三种**信号来源**(代码里叫 tier "A"/"B"/"C",profile 可标记 "A+B"，但当前主循环拒绝执行该组合)走不同的判定路径。要强调:**A/B/C 不是「目标难度等级」,而是「证据从哪来、有多硬」的分类**(权威定义见 `reference/signal-providers.md`):
 
 - **A = 客观通过/失败信号**:每个任务有一个二值结果 `task_passed ∈ {0,1}`,配成 `(before, after)`。这是最硬的证据,程序化、可复现、零主观。
 - **B = 可核验锚的边际增益信号**:每个「锚」(anchor,一个可被独立程序核验的证据点)给出一个浮点增益,配成 `(before_gain, after_gain) ∈ [0,1]²`。比 A 软,因为锚要靠核验、还可能彼此相关。
@@ -38,13 +38,13 @@ accept 对三种**信号来源**(代码里叫 tier "A"/"B"/"C",可叠加如 "A+B
 
 ### 二、e-process 序贯检验:为什么不用 p 值
 
-传统假设检验给一个 p 值,但它**不允许你边看边停**,多看几次再决定,假阳性率会爆。self-evolve 是迭代的(可能跑很多轮、随时想停下来采纳),所以用 **e-value / e-process**(下注鞅,betting martingale)。
+对一条有效的非负超鞅过程，Ville 不等式允许在观察过程中随时检查是否越界。这个结论需要明确的条件零假设、可预测下注和有效的观测模型；确定性任务分数或同源锚降权本身不会证明这些前提。
 
-直觉:把「改动没用」当成零假设 H₀。开局赌本(wealth)= 1。每来一对证据就下一注:如果改动真有用,赌本会系统性地涨;如果 H₀ 为真(改动没用),赌本是个鞅(期望不增)。**Ville 不等式**保证:H₀ 为真时,赌本曾经冲到过 1/α 的概率 ≤ α。于是判停规则就是:
+一次 `decide` 把该次输入的配对依次送入财富过程，起点为 1。若这条过程满足前提，则 `P(存在 t: W_t ≥ 1/α) ≤ α`。代码返回的字段仍叫 `evalue`，实际保存路径最大值：
 
-> **e-value = 路径历史最大值 ≥ 1/α → ACCEPT**(默认 α=0.05 即阈值 20)。
+> **`max(path) ≥ 1/α` → 统计门通过**，随后仍须通过适用硬门（默认 α=0.05，阈值 20）。
 
-取「路径最大值」`max(path)` 而非「末值」,正是 anytime-valid 的关键:等价于「在最优停时点决策」,Ville 不等式照样兜底 type-I ≤ α。
+路径最大值的越界事件受上述定理控制，但 `max(path)` 本身未必是期望不超过 1 的 e-value。新提案、重跑评估或重新调用 `decide` 会启动新过程；当前没有跨这些过程的错误预算机制，不能把单条过程的 α 保证推广到任意多轮。
 
 **下注机制(`_ons_betting_wealth`)的细节**:把每对差 `d = after − before` 映射到 `u = 0.5·(d+1) ∈ [0,1]`,零假设中心 `m = 0.5`(即 `d=0` 是「没改进」)。每步 `wealth ×= (1 + λ·payoff)`,`payoff = u − 0.5 ∈ [−0.5, 0.5]`。下注比例 λ 用 **ONS(Online Newton Step)**自适应:`λ ← clip(b/(A+1), ±(2−1e-6))`,其中 A 是梯度平方累积、b 是梯度累积、`+1` 是正则项(避免 A=0 时初始大步)。
 
@@ -58,7 +58,7 @@ accept 对三种**信号来源**(代码里叫 tier "A"/"B"/"C",可叠加如 "A+B
 `decide(paired, "A", ...)` 的流程:
 
 1. **空配对 → REJECT**(无证据不采纳)。
-2. **no-regression 硬门(A 档专属)**:扫描所有配对,任一 `before ≥ 1.0 > after`(即原来能过、改完不过)→ 立刻硬 REJECT,**覆盖一切 e-process 结果**。理由很硬:进化不允许「平均涨但踩坏已有能力」。注意此门**只在 A 档执行**,B 档的 `before_gain=1.0` 是「满分增益」的合法值,不代表退化,在 B 档跑这门会误杀强增益锚。
+2. **no-regression 硬门(A 档专属)**:扫描所有配对,任一 `before ≥ 1.0 > after`(即原来能过、改完不过)→ 立刻硬 REJECT,**覆盖一切 e-process 结果**。理由很硬:进化不允许「平均涨但踩坏已有能力」。注意此门**只在 A 档执行**,B 档配对是分别核验的正确性分，允许逐项得失进入净增益统计；B 不应用 A 的逐项无回归策略。
 3. **e-process(二态)**:跑下注鞅得 e-value。`≥ 1/α → ACCEPT`;否则 `REJECT`。**A 档禁 CONTINUE**,客观信号要么够了要么不够,不存在「再攒攒证据」。
 
 ### 四、B 档路径:三道门 + 去相关 + 允许 CONTINUE
@@ -95,7 +95,7 @@ accept 模块还提供几个状态机会用到的专门门函数:
 
 - **自欺指数** `value = judge_gain − visible_anchor_gain`:judge 说涨了多少 vs 真实核验锚涨了多少。
 - **闸②(增益地基太薄)**:`visible_anchor_gain < ε`(默认 0.02)→ `block_accept=True`。留存锚几乎没真涨,统计地基不可靠,**禁 ACCEPT**。
-- **闸③(过拟合背离,主信号)**:可见锚涨(`> 0`)但 holdout 锚不涨(`≤ 0`)→ `force_review=force_human=True`。这是典型的「只在能看见的题上过拟合、藏起来的题原形毕露」。`holdout_gain=None`(非抽检轮、本轮没 holdout 数据)时**跳过此闸**。
+- **闸③(过拟合背离,主信号)**:可见锚涨(`> 0`)但 holdout 锚不涨(`≤ 0`)→ `force_review=force_human=True`。这是典型的「只在能看见的题上过拟合、藏起来的题原形毕露」。`holdout_gain=None` 只在非抽检轮跳过此闸；抽检轮缺少可用观察时由 resolve_accept 拒绝。
 - **闸④(疑似合谋漂移)**:`|value| > band`(默认 0.15)→ 追加 `judge_anchor_divergence` alert。judge 自夸显著超出锚真实增益,疑似 judge/proposal 合谋。
 
 两个关键约定:
@@ -183,7 +183,7 @@ accept 是流水线最后一关,也是自欺最可能「闯关成功落地」的
 
 | 自欺形态 | 它怎么骗 | 对应闸门 |
 |---|---|---|
-| **多看几轮刷假阳性** | 反复评测,挑赌本最高的一刻宣布成功 | e-process anytime-valid:取 `max(path)`,Ville 不等式保证 type-I ≤ α,看多少轮都不放大假阳性 |
+| **多看几轮刷假阳性** | 对新提案反复重开检验，挑一次越界宣布成功 | 单条有效过程的越界受 Ville 不等式控制；跨提案重启的 run 级误采纳概率尚无 α 保证 |
 | **平均涨但踩坏已有能力** | 整体 e-value 好看,却让原本能过的任务退化 | no-regression 硬门(A 档 `before≥1>after` / C 档 `c_tier_no_regression`),覆盖一切统计结果 |
 | **相关锚冒充独立证据** | 拿一堆同源锚假装样本量大 | 门2 有效独立锚下限(`effective_independent_count` 次线性折算)+ `_decorrelate_downweight` 同源降权 |
 | **每轮塞新好看锚刷增益** | 当轮新增锚算进当轮增益 | 闸①(上游只计 frozen 留存锚,新锚不计当轮;`retained_visible_gain` 工具) |
@@ -191,7 +191,7 @@ accept 是流水线最后一关,也是自欺最可能「闯关成功落地」的
 | **只在可见题上过拟合** | 看得见的锚涨、藏起来的 holdout 原形毕露 | 闸③ overfit_holdout(主信号)→ 强制人审;`cumulative_drift` 查 lineage 级预算超支 |
 | **judge 自夸 / judge 与提案合谋** | 主观分虚高、评审自批自 | 闸④`|value|>band`(漂移累计→熔断)、`alpha_gate` 双向门(高一致+锚不涨→计自欺)、`judge_degrade`(Codex 不可用禁单 Claude auto)、C 档 `c_tier_weight=0.05` 永不单独 ACCEPT、纯 C coverage=0 必经人审 |
 
-贯穿性原则:**判官只报信号、绝不自己改状态**(单向数据流,漂移计数与落地都收敛到状态机),以及**非对称设计**,宁可降级人审多打扰,绝不让假阳性自动落地。数学证明(Ville 不等式、ONS 收敛、有效独立锚折算)详见 `reference/acceptor_math.md`;A/B/C 信号来源的权威定义见 `reference/signal-providers.md`。
+贯穿性原则:**判官只报信号、绝不自己改状态**(单向数据流,漂移计数与落地都收敛到状态机),以及**非对称设计**,宁可降级人审多打扰,绝不让假阳性自动落地。统计前提、Ville 不等式适用范围及锚折算规则详见 `reference/acceptor_math.md`;A/B/C 信号来源的权威定义见 `reference/signal-providers.md`。
 
 ---
 
@@ -199,7 +199,7 @@ accept 是流水线最后一关,也是自欺最可能「闯关成功落地」的
 
 **`tools/sie/acceptor.py`**
 - `decide`, 公开 API,三档路由 + 硬门 + e-process 决策
-- `_ons_betting_wealth`, 自洽 ONS 下注鞅(anytime-valid,confseq 缺失时回退)
+- `_ons_betting_wealth`, ONS 财富计算（定理依赖条件零假设；confseq 缺失时回退）
 - `_wealth_betting`, confseq 优先 / ONS 回退的统一适配器
 - `_pace_threshold`, 采纳阈值 1/α
 - `_scale_subjective`, C 档主观分方差缩放 + 单步截断

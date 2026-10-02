@@ -36,25 +36,33 @@ def test_parallel_independent_no_shared_state(monkeypatch, tmp_path):
     received_histories = []
 
     def fake_one(run_dir, history, idx, family="claude"):
-        received_histories.append(id(history))
+        assert history[0]["details"]["notes"] == []
+        history[0]["details"]["notes"].append(idx)
+        received_histories.append(history)
         return {"reflector": idx, "findings": []}
 
     monkeypatch.setattr(reflect, "_reflect_one", fake_one)
-    shared_history = [{"round": 1}]
+    from tools.make_fixtures import source13_repair_inputs
+    shared_history = source13_repair_inputs()["history"]
     reflect.run_reflections_parallel(str(tmp_path), history=shared_history, n_reflectors=3)
-    # All three calls should receive the same-valued list but we only care that 3 calls happened
     assert len(received_histories) == 3
+    assert len({id(history) for history in received_histories}) == 3
+    assert len({id(history[0]["details"]) for history in received_histories}) == 3
+    assert shared_history[0]["details"]["notes"] == []
 
 
 # ── Trace read-only: run_reflections_parallel must not modify history list ──
 
 def test_parallel_does_not_mutate_history(monkeypatch, tmp_path):
+    import copy
+    from tools.make_fixtures import source13_repair_inputs
     def fake_one(run_dir, history, idx, family="claude"):
+        history[0]["details"]["notes"].append(idx)
         return {"reflector": idx, "findings": []}
 
     monkeypatch.setattr(reflect, "_reflect_one", fake_one)
-    original = [{"round": 0, "summary": "fail"}]
-    snapshot = list(original)
+    original = source13_repair_inputs()["history"]
+    snapshot = copy.deepcopy(original)
     reflect.run_reflections_parallel(str(tmp_path), history=original, n_reflectors=3)
     assert original == snapshot  # history must not be mutated
 

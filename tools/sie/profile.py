@@ -73,7 +73,14 @@ def _exec_signal(target: str, base_ref: str) -> dict | None:
 def _resolve_ref(target: str, base_ref: str) -> str:
     """The commit `base_ref` names right now, so a moving ref cannot alias a stale worktree."""
     import subprocess
-    out = subprocess.run(["git", "-C", target, "rev-parse", base_ref or "HEAD"],
+    from tools.sie.sandbox import _git_path
+
+    native = _git_path(target)
+    # Git expands a short -C path back to its long spelling during discovery.
+    location = (["-C", target] if native == target else
+                ["--git-dir=" + os.path.join(native, ".git")])
+    out = subprocess.run(["git", "-c", "core.longpaths=true", *location,
+                          "rev-parse", base_ref or "HEAD"],
                          capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
     sha = (out.stdout or "").strip()
     if out.returncode != 0 or not sha:
@@ -82,7 +89,8 @@ def _resolve_ref(target: str, base_ref: str) -> str:
     return sha
 
 
-def run_profile(target: str, base_ref: str, run_dir: str | None = None) -> dict:
+def run_profile(target: str, base_ref: str, run_dir: str | None = None,
+                *, include_exec_probe: bool = True) -> dict:
     """Create profile dict with A/B/C tier (可叠加), visible/holdout anchor split.
 
     A 档: exec probe passes (has_tests + exit_code==0 + mutation_killed).
@@ -117,7 +125,7 @@ def run_profile(target: str, base_ref: str, run_dir: str | None = None) -> dict:
     tiers: set[str] = set()
 
     # --- A 维: exec 探针 ---
-    exec_res = _exec_signal(target, base_ref)
+    exec_res = _exec_signal(target, base_ref) if include_exec_probe else None
     if exec_res is not None:
         verifiable = (
             exec_res.get("has_tests")
@@ -133,6 +141,7 @@ def run_profile(target: str, base_ref: str, run_dir: str | None = None) -> dict:
     fp = _fact_probe.probe(target, base_ref)
     anchors_visible: list[dict] = []
     holdout_ref: dict = {"path": "", "count": 0, "ref": "isolated"}
+    holdout_sha256 = None
 
     if fp["tier_signal"] == "B":
         tiers.add("B")
@@ -160,6 +169,8 @@ def run_profile(target: str, base_ref: str, run_dir: str | None = None) -> dict:
             "count": len(holdout),
             "ref": "isolated",
         }
+        holdout_sha256 = hashlib.sha256(json.dumps(
+            holdout, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
     # 铁律: holdout 真值绝不进 prof (只有 ref 指针)
     # C 档: neither A nor B
@@ -172,6 +183,7 @@ def run_profile(target: str, base_ref: str, run_dir: str | None = None) -> dict:
         "verifiability_score": verifiability_score,
         "anchors_visible": anchors_visible,
         "anchors_holdout_ref": holdout_ref,  # pointer only, no holdout truth values
+        "anchors_holdout_sha256": holdout_sha256,
         "probe_evidence": {
             "fact": fp["evidence"],
             "anchor_count": fp["anchor_count"],

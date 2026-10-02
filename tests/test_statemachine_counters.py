@@ -248,14 +248,15 @@ def test_run_loop_forced_reject_accumulates_no_progress_to_circuit(tmp_path, mon
     sp.run(["git", "add", "-A"], cwd=r, check=True)
     sp.run(["git", "commit", "-qm", "init"], cwd=r, check=True)
 
-    # Monkeypatch acceptor.decide to always return REJECT
-    from tools.sie import acceptor
-    original_decide = acceptor.decide
+    # Patch the binding used by the production loop and prove it was called.
+    from tools.sie import statemachine
+    forced_calls = []
 
     def forced_reject(*args, **kwargs):
+        forced_calls.append(args)
         return {"decision": "REJECT", "evalue": 0.0, "reason": "forced for test"}
 
-    monkeypatch.setattr(acceptor, "decide", forced_reject)
+    monkeypatch.setattr(statemachine, "decide", forced_reject)
 
     # Run loop with max_rounds=10 to accumulate no_progress across multiple REJECTs
     tgt = str(r)
@@ -275,7 +276,10 @@ def test_run_loop_forced_reject_accumulates_no_progress_to_circuit(tmp_path, mon
     summary = run_loop(
         tgt, "HEAD", "test_forced_reject", max_rounds=10, mode="auto",
         _injected_fix={"file_rel": "mod.py", "fix_content": fix, "target_failure": "fix mul"},
+        _extra_params=custom_params,
     )
+    assert forced_calls, "The forced-rejection control must reach the patched decision binding"
+    assert len(forced_calls) == custom_params["no_progress_circuit_N"]
 
     run_dir = summary["run_dir"]
     final_st = load_state(run_dir)

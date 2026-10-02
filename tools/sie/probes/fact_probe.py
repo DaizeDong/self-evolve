@@ -12,21 +12,47 @@ Contract:
 from __future__ import annotations
 
 import os
-import glob
+import json
+from pathlib import Path
 from .. import anchors as _anchors
 
 _ANCHOR_SET_MIN = 24
 
 
 def _find_artifacts(target: str) -> list[str]:
-    """Locate artifact JSON files.
+    """Find factual outputs, excluding shipped code, tests and declared fixtures.
 
-    If target is a file, return [target] if it's .json, else [].
-    If target is a dir, recursively find all .json files.
+    An explicit JSON file is an explicit artifact selection. Directory discovery
+    does not treat the tool's own examples and tests as factual runtime evidence.
     """
     if os.path.isfile(target):
         return [target] if target.endswith(".json") else []
-    return sorted(glob.glob(os.path.join(target, "**", "*.json"), recursive=True))
+    root = Path(target)
+    manifest = root / ".dataclass.json"
+    declared = []
+    if manifest.is_file():
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        for key in ("fixture", "tool"):
+            values = data.get(key, [])
+            if not isinstance(values, list) or any(not isinstance(v, str) for v in values):
+                raise ValueError("Artifact exclusions require path lists: " + key)
+            declared.extend(v.rstrip("/") for v in values)
+    excluded_dirs = {"tests", "test", "fixtures", "examples", "tools", "guards", "style",
+                     ".git", "__pycache__", ".pytest_cache"}
+
+    def excluded(path):
+        rel = path.relative_to(root).as_posix()
+        return any(rel == item or rel.startswith(item + "/") for item in declared)
+
+    paths = []
+    for directory, dirs, files in os.walk(root, followlinks=False):
+        base = Path(directory)
+        dirs[:] = [name for name in dirs if name not in excluded_dirs
+                   and not (base / name).is_symlink() and not excluded(base / name)]
+        paths.extend(str(base / name) for name in files
+                     if name.endswith(".json") and not (base / name).is_symlink()
+                     and not excluded(base / name))
+    return sorted(paths)
 
 
 def probe(target: str, base_ref: str) -> dict:

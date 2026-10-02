@@ -648,10 +648,14 @@ def test_b_tier_e2e_through_run_loop_produces_b_paired(tmp_path, monkeypatch):
     # --- 运行 run_loop (max_rounds=1; B 档) ---
     target_dir = str(tmp_path / "target")
     os.makedirs(target_dir, exist_ok=True)
+    from tools.sie import anchors as anchor_module
+    def unexpected_live_fetcher(anchor):
+        raise AssertionError("The offline test reached the production factual fetcher")
+    monkeypatch.setattr(anchor_module, "_default_fetcher", unexpected_live_fetcher)
     summary = statemachine.run_loop(
         target_dir, "HEAD", "btier_e2e",
         max_rounds=1,
-        fetcher=None,  # None=no network; _verify_visible monkeypatched above
+        fetcher=lambda anchor: anchor["expected"],
     )
 
     # --- 断言 1: evaluate 被调用且传入了 B 档 ctx dict (非字符串) ---

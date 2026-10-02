@@ -9,8 +9,7 @@ d = after - before  ∈ {-1, 0, +1}
 u = 0.5 * (d + 1)  ∈ {0, 0.5, 1}
 ```
 
-The null hypothesis is H₀: E[u] = 0.5 (no improvement; the change is at best neutral).
-Under H₀, `u - 0.5` has zero mean, the betting payoff is a fair game.
+For the two-sided betting formula below, the conditional null is H₀: E[u_t | F_{t-1}] = 0.5, where F_{t-1} contains prior observations and all information used to choose the next bet. An unconditional average of 0.5 is insufficient. Extending this result to the composite claim "no improvement" requires an additional argument; bounded deterministic task scores alone do not establish the conditional null.
 
 | d | interpretation | u | payoff (u - 0.5) |
 |---|---|---|---|
@@ -35,31 +34,22 @@ where `λ_t ∈ (-2, 2)` is the betting fraction chosen adaptively before seeing
 P(∃ t: W_t ≥ 1/α) ≤ α
 ```
 
-This means the probability of *ever* exceeding the threshold under H₀ is at most α, regardless of when we stop. This is the anytime-valid property, no multiple-testing penalty.
+This controls repeated looks within that one valid process under its conditional null. It does not cover repeatedly starting fresh tests on new proposals. Current `decide()` calls reconstruct wealth from their supplied pairs; the loop has no run-wide alpha allocation or persistent statistical wealth account. Accordingly, the implementation does not establish run-wide family-wise error at most α.
 
 ## 3. Threshold and Decision
 
 ```
 threshold = 1/α
-e-value = sup_t W_t = max(W_1, ..., W_n)   ← 路径最大值 (Ville 不等式)
+path_max = max(W_1, ..., W_n)
 
-Decision:
-  e-value ≥ 1/α  →  ACCEPT  (reject H₀; evidence of improvement)
-  e-value  < 1/α  →  REJECT  (insufficient evidence under H₀)
+A-tier statistical decision, subject to all applicable hard gates:
+  path_max ≥ 1/α  →  ACCEPT
+  path_max  < 1/α  →  REJECT
 ```
 
-**e-value = sup_t W_t（路径最大值），而非终值 W_n。** 理由如下：
+The code retains the field name `evalue` for compatibility, but `_ons_betting_wealth` and `_wealth_betting` return a path maximum. Ville controls its threshold-crossing event when the underlying process is valid. The maximum is not automatically an e-value with expectation at most one, and must not be multiplied or averaged with other such maxima as if it were.
 
-1. **Ville 不等式直接控制 sup_t W_t：** P(∃ t: W_t ≥ 1/α) ≤ α，即路径最大值超阈的概率
-   在 H₀ 下 ≤ α。取 e-value = sup_t W_t 等价于"最优停时决策",只要财富任一时刻
-   超阈即可采纳，获得最大统计功效，同时保持相同 type-I 约束。
-2. **末值 W_n 更保守：** 若财富中途超阈后回落（ONS 自适应可能发生），末值 < 1/α 而
-   路径最大值 ≥ 1/α，用末值会漏判真实增益，损失功效。
-3. **anytime-valid 一致性：** 选 sup_t W_t 与 anytime-valid（任何停时有效）精神一致，
-   不依赖固定样本量，不受多重检验惩罚。
-
-代码实现为 `evalue = max(path)`（= sup_t W_t，见 `tools/sie/acceptor.py` 的
-`_ons_betting_wealth` / `_wealth_betting`），与本节一致。
+A process may cross the boundary and later fall below it; recording the crossing is valid under the same process assumptions. Resetting wealth for another proposal is a new test, outside this guarantee. B/C preprocessing and anchor clustering also require their own validity arguments; counting distinct clusters does not prove conditional independence.
 
 ## 4. No-Regression Hard Gate (Priority Override)
 
@@ -129,10 +119,10 @@ For each d_t:
     A ← A + g_t²
     b ← b + g_t
     λ_{t+1} = clip(b / (A + 1), -LAM_MAX, LAM_MAX)  # ONS step
-e_value = max(W_1, ..., W_n)              # 路径最大值 = e-value
+path_max = max(W_1, ..., W_n)             # returned as the legacy evalue field
 ```
 
-The ONS strategy is **anytime-valid**: it is a proper betting strategy (λ_t is previsible, i.e., chosen before observing u_t), so the wealth process W_t remains a nonneg martingale under H₀. The false commit rate satisfies P(e-value ≥ 1/α | H₀) ≤ α by Ville's inequality.
+ONS chooses λ_t from prior observations. Together with bounded payoffs, positive factors and the conditional null in §1, this yields a nonnegative martingale for that process. Ville then controls its boundary-crossing probability. Predictable betting alone does not validate the observation model, a composite no-improvement null, or repeated fresh proposal tests.
 
 ### 为什么收紧 λ 到 ±(2−δ)，而不是给 factor 兜底截断
 
@@ -148,13 +138,13 @@ The ONS strategy is **anytime-valid**: it is a proper betting strategy (λ_t is 
 - 正常路径（λ 远离边界）factor 远大于此，梯度有界，鞅恒等式成立
 - ONS 梯度 g = payoff/factor 在所有可能输入下有限，财富更新自洽
 
-**保证：** factor 恒 > 0 → wealth 恒 > 0 → 鞅属性保持 → Ville 不等式成立。
+**前提分开检查：** factor 恒 > 0 只能保证 wealth 为正。鞅属性还需要可预测下注和条件零均值；满足这些前提后才能使用 Ville 不等式。
 
 ## 9. Params Reference
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `α` / `alpha` | 0.05 | Type I error bound; threshold = 1/α = 20 |
+| `α` / `alpha` | 0.05 | Threshold parameter: 1/α = 20; conditional single-process bound, not a run-wide guarantee |
 | `n_min` | 8 | Minimum anchor count for B-tier |
 | `continue_count_cap` | 5 | Max CONTINUE rounds before forcing decision (B/C) |
 | `evalue_max_step` | 4.0 on the C path, `1e6` on the B path | One key, two call sites. C: the divisor in the variance scaling of §7. B: a clamp on the total e-value returned by one `decide()` call. |
