@@ -4,7 +4,7 @@
 
 self-evolve 的方法论恒定为 reflect → propose → evaluate → judge → accept，全程反自欺。本模块是其中 **judge** 这一段：当评测对象没有现成的程序化真值（不像 A 策略那样有 pytest 通过/不通过），需要由模型给出主观打分时，judge 模块负责把这份主观信号生成出来，并立刻给它套上信任度的校验。
 
-它在 pipeline 里的位置是 evaluate 之后、accept 之前的一个**信号 provider**：evaluate 已经从产物里抽出了"可核验跨度"（anchors，即一句话+一个可去核对的来源），judge 模块拿这些跨度去问两个不同来源的模型,Claude 和 Codex,"产物里和这些跨度绑定的论断，质量到底如何"。这是评测策略里靠主观判断打分的那一类（白话叫"判官评分"，在框架里属于评测信号 provider 的一种，权威清单见 `reference/signal-providers.md`），区别于另两类：一类靠跑测试拿确定真值，一类靠把论断对照外部来源做事实核对。三类是平行的信号来源，不是难度等级。
+它在 pipeline 里的位置是 evaluate 之后、accept 之前的一个**信号 provider**：evaluate 已经从产物里抽出了"可核验跨度"（anchors，即一句话+一个可去核对的来源），judge 模块拿这些跨度去问两个经 llmcall 路由的 judge；是否独立取决于实际返回 provider 家族,"产物里和这些跨度绑定的论断，质量到底如何"。这是评测策略里靠主观判断打分的那一类（白话叫"判官评分"，在框架里属于评测信号 provider 的一种，权威清单见 `reference/signal-providers.md`），区别于另两类：一类靠跑测试拿确定真值，一类靠把论断对照外部来源做事实核对。三类是平行的信号来源，不是难度等级。
 
 判官信号天生不可信,模型可能编、可能两个模型一起编（异质合谋）、可能打分跟真实核验脱节。所以本模块的真正职责不是"打分"，而是**给主观分配上信任闸**：用两判官的**配对一致性**（pairwise_agreement）检测它们是不是步调一致或异常合谋，用 **judge↔锚校准**（calibrate_judge_anchor）检测判官打的分跟独立人审/holdout 的真值到底相不相关。打分谁都会，本模块的价值在这两道闸。
 
@@ -31,7 +31,7 @@ avoid the actual first provider using llmcall's central policy.
 
 `score(artifact_path, anchors_visible, family)` 是单家判官的打分入口：读产物全文，从可见锚里抽 span 文本，构造提示词，保留兼容的 `family` 参数，实际路由由 llmcall 决定，返回的 provider 决定家族。
 
-判官返回的原始 JSON 由 `_parse_span_scores` 解析，同样**绝不抛**：解析失败或缺 `span_scores` 时返回空列表、aggregate=0.0，并把所有跨度都计入"未被打分而受罚"。只接受已知且不重复的 span，以及有限、位于 0 到 1 的数值 score。畸形条目不能贡献正分，缺失跨度不能补分。
+判官返回的原始 JSON 由 `_parse_span_scores` 解析，同样**绝不抛**：解析失败或缺 `span_scores` 时返回空列表、aggregate=0.0，并把所有跨度都计入"未被打分而受罚"。只接受已知且不重复的 span，以及有限、位于 0 到 1 的数值 score。任一畸形、重复或未知跨度使整份结果不可用；遗漏跨度在固定分母下计零。
 
 这里有个反加水的细节：**未被判官打分的跨度不会被补默认分**。`unspanned_penalized` 记录"有多少跨度判官没给分"（`len(spans) - len(valid)`）。判官漏掉跨度 = 这些跨度拿不到信用，而不是被填一个中间值蒙混过去。
 
@@ -83,7 +83,7 @@ degenerate 的存在是核心：校准在样本太少或退化时**老实承认�
     "family": str,
     "available": bool,
     "span_scores": [{"span": str, "score": float}, ...],
-    "aggregate": float,            # 有效分均值，无则 0.0
+    "aggregate": float,            # 有效分之和除以全部请求的唯一跨度数，遗漏跨度计零
     "unspanned_penalized": int,    # 判官未打分的跨度数，不补默认分
   }
   ```
@@ -91,7 +91,7 @@ degenerate 的存在是核心：校准在样本太少或退化时**老实承认�
 
 ### invoke_codex_judge / invoke_claude_judge
 - 入：`prompt: str`，`timeout_s: int = 600`
-- 出：成功 `{"available": True, "raw": stdout}`；任何失败 `{"available": False, "raw": ""}`（绝不抛）
+- 出：返回终态结果、raw 文本、实际 provider/family、attempts 与错误信息；失败或终态证据无效时 available=False
 
 ### debias_order
 - 入：`scores: dict`（含 span_scores）
@@ -107,7 +107,7 @@ degenerate 的存在是核心：校准在样本太少或退化时**老实承认�
 
 ### 相邻模块接口
 
-- **上游 evaluate**：`evaluate.inject_judge_scores(artifact_path, anchors_visible, holdout)` 是判官分进入评测系统的**唯一入口**（候选无法自报 judge 分）。它对同一产物分别调 `score(..., "codex")` 和 `score(..., "claude")`，调 `pairwise_agreement` 得 α，按"codex 优先、否则 claude、否则零分 degenerate"选主判官调 `calibrate_judge_anchor`，最后输出 `{codex, claude, alpha, calibration, judge_gain}`。
+- **上游 evaluate**：`evaluate.inject_judge_scores(artifact_path, anchors_visible, holdout)` 是判官分进入评测系统的**唯一入口**（候选无法自报 judge 分）。它对同一产物分别调 `score(..., "codex")` 和 `score(..., "claude")`，仅在两次成功结果属于已知不同 provider 家族时调 `pairwise_agreement` 得 α，否则 α=None，按"codex 优先、否则 claude、否则零分 degenerate"选主判官调 `calibrate_judge_anchor`，最后输出 `{codex, claude, alpha, calibration, judge_gain}`。
 - **同源去相关依赖**：`calibrate_judge_anchor` 依赖 `anchors.effective_independent_count`。
 - **下游 acceptor**：`acceptor.alpha_gate(alpha, anchor_up, params)` 消费 α,α=None 直接 `force_review=True`；α < `alpha_low`(0.4) 人审；α > `alpha_high`(0.85) 且锚不涨 → 人审 + 计自欺。`acceptor.judge_degrade(codex_available, claude_available)` 处理判官可用性,codex 不可用即禁止"单 Claude 自动 ACCEPT"，降级为程序化锚唯一裁决并升人审。
 - **下游 selfdeception / statemachine**：当判官声称的增益高于锚的真实核验（`judge_gain > visible`，合谋方向），`selfdeception.index` 出 `judge_anchor_divergence` alert，statemachine 据此 `drift_count += 1`，累计触发漂移熔断停机人审。

@@ -36,7 +36,7 @@ from tools.sie.reflect import reflect
 from tools.sie.check_reflection import check
 from tools.sie.propose import propose
 from tools.sie.patch import apply_patch
-from tools.sie.evaluate import evaluate
+from tools.sie.evaluate import evaluate, candidate_grade_error
 from tools.sie.acceptor import decide
 from tools.sie import archive, business_tree, runtime_data
 
@@ -284,6 +284,10 @@ def resolve_accept(st: RunState, eval_out: dict, params: dict,
         return _resolve_accept_legacy(st, eval_out, params)
 
     # --- B 档路径 ---
+    if eval_out.get("holdout_missing"):
+        st.no_progress += 1
+        return {"next_state": "9", "acceptor_decision": "REJECT", "selfdeception": {},
+                "reason": "Scheduled holdout has no usable paired observation"}
     dec = decide(
         eval_out.get("b_paired", []),
         "B",
@@ -584,15 +588,18 @@ def _base_ref_worktree(run_dir: str) -> str | None:
     return candidates[0] if len(candidates) == 1 else None
 
 
-def _parent_baseline(run_dir: str, parent_vid: str) -> dict | None:
+def _parent_baseline(run_dir: str, parent_vid: str, supervisor=None) -> dict | None:
     """Read only the selected parent's usable scores; missing data stays missing."""
     if not parent_vid or parent_vid == 'base':
         probe = _base_ref_worktree(run_dir)
         if not probe:
             return None
         try:
-            from tools.sie.evaluate import _grade_pytest_per_task
-            graded = _grade_pytest_per_task(probe)
+            if supervisor is not None:
+                graded = supervisor.grade({}, probe, self_mode=True)
+            else:
+                from tools.sie.evaluate import _grade_pytest_per_task
+                graded = _grade_pytest_per_task(probe)
         except Exception as exc:
             raise BaselineUnavailable('grader_failed', str(exc)) from exc
         return _usable_baseline(graded)
@@ -602,7 +609,7 @@ def _parent_baseline(run_dir: str, parent_vid: str) -> dict | None:
         raise BaselineUnavailable('lineage_unreadable', str(exc)) from exc
     for entry in reversed(entries):
         if entry.get('vid') == parent_vid:
-            return _usable_baseline({'dimensions': entry.get('scores')})
+            return _usable_baseline({'dimensions': entry.get('task_dimensions', entry.get('scores'))})
     return None
 
 
@@ -621,6 +628,114 @@ def _record_model_stage(run_dir, filename, record):
         stream.flush()
         os.fsync(stream.fileno())
 
+
+
+def _resume_records(run_dir):
+    """Recover reflection records and holdout progress from the durable event log."""
+    records = {}
+    last_holdout = 0
+    current_round = 0
+    path = runtime_data.private_file_path(os.path.join(run_dir, "events.jsonl"))
+    if not path.exists():
+        return [], last_holdout
+    with path.open("rb") as stream:
+        for line in stream:
+            try:
+                event = json.loads(line)
+            except (ValueError, UnicodeDecodeError):
+                continue  # Match replay's handling of a torn event.
+            if not isinstance(event, dict):
+                raise ValueError("Run event must be an object")
+            if event.get("type") == "ROUND_BEGIN":
+                current_round = event["round"]
+            if event.get("type") == "HOLDOUT_MEASURED":
+                last_holdout = max(last_holdout, event["holdout_round"])
+            record = event.get("record") if event.get("type") == "ROUND_HISTORY" else None
+            if record is not None:
+                if not isinstance(record, dict) or type(record.get("round")) is not int:
+                    raise ValueError("Invalid durable reflection record")
+                records[record["round"]] = record
+            elif current_round and event.get("type") in {
+                    "ACCEPT", "REJECT", "CONTINUE", "STATIC_REJECT", "PAUSE_FOR_HUMAN",
+                    "BASELINE_UNAVAILABLE", "RESTORE_FAILED"}:
+                # Older logs retain the decision even when no rich history record was stored.
+                records.setdefault(current_round, {
+                    "round": current_round, "summary": event.get("reason", event["type"]),
+                    "passed": event["type"] == "ACCEPT"})
+    return [records[key] for key in sorted(records)], last_holdout
+
+
+class _RunHistory(list):
+    """Persist each completed reflection record before exposing it in memory."""
+    def __init__(self, run_dir, records):
+        super().__init__(records)
+        self.run_dir = run_dir
+
+    def append(self, record):
+        frozen = json.loads(json.dumps(record))
+        append_event(self.run_dir, {"type": "ROUND_HISTORY", "record": frozen})
+        super().append(frozen)
+
+
+def _btier_round_context(prof, parent_snapshot, sandbox_root, rnd, params, fetcher, parent):
+    """Measure frozen visible and sampled holdout obligations on both actual trees."""
+    import hashlib
+    from tools.sie import evaluate as evaluator
+    from tools.sie import anchors as anchor_module
+    from tools.sie.probes import fact_probe
+
+    def read_tree(root):
+        result = []
+        for path in fact_probe._find_artifacts(root):
+            result.extend(anchor_module.extract_anchors(path))
+        return result
+
+    frozen = prof.get("anchors_visible", [])
+    if not frozen:
+        raise BaselineUnavailable("empty_anchors", "No frozen visible obligations")
+    candidate = read_tree(sandbox_root)
+    parent_anchors = frozen if parent == "base" else read_tree(parent_snapshot)
+    measured = evaluator.build_btier_scores(frozen, candidate, fetcher,
+                                            baseline_anchors=parent_anchors)
+    if measured["unobserved"]:
+        raise BaselineUnavailable("anchor_observation_unavailable", "Visible factual observations are incomplete")
+    interval = int(params.get("holdout_K", 5))
+    if interval <= 0:
+        raise ValueError("holdout_K must be positive")
+    holdout_base = holdout_with = None
+    if params.get("_holdout_due", rnd > 0 and rnd % interval == 0):
+        reference = prof.get("anchors_holdout_ref", {})
+        if not isinstance(reference, dict):
+            raise BaselineUnavailable("holdout_unavailable", "Sampled holdout reference is malformed")
+        path = reference.get("path")
+        digest = prof.get("anchors_holdout_sha256", reference.get("sha256"))
+        if (not isinstance(path, str) or not path or not isinstance(digest, str)
+                or len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest)
+                or type(reference.get("count")) is not int or reference["count"] <= 0):
+            raise BaselineUnavailable("holdout_unavailable", "Sampled holdout has no frozen content identity")
+        with open(path, "r", encoding="utf-8") as stream:
+            holdout = json.load(stream)
+        if (not isinstance(holdout, list) or not holdout
+                or any(not isinstance(anchor, dict) for anchor in holdout)
+                or len(holdout) != reference["count"]):
+            raise BaselineUnavailable("holdout_unavailable", "Sampled holdout is empty or incomplete")
+        actual_digest = hashlib.sha256(json.dumps(holdout, sort_keys=True,
+                                        separators=(",", ":")).encode("utf-8")).hexdigest()
+        if actual_digest != digest:
+            raise BaselineUnavailable("holdout_unavailable", "Sampled holdout differs from its frozen identity")
+        visible_keys = {evaluator._btier_match_key(anchor) for anchor in frozen}
+        if any(evaluator._btier_match_key(anchor) in visible_keys for anchor in holdout):
+            raise BaselineUnavailable("holdout_unavailable", "Holdout overlaps visible obligations")
+        holdout_scores = evaluator.build_btier_scores(
+            holdout, candidate, fetcher,
+            baseline_anchors=holdout if parent == "base" else parent_anchors)
+        if holdout_scores["unobserved"]:
+            raise BaselineUnavailable("holdout_unavailable", "Sampled holdout observations are incomplete")
+        holdout_base = sum(holdout_scores["base_scores"].values()) / len(holdout)
+        holdout_with = sum(holdout_scores["with_scores"].values()) / len(holdout)
+    return {"tier": prof["tier"], "round": rnd, "K": interval, **measured,
+            "holdout_base": holdout_base, "holdout_with": holdout_with,
+            "intended_accept": None, "fetcher": fetcher}
 
 def run_loop(
     target: str,
@@ -683,15 +798,22 @@ def run_loop(
     # ------------------------------------------------------------------
     # 态0 INIT, worktree + initial event
     # ------------------------------------------------------------------
-    sandbox_root = make_worktree(target, base_ref, run_id)
-    st = _step(run_dir, {
-        "type": "INIT",
-        "run_id": run_id,
-        "phase": "INIT",
-        "parent_vid": None,
-        "tier": "",
-        "round": 0,
-    })
+    if supervisor is not None:
+        if not candidate_worktree:
+            raise ValueError("Selfboot requires its isolated candidate worktree")
+        sandbox_root = os.path.realpath(candidate_worktree)
+    else:
+        if candidate_worktree is not None:
+            raise ValueError("A supplied candidate worktree requires a selfboot supervisor")
+        sandbox_root = make_worktree(target, base_ref, run_id)
+    st = replay(run_dir)
+    if st.run_id and st.run_id != run_id:
+        raise ValueError("Persisted run identity differs from requested run")
+    if not st.run_id:
+        st = _step(run_dir, {
+            "type": "INIT", "run_id": run_id, "phase": "INIT",
+            "parent_vid": None, "tier": "", "round": 0,
+        })
 
     # ------------------------------------------------------------------
     # 态1 PROFILE, freeze tier; idempotent on resume
@@ -709,16 +831,22 @@ def run_loop(
         "tier": prof["tier"],
     })
 
+    if "A" in str(prof["tier"]) and "B" in str(prof["tier"]):
+        raise ValueError("Composite A+B execution is not supported; both acceptance components are required")
+
     # ------------------------------------------------------------------
     # Main loop: max_rounds iterations over states 2-9
     # ------------------------------------------------------------------
-    history: list[dict] = []
+    recovered_history, last_holdout_round = _resume_records(run_dir)
+    history = _RunHistory(run_dir, recovered_history)
+    first_round = st.round + 1
     base_snapshot = os.path.join(run_dir, 'base-snapshot')
     if not os.path.exists(base_snapshot) and not archive.lineage(os.path.join(run_dir, 'archive')):
         business_tree.snapshot(sandbox_root, base_snapshot)
 
-    for rnd in range(1, max_rounds + 1):
+    for rnd in range(first_round, first_round + max_rounds):
 
+        params["_holdout_due"] = rnd - last_holdout_round >= int(params.get("holdout_K", 5))
         # 态2 SELECT_PARENT
         parent = select_parent(run_dir, st)
         parent_snapshot = (base_snapshot if parent == 'base' else
@@ -919,7 +1047,8 @@ def run_loop(
         baseline = None
         if 'A' in _tier_str and 'B' not in _tier_str:
             try:
-                baseline = _parent_baseline(run_dir, parent)
+                baseline = (_parent_baseline(run_dir, parent, supervisor) if supervisor is not None
+                            else _parent_baseline(run_dir, parent))
                 if baseline is None:
                     raise BaselineUnavailable('missing_base_probe' if parent == 'base' else 'unknown_parent')
                 _usable_baseline(baseline)
@@ -930,79 +1059,17 @@ def run_loop(
                 break
 
         if "B" in _tier_str:
-            # B 档: 构造 evaluate ctx dict (B-tier dispatch 要求首参为含 tier:"B" 的 dict)
-            # holdout 抽检: round % K == 0 时从 holdout.json 读并算均值
-            _K = int(params.get("holdout_K", 5))
-            _holdout_base: float | None = None
-            _holdout_with: float | None = None
-            if rnd > 0 and rnd % _K == 0:
-                _href = prof.get("anchors_holdout_ref", {})
-                _holdout_path = _href.get("path", "")
-                if _holdout_path and os.path.exists(_holdout_path):
-                    import json as _json
-                    try:
-                        with open(_holdout_path, "r", encoding="utf-8") as _fh:
-                            _holdout_anchors = _json.load(_fh)
-                        # holdout_base=0.0 (无 baseline 时全零);
-                        # holdout_with=mean(expected) 用锚 expected 字段近似当前得分
-                        if _holdout_anchors:
-                            _holdout_base = 0.0
-                            _holdout_with = sum(
-                                float(a.get("expected", 0.0)) for a in _holdout_anchors
-                            ) / len(_holdout_anchors)
-                    except (json.JSONDecodeError, ValueError, IOError):
-                        # Corrupted/missing holdout.json: treat as missing data
-                        # (no holdout signal available for this round)
-                        pass
-                # 支持测试注入 holdout 数值覆盖 (via _extra_params)
-                if params.get("holdout_base") is not None:
-                    _holdout_base = float(params["holdout_base"])
-                if params.get("holdout_with") is not None:
-                    _holdout_with = float(params["holdout_with"])
-            # B 档真打分: 从 baseline frozen visible 锚 + candidate(改后)产物锚, 用真
-            # verify_anchor 构造 per-anchor base/with scores(改正错锚→base0/with1→正增益)。
-            from tools.sie import evaluate as _ev_mod
-            from tools.sie import anchors as _anc_mod
-            from tools.sie.probes import fact_probe as _fp_mod
-            _base_anchors = prof.get('anchors_visible', [])
-            if parent != 'base':
-                _base_anchors = []
-                try:
-                    for _ap in _fp_mod._find_artifacts(parent_snapshot):
-                        _base_anchors.extend(_anc_mod.extract_anchors(_ap))
-                except (OSError, ValueError) as exc:
-                    st, halt_reason = _pause_for_baseline(
-                        run_dir, sandbox_root, parent, parent_snapshot, 'reader_failed', str(exc))
-                    break
-            if not _base_anchors:
+            try:
+                ev_ctx = _btier_round_context(
+                    prof, parent_snapshot, sandbox_root, rnd, params, fetcher, parent)
+            except (BaselineUnavailable, OSError, ValueError, TypeError) as exc:
                 st, halt_reason = _pause_for_baseline(
-                    run_dir, sandbox_root, parent, parent_snapshot, 'empty_anchors',
-                    'The selected parent has no usable anchor baseline')
+                    run_dir, sandbox_root, parent, parent_snapshot,
+                    getattr(exc, "status", "anchor_reader_failed"), str(exc))
                 break
-            _cand_anchors: list[dict] = []
-            for _ap in _fp_mod._find_artifacts(sandbox_root):
-                try:
-                    _cand_anchors.extend(_anc_mod.extract_anchors(_ap))
-                except Exception:
-                    pass
-            _bsc = _ev_mod.build_btier_scores(
-                _base_anchors, _cand_anchors, fetcher)
-            ev_ctx: dict = {
-                "tier": prof["tier"],
-                "round": rnd,
-                "K": _K,
-                # anchors_visible = candidate 锚(已 verify); 空则回退 baseline(无候选产物时)
-                "anchors_visible": _bsc["anchors_visible"] or _base_anchors,
-                # base/with: baseline vs candidate 真 verify(0/1), 经 build_btier_scores
-                "base_scores": _bsc["base_scores"],
-                "with_scores": _bsc["with_scores"],
-                "holdout_base": _holdout_base,
-                "holdout_with": _holdout_with,
-                # intended_accept=None: 让 _evaluate_btier 回退到原始信号,
-                # 由 resolve_accept 在 acceptor 决策后再做门控 (M2.13 spec 设计)
-                "intended_accept": None,
-                "fetcher": fetcher,  # None=真 edgar; 测试注入假 fetcher
-            }
+            if ev_ctx.get("holdout_base") is not None and ev_ctx.get("holdout_with") is not None:
+                append_event(run_dir, {"type": "HOLDOUT_MEASURED", "holdout_round": rnd})
+                last_holdout_round = rnd
             ev_result = evaluate(ev_ctx)
         elif "C" in _tier_str:
             # ---- M3.11 C 档评测接线 ----
@@ -1068,9 +1135,7 @@ def run_loop(
                 vid = archive.next_version_id(run_dir)
                 arch_dir = os.path.join(run_dir, "archive")
                 archive.snapshot_version(arch_dir, vid, sandbox_root)
-                archive.add_version(run_dir, vid,
-                                    ev_result.get("result", {}).get("dimensions", []),
-                                    parent)
+                archive.add_version(run_dir, vid, ev_result.get("archive_scores", {}), parent)
                 accepted.append(vid)
                 st = _step(run_dir, {
                     "type": "ACCEPT",
@@ -1364,16 +1429,22 @@ def run_loop(
             # M4.6: 自举（supervisor is not None）时用 frozen Supervisor 裁决；非自举完全不变。
             if supervisor is not None:
                 # 自举: 用 frozen Supervisor.grade 取代 evaluate（candidate 不能给自己打分）
-                _sb_root = candidate_worktree if candidate_worktree else sandbox_root
-                _grade = supervisor.grade({}, _sb_root, self_mode=True)
-                _dims = _grade.get('dimensions', [])
-                from tools.sie.evaluate import pair_parent_dimensions
-                _sv_paired = pair_parent_dimensions(baseline['dimensions'], _dims)
-                # 用 frozen Supervisor.decide 裁决（不从 candidate import acceptor）
-                dec = supervisor.decide(_sv_paired, prof["tier"], st, params)
+                if os.path.normcase(os.path.realpath(sandbox_root)) != os.path.normcase(
+                        os.path.realpath(candidate_worktree)):
+                    raise ValueError("Selfboot patch and grade candidate identities differ")
+                _grade = supervisor.grade({}, sandbox_root, self_mode=True)
+                _grade_error = candidate_grade_error(_grade, baseline["dimensions"])
+                if _grade_error is None:
+                    from tools.sie.evaluate import pair_parent_dimensions
+                    _sv_paired = pair_parent_dimensions(baseline["dimensions"], _grade["dimensions"])
+                    dec = supervisor.decide(_sv_paired, prof["tier"], st, params)
             else:
-                # 非自举: 原路径（A/B/C M1/M2/M3 既有行为零改）
-                dec = decide(ev_result["paired"], prof["tier"], st, params)
+                _grade_error = candidate_grade_error(ev_result.get("result"), baseline["dimensions"])
+                if _grade_error is None:
+                    dec = decide(ev_result["paired"], prof["tier"], st, params)
+            if _grade_error is not None:
+                dec = {"decision": "REJECT", "evalue": 0.0, "force_review": False,
+                       "reason": "unusable candidate grade: " + _grade_error}
             nxt = apply_acceptor_outcome(st, dec, params)
 
             if nxt == "ARCHIVE":

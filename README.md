@@ -106,8 +106,51 @@ identity. `init` reports its exact path. Both ordinary runs and `--self` use thi
 resolver; foreign public targets receive no runtime directory. Use a nonempty
 single-component run ID. `status` and `replay` explicitly report uninitialized
 state when there is no record. Scratch cwd containment is not an operating-system
-sandbox against deliberate absolute-path writes.
+sandbox against deliberate absolute-path writes. Profiling can classify A+B, but execution
+currently refuses that composite until both acceptance components are supported. B scoring
+preserves all frozen identities and spans; sampled holdouts need pinned, independently
+measured observations. Selfboot patches, grades and snapshots the same candidate tree.
 
+
+## Synthetic fixtures and B-target checks
+
+The two JSON fixtures under `tests/fixtures/` are generated synthetic data with
+reserved example.com sources. Regenerate them with:
+
+```bash
+python tools/make_fixtures.py --out tests/fixtures
+```
+
+Without `--out`, the generator retains its legacy stdout samples. Synthetic
+anchors exercise schema and scoring mechanics; they are not financial evidence.
+
+B-target support scripts require an explicit source. After configuring the PRIVATE
+companion, validate either generated input or an absolute PRIVATE artifact:
+
+```bash
+python scripts/validate_btarget.py --synthetic
+python scripts/validate_btarget.py --artifact <absolute-private-json>
+```
+
+The validator copies that selected input into disposable PRIVATE scratch and
+disables execution probes. It reports structural B classification and an independence
+upper bound computed under hypothetical verification; it does not verify facts or
+test ACCEPT. Add `--live` only to request one installed llmcall proposal. That check
+reports JSON shape and anchor count, which do not establish factual improvement.
+
+To prepare a persistent standalone target, supply the target's own PRIVATE remote:
+
+```bash
+python scripts/setup_btarget_repo.py --synthetic --private-remote <target-private-remote>
+python scripts/setup_btarget_repo.py --artifact <absolute-private-json> --private-remote <target-private-remote>
+```
+
+The destination defaults beneath the PRIVATE data root; `--dest` must remain beneath
+it. The remote must already have current PRIVATE visibility proof. Setup verifies
+that proof before writing the artifact and uses the configured Git identity and
+hooks. It does not push. The companion's remote is never assumed to be the target's
+remote. A failed visibility check can leave empty Git initialization metadata; no
+artifact has been copied at that point.
 
 ## How to invoke
 
@@ -141,6 +184,7 @@ Accepted versions enter an archive lineage; anything that leaves the sandbox goe
 - Pure A-tier auto-ACCEPT needs headroom of "more tests pass after the change", a green baseline has none (by design), so the real open-domain improvement signal lives in the B / C quality tiers.
 - The current code treats purely subjective C conservatively (`coverage=0`, low weight, defaults to human review); full A/B↔C accept-parity is the scenario-eval module's design / landing direction, not yet fully landed.
 - Everything automatic is sandbox-only; landing actions (push / merge / outbound) always require the human-review subflow.
+- Ville's inequality controls a single valid nonnegative process under its conditional-null assumptions. Each proposal evaluation currently starts fresh wealth; there is no run-wide alpha allocation, so repeated proposals do not have an established family-wise error bound of alpha. The returned `evalue` is a path maximum, not automatically an expectation-bounded e-value. See [the mathematical scope](reference/acceptor_math.md).
 
 ## Languages
 
@@ -151,3 +195,9 @@ English (`README.md`, authoritative) · 中文 ([`README_CN.md`](README_CN.md))
 See [ROADMAP.md](ROADMAP.md) · [CHANGELOG.md](CHANGELOG.md) · [LICENSE](LICENSE) (MIT).
 
 Sister skill: [market-intel](https://github.com/DaizeDong/market-intel), the academic toolchain cross-validation in [`docs/02-crossval-deepdive.md`](docs/02-crossval-deepdive.md) feeds this project's guardrail design.
+
+Calibration attribution remeasures every oracle for each accepted snapshot. Changes
+to imported helpers or configuration can alter a result even when a defect-bearing
+file is unchanged. This conservative policy costs more oracle executions; cache
+reuse requires a complete dependency contract. The calibration runner reports
+measurement results and errors separately.

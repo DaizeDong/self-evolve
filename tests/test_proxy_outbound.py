@@ -164,7 +164,7 @@ def test_screen_passes_normal_header_values():
     assert out["ok"] is True
 
 
-def test_dispatch_allowlist_deepcopy_isolation(tmp_path):
+def test_dispatch_allowlist_deepcopy_isolation(tmp_path, monkeypatch):
     """Dispatch should use a deepcopy of allowlist to prevent runtime mutation attacks."""
     original_allow = {
         "test_kind": {
@@ -173,10 +173,22 @@ def test_dispatch_allowlist_deepcopy_isolation(tmp_path):
         }
     }
 
-    # Keep a reference to verify deepcopy worked
-    allow_copy = original_allow.copy()
+    import copy
+    allow_copy = copy.deepcopy(original_allow)
+    real_deepcopy = copy.deepcopy
+    captured_copies = []
+
+    def track_copy(value, *args, **kwargs):
+        result = real_deepcopy(value, *args, **kwargs)
+        if value is original_allow:
+            captured_copies.append(result)
+        return result
+
+    monkeypatch.setattr(proxy.copy, "deepcopy", track_copy)
 
     def normal_fetcher(method, url, headers, body):
+        assert len(captured_copies) == 1
+        captured_copies[0]["test_kind"]["params"]["id"] = "synthetic mutated rule"
         return {"status": 200, "body": "{}"}
 
     out = proxy.dispatch(

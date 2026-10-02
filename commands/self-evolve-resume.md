@@ -45,3 +45,5 @@ harness 内部会检测 target.json 是否存在，若存在则跳过 PROFILE（
 ```
 /self-evolve-status <run_id>
 ```
+
+Resume restores the next round number and reflection records from the existing event log. Holdout checks use the last durably recorded measurement, so several short resumes cannot postpone a due check. `max_rounds` is the additional work budget for this invocation.

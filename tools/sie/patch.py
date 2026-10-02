@@ -5,7 +5,8 @@ Security contract (M1a/M1b):
   dangerous builtins/module-attribute calls.
 - scan_ast_dangerous: full danger call gate (M1b) — covers alias bypass, importlib,
   builtins.__import__/getattr/__builtins__[...] subscript, dangerous module prefixes,
-  sandbox-escaping open().
+  recognized filesystem calls with outside or unproven paths. This static
+  admission check is not process isolation.
 - apply_patch: boundary-first (canonical_in_sandbox), then import_gate, then
   scan_ast_dangerous, then write.  Any failure → REJECT; file is never written.
 """
@@ -109,8 +110,8 @@ DEFAULT_IMPORT_ALLOW: frozenset[str] = frozenset({
     # Pure-computation stdlib that a real repository cannot be edited without. Measured 2026-08-29
     # against a live target: 9 of its 10 core modules were unpatchable, and argparse alone blocked
     # every script with a CLI, random blocked the sampler, difflib blocked the deduplicator. None of
-    # these adds a capability the gate is defending against: they parse strings, shuffle numbers and
-    # diff text. They cannot open a socket, spawn a process or reach the filesystem.
+    # Imports alone do not establish safety. The set also contains filesystem-capable
+    # modules; their recognized call forms require the path checks below.
     "argparse", "random", "difflib", "unicodedata", "base64", "uuid", "csv", "statistics",
     "shlex", "shutil", "hmac", "html", "glob", "tempfile", "atexit", "warnings", "logging",
     "os", "sys", "re", "json", "math", "typing", "dataclasses",
@@ -139,20 +140,258 @@ def _attr_chain(node: ast.AST) -> str:
 
 def _is_outside_sandbox(literal: str, sandbox_root: str, target_path: str) -> bool:
     """Return True if *literal* (a path string) resolves outside *sandbox_root*."""
-    if not (sandbox_root and target_path):
+    if not sandbox_root:
         return False
     root = os.path.realpath(sandbox_root)
     if os.path.isabs(literal) or (len(literal) > 1 and literal[1] == ":"):
         cand = os.path.realpath(literal)
     else:
-        base = os.path.dirname(os.path.realpath(target_path))
-        cand = os.path.realpath(os.path.join(base, literal))
+        # Graders execute at the sandbox root; relative I/O is relative to cwd.
+        cand = os.path.realpath(os.path.join(root, literal))
     try:
         return os.path.commonpath([root, cand]) != root
     except ValueError:
         # Different drive letters on Windows → definitely outside.
         return True
 
+
+
+def _binding_expressions(tree: ast.AST) -> dict[str, list[ast.AST]]:
+    """Retain each simple binding; conflicting branches must not hide a capability."""
+    bindings: dict[str, list[ast.AST]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for item in node.names:
+                name = item.asname or item.name.split(".")[0]
+                value = item.name if item.asname else item.name.split(".")[0]
+                bindings.setdefault(name, []).append(ast.Name(id=value))
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            for item in node.names:
+                bindings.setdefault(item.asname or item.name, []).append(
+                    ast.Name(id=node.module + "." + item.name))
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    bindings.setdefault(target.id, []).append(node.value)
+    return bindings
+
+
+def _qualified_names(node: ast.AST, bindings: dict, seen: frozenset = frozenset()) -> set[str]:
+    if isinstance(node, ast.Name):
+        names = {node.id}
+        if node.id not in seen:
+            for value in bindings.get(node.id, []):
+                names |= _qualified_names(value, bindings, seen | {node.id})
+        return names
+    if isinstance(node, ast.Attribute):
+        return {name + "." + node.attr for name in _qualified_names(node.value, bindings, seen)}
+    return set()
+
+
+_PATH_CONSTRUCTORS = frozenset({"pathlib.Path", "pathlib.PosixPath", "pathlib.WindowsPath",
+                                "pathlib.PurePath", "pathlib.PurePosixPath", "pathlib.PureWindowsPath"})
+_PATH_IO = frozenset({"open", "read_text", "read_bytes", "write_text", "write_bytes",
+                      "unlink", "rmdir", "mkdir", "touch", "rename", "replace", "symlink_to",
+                      "hardlink_to", "link_to", "chmod", "lchmod", "stat", "lstat", "exists",
+                      "is_file", "is_dir", "is_symlink", "iterdir", "glob", "rglob", "readlink",
+                      "owner", "group", "walk"})
+_PATH_DESTINATIONS = frozenset({"rename", "replace", "symlink_to", "hardlink_to", "link_to"})
+
+
+def _path_expression(node: ast.AST, bindings: dict, seen: frozenset = frozenset()):
+    """Return (is_path, literal_values_or_None), without evaluating candidate code."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return False, {node.value}
+    if isinstance(node, ast.Name) and node.id not in seen:
+        results = [_path_expression(value, bindings, seen | {node.id})
+                   for value in bindings.get(node.id, [])]
+        if results:
+            known = all(values is not None for _, values in results)
+            return any(is_path for is_path, _ in results), (
+                set().union(*(values for _, values in results)) if known else None)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+        left, values = _path_expression(node.left, bindings, seen)
+        _, parts = _path_expression(node.right, bindings, seen)
+        return left, ({os.path.join(a, b) for a in values for b in parts}
+                      if values is not None and parts is not None else None)
+    if isinstance(node, ast.Attribute) and node.attr == "parent":
+        is_path, values = _path_expression(node.value, bindings, seen)
+        return is_path, ({os.path.dirname(value) for value in values} if values is not None else None)
+    if isinstance(node, ast.Call):
+        if _qualified_names(node.func, bindings) & {"os.path.join"}:
+            values = {""}
+            for part in node.args:
+                _, fragments = _path_expression(part, bindings, seen)
+                if fragments is None:
+                    return False, None
+                values = {os.path.join(a, b) for a in values for b in fragments}
+            return False, None if node.keywords else values
+        if _qualified_names(node.func, bindings) & _PATH_CONSTRUCTORS:
+            values = {""}
+            for part in node.args:
+                _, fragments = _path_expression(part, bindings, seen)
+                if fragments is None:
+                    return True, None
+                values = {os.path.join(a, b) for a in values for b in fragments}
+            return True, None if node.keywords else (values or {"."})
+        if isinstance(node.func, ast.Attribute):
+            if _qualified_names(node.func.value, bindings) & _PATH_CONSTRUCTORS:
+                return True, None
+            is_path, values = _path_expression(node.func.value, bindings, seen)
+            if is_path and node.func.attr in {"resolve", "absolute"}:
+                return True, values if not node.args and not node.keywords else None
+            if is_path and node.func.attr == "joinpath":
+                for part in node.args:
+                    _, fragments = _path_expression(part, bindings, seen)
+                    if values is None or fragments is None:
+                        return True, None
+                    values = {os.path.join(a, b) for a in values for b in fragments}
+                return True, None if node.keywords else values
+            if is_path:
+                return True, None
+    return False, None
+
+
+def _call_expressions(node: ast.AST, bindings: dict, seen: frozenset = frozenset()):
+    if isinstance(node, ast.Name) and node.id not in seen and node.id in bindings:
+        return [expression for value in bindings[node.id]
+                for expression in _call_expressions(value, bindings, seen | {node.id})]
+    return [node]
+
+
+def _call_argument(node: ast.Call, keyword: str):
+    if node.args:
+        return node.args[0]
+    return next((item.value for item in node.keywords if item.arg == keyword), None)
+
+
+# Filesystem calls share the same literal/alias path proof as open and pathlib.
+_FS_CALL_PATHS = {
+    **{name: ((0, "file"),) for name in (
+        "open", "builtins.open", "__builtins__.open", "io.open")},
+    **{"os." + method: ((0, "path"),) for method in (
+        "remove", "unlink", "rmdir", "removedirs", "mkdir", "makedirs", "stat",
+        "lstat", "scandir", "listdir", "walk", "chmod", "chown", "lchmod",
+        "lchown", "utime", "truncate", "readlink", "access")},
+    **{"os." + method: ((0, "src"), (1, "dst")) for method in (
+        "rename", "renames", "replace", "link", "symlink")},
+    "os.open": ((0, "path"),),
+    **{"os.path." + method: ((0, "path"),) for method in (
+        "exists", "lexists", "isfile", "isdir", "islink", "ismount", "getsize",
+        "getmtime", "getctime", "getatime", "realpath")},
+    "os.path.samefile": ((0, "f1"), (1, "f2")),
+    **{"shutil." + method: ((0, "src"), (1, "dst")) for method in (
+        "copy", "copy2", "copyfile", "copytree", "copymode", "copystat", "move")},
+    **{"shutil." + method: ((0, "path"),) for method in ("rmtree", "chown", "disk_usage")},
+    "io.FileIO": ((0, "file"),),
+    "io.open_code": ((0, "path"),),
+    "glob.glob": ((0, "pathname"),),
+    "glob.iglob": ((0, "pathname"),),
+    **{"tempfile." + method: ((2, "dir"),) for method in (
+        "mkstemp", "mkdtemp", "TemporaryDirectory")},
+    **{"tempfile." + method: ((6, "dir"),) for method in (
+        "NamedTemporaryFile", "TemporaryFile")},
+    "tempfile.SpooledTemporaryFile": ((7, "dir"),),
+    "logging.FileHandler": ((0, "filename"),),
+    "logging.handlers.RotatingFileHandler": ((0, "filename"),),
+    "logging.handlers.TimedRotatingFileHandler": ((0, "filename"),),
+    "logging.handlers.WatchedFileHandler": ((0, "filename"),),
+}
+_OS_PURE_CALLS = frozenset({
+    "os.fspath", "os.fsencode", "os.fsdecode", "os.getcwd", "os.getcwdb",
+    "os.getenv", "os.getpid", "os.getppid", "os.cpu_count", "os.urandom",
+    "os.path.join", "os.path.split", "os.path.splitext", "os.path.splitdrive",
+    "os.path.basename", "os.path.dirname", "os.path.normpath", "os.path.normcase",
+    "os.path.isabs", "os.path.commonpath", "os.path.commonprefix",
+    "os.path.expanduser", "os.path.expandvars", "os.path.abspath",
+})
+
+
+def _positional_or_keyword(node, position, keyword):
+    if len(node.args) > position:
+        return node.args[position]
+    return next((item.value for item in node.keywords if item.arg == keyword), None)
+
+
+def _filesystem_arguments(node, names):
+    checked, unsupported = [], []
+    for name in names:
+        if name in _FS_CALL_PATHS:
+            checked.extend((name, _positional_or_keyword(node, pos, key))
+                           for pos, key in _FS_CALL_PATHS[name])
+            if any(isinstance(arg, ast.Starred) for arg in node.args):
+                unsupported.append(name + " with expanded arguments")
+            for item in node.keywords:
+                if item.arg is None or item.arg in {"dir_fd", "src_dir_fd", "dst_dir_fd", "opener"}:
+                    unsupported.append(name + " with unproven descriptor or argument expansion")
+                elif name.startswith("glob.") and item.arg == "root_dir":
+                    checked.append((name + " root_dir", item.value))
+        elif name == "logging.basicConfig":
+            checked.extend((name + " filename", item.value) for item in node.keywords
+                           if item.arg == "filename")
+            if any(item.arg is None for item in node.keywords):
+                unsupported.append(name + " with unproven argument expansion")
+        elif ((name.startswith("os.") and not name.startswith("os.environ.")
+               and name not in _OS_PURE_CALLS)
+              or (name.startswith("io.") and name not in {"io.BytesIO", "io.StringIO"})
+              or (name.startswith("glob.") and name not in {"glob.escape", "glob.has_magic"})
+              or name.startswith(("shutil.", "tempfile.", "logging.handlers.", "logging.config."))):
+            unsupported.append("unsupported filesystem capability: " + name)
+    return checked, unsupported
+
+
+def _resolved_call_reasons(tree: ast.AST, sandbox_root=None, target_path=None) -> list[str]:
+    """Check simple aliases and filesystem expressions; this is not process isolation."""
+    bindings = _binding_expressions(tree)
+    reasons = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        names = _qualified_names(node.func, bindings)
+        if names & {"getattr", "builtins.getattr"} and node.args:
+            receivers = _qualified_names(node.args[0], bindings)
+            if (any(name.split(".")[0] in {"os", "shutil", "tempfile", "pathlib", "io", "glob", "logging"}
+                    for name in receivers) or _path_expression(node.args[0], bindings)[0]):
+                reasons.append("dynamic filesystem capability lookup")
+        for name in names:
+            top, leaf = name.split(".")[0], name.split(".")[-1]
+            if (name in _BARE_DANGEROUS_CALLS
+                    or (top in {"builtins", "__builtins__"} and leaf in _BARE_DANGEROUS_CALLS)
+                    or (top, leaf) in _DANGEROUS_MODULE_METHOD_PAIRS
+                    or (top in DANGEROUS_MODULE_PREFIXES and not name.startswith("urllib.parse."))):
+                reasons.append("dangerous resolved call: " + name)
+        if not sandbox_root:
+            continue
+        checked, unsupported = _filesystem_arguments(node, names)
+        reasons.extend(unsupported)
+        for expression in _call_expressions(node.func, bindings):
+            if isinstance(expression, ast.Attribute) and expression.attr in _PATH_IO:
+                is_path, _ = _path_expression(expression.value, bindings)
+                if is_path:
+                    checked.append(("pathlib." + expression.attr, expression.value))
+                    if expression.attr in {"glob", "rglob"}:
+                        checked.append(("pathlib pattern", ast.BinOp(
+                            left=expression.value, op=ast.Div(), right=_call_argument(node, "pattern"))))
+                    if expression.attr in _PATH_DESTINATIONS:
+                        checked.append(("pathlib destination", _call_argument(node, "target")))
+                elif _qualified_names(expression.value, bindings) & _PATH_CONSTRUCTORS:
+                    receiver = _call_argument(node, "self")
+                    checked.append(("unbound pathlib method", receiver))
+                    if expression.attr in {"glob", "rglob"}:
+                        pattern = _positional_or_keyword(node, 1, "pattern")
+                        checked.append(("pathlib pattern", ast.BinOp(left=receiver, op=ast.Div(), right=pattern)))
+                    if expression.attr in _PATH_DESTINATIONS:
+                        destination = node.args[1] if len(node.args) > 1 else next(
+                            (item.value for item in node.keywords if item.arg == "target"), None)
+                        checked.append(("pathlib destination", destination))
+        for label, expression in checked:
+            _, values = _path_expression(expression, bindings)
+            if values is None:
+                reasons.append(label + " with unprovable path (cannot prove in-sandbox)")
+            elif any(_is_outside_sandbox(value, sandbox_root, target_path or "") for value in values):
+                reasons.append(label + " outside sandbox")
+    return reasons
 
 def _collect_tainted_names(tree: ast.AST) -> set[str]:
     """Return names that are directly or transitively bound to a dangerous callable.
@@ -246,9 +485,9 @@ def scan_ast_dangerous(
     3. importlib bypass: importlib.import_module / importlib.__import__.
     4. builtins bypass: builtins.__import__(...), getattr(builtins, '__import__'),
        builtins['eval'](...) subscript form.
-    5. Sandbox-escaping open(): literal absolute paths outside sandbox_root.
-       When sandbox_root is given but the path is non-literal → rejected
-       (cannot be statically proven safe).
+    5. Recognized filesystem calls: resolve their path arguments within sandbox_root.
+       Outside or unprovable paths, argument expansion and unproven descriptors
+       are rejected. This does not prove arbitrary Python behavior safe.
     """
     allow = set(DEFAULT_IMPORT_ALLOW) | set(allow_imports or set())
     # Gate 3 keeps its OWN allow set, so teaching gate 2 about first-party modules fixed half the
@@ -262,7 +501,7 @@ def scan_ast_dangerous(
     except SyntaxError as e:
         return [f"unparseable source: {e}"]
 
-    reasons: list[str] = []
+    reasons: list[str] = _resolved_call_reasons(tree, sandbox_root, target_path)
 
     # Pass 1: collect alias-tainted names (must precede call-site scan).
     tainted = _collect_tainted_names(tree)
@@ -527,6 +766,10 @@ def import_gate(source: str, allow: set[str] | None = None,
                     and (fn.value.id, fn.attr) in _DANGER_ATTR):
                 return False, f"dangerous call: {fn.value.id}.{fn.attr}"
 
+    target_path = os.path.join(sandbox_root, file_rel) if sandbox_root and file_rel else None
+    reasons = _resolved_call_reasons(tree, sandbox_root, target_path)
+    if reasons:
+        return False, "; ".join(reasons)
     return True, ""
 
 

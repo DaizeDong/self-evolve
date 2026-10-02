@@ -176,7 +176,7 @@ def _main(argv: list[str] | None = None) -> int:
         except DataBoundaryError as exc:
             print(json.dumps({'status': 'uninitialized', 'reason': str(exc)}))
             return 0
-        if not os.path.isdir(rd):
+        if not os.path.isdir(rd) or not os.path.isfile(os.path.join(rd, 'state.json')):
             print(json.dumps({'status': 'uninitialized', 'run_id': args.run_id}))
             return 0
         st = load_state(rd)

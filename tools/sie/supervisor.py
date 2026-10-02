@@ -157,6 +157,9 @@ class Supervisor:
         if not hasattr(self, "_verifiable"):
             self._verifiable = load_frozen_decider(self.frozen_dir, "verifiable")
         res = self._verifiable.grade_pytest(candidate_worktree)
+        # Both baseline and candidate use this frozen per-task identity projection.
+        if res.get("task_dimensions"):
+            res = dict(res, dimensions=res["task_dimensions"])
         # 强制标记裁决来源，便于负向用例断言 candidate grade 未被采信。
         res.setdefault("graded_by", "FROZEN")
         return res

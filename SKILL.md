@@ -43,9 +43,9 @@ description: "Improve an existing skill or repository through isolated proposals
 |---|---|---|
 | **PROFILE** | 给目标定用什么信号评（一次冻结） | 分「信号怎么来」，不分「能不能做」 |
 | **REFLECT** | 只读历史 trace，提炼改什么 | 每条结论须引真实 trace 证据，不许臆造 |
-| **PROPOSE** | LLM 出候选改动 | LLM 只提议，永不读真值 |
+| **PROPOSE** | LLM 出候选改动 | LLM 只提议，prompt 排除核验真值 |
 | **PATCH** | 写进 git worktree 沙箱 | 越界 / 危险调用 / 改 IMMUTABLE → 拒 |
-| **EVALUATE** | 跑出评测信号（A/B/C provider） | 真值对前面各步不可读 |
+| **EVALUATE** | 跑出评测信号（A/B/C provider） | prompt 不提供核验真值，实际隔离另验 |
 | **JUDGE** | 确定性代码裁决采纳与否 | 代码裁决，绝不让 LLM 评自己 |
 
 底层是 10 态门控状态机（实现真相），收敛成上面 6 个直觉动词的映射 + 熔断语义见
@@ -63,7 +63,7 @@ description: "Improve an existing skill or repository through isolated proposals
 
 candidate 改自己代码时，IMMUTABLE 清单内的决策码（acceptor / judges / verifiable / patch /
 events …）从 frozen base ref 物化 + sha256 启动 fail-closed 校验、patch 写 IMMUTABLE 硬拒、
-**supervisor 双进程**用 frozen 代码裁决（candidate worktree 永不进 sys.path / 不能自评）。
+Supervisor 用 frozen grader 和 acceptor 处理同一个 candidate worktree；模块解析检查不代替操作系统权限隔离。
 细节见 [`docs/modules/self-boot.md`](docs/modules/self-boot.md)。
 
 ## 成熟度
@@ -121,7 +121,7 @@ python -m tools.sie.cli rollback --target <target> --run-id <run_id> --vid <vid>
 | [`propose.md`](docs/modules/propose.md) | findings 翻成整文件改动提议；proposer 只提议，永不参与裁决 |
 | [`patch.md`](docs/modules/patch.md) | 落盘前唯一一道静态准入门：import 白名单、AST 危险调用、IMMUTABLE 硬拒、沙箱 realpath 边界 |
 | [`evaluate.md`](docs/modules/evaluate.md) | 信号枢纽：选 provider，把异构证据收口成同构 `paired` + coverage |
-| [`judge.md`](docs/modules/judge.md) | 异质判官（Claude×Codex）出主观分，并给它套 pairwise_agreement 与 judge↔锚校准两道信任闸 |
+| [`judge.md`](docs/modules/judge.md) | judge 按实际返回的已知不同 provider 家族核验独立性并给出主观分，并给它套 pairwise_agreement 与 judge↔锚校准两道信任闸 |
 | [`scenario-eval.md`](docs/modules/scenario-eval.md) | **设计目标，尚未实现**：生成场景 + rubric，给纯 C 一个真 coverage 与 accept 端平权 |
 | [`accept.md`](docs/modules/accept.md) | 消费上游成对证据，汇总成统计决策：归档落地 / 丢弃 / 交人审 |
 | [`gates.md`](docs/modules/gates.md) | 人审队列契约、selfdeception 多闸接线、熔断阈值 |

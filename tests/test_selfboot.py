@@ -138,18 +138,17 @@ def test_is_self_run_self_attr():
 
 def test_apply_patch_receives_enforce_immutable_true(monkeypatch, tmp_path):
     """run_loop 态5 把 enforce_immutable=True 透传给 apply_patch（活路径）。"""
-    from tools.sie import patch
-
+    from tools.sie import statemachine
+    _stub_run_loop_infra(tmp_path, monkeypatch)
     seen = {}
 
     def fake_apply(worktree, file_rel, new_content, *, enforce_immutable=False):
         seen["enforce_immutable"] = enforce_immutable
         return {"status": "REJECTED", "reason": "immutable_hit", "paths": [file_rel]}
 
-    monkeypatch.setattr(patch, "apply_patch", fake_apply)
-    # 直接调用 apply_patch（活路径：run_loop 态5 调用此函数）
-    result = patch.apply_patch("worktree_path", "acceptor.py", "# content",
-                               enforce_immutable=True)
+    monkeypatch.setattr(statemachine, "apply_patch", fake_apply)
+    statemachine.run_loop(str(tmp_path / "target"), "HEAD", "forwarding-control",
+                          max_rounds=1, enforce_immutable=True)
     assert seen["enforce_immutable"] is True
 
 

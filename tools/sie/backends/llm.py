@@ -309,6 +309,13 @@ def generate_artifact(sandbox_root: str, reflections: list[dict],
         return _empty("proposed artifact removed numeric anchor schema", backend=result)
     if any(not _valid_numeric_anchor(anchor) for anchor in numeric):
         return _empty("numeric anchors require metric, cik, period and finite numeric expected", backend=result)
+    from collections import Counter
+    identity = lambda anchor: (str(anchor.get("cik", "")), str(anchor.get("metric", "")),
+                               str(anchor.get("period", "")))
+    original_keys = Counter(identity(anchor) for anchor in original_anchors if _numeric_anchor(anchor))
+    proposed_keys = Counter(identity(anchor) for anchor in numeric)
+    if any(proposed_keys[key] != count for key, count in original_keys.items()):
+        return _empty("proposed artifact changed or duplicated frozen numeric lookup identities", backend=result)
     return ProposalBatch([{"file_rel": target_rel, "new_content": obj["new_content"],
                            "fixes": "llm-artifact-proposer", "backend": result}],
                          backend_outcomes=[result])

@@ -1,79 +1,51 @@
-# target_contract: grade(task)
+# 测试结果与接受契约
 
-目标侧实现 `grade(task)`，返回 A-grade contract dict。harness 用此 contract 判
-ACCEPT/REJECT to LLM 只提议，代码裁决（铁律1）。
+grader 提供观测；evaluate 构造父代与候选的比较；acceptor 决定下一步。
+返回一个合法字典、没有回归，或整个进程退出零，都不单独构成 ACCEPT。
 
-## Contract 结构
+## A 路 grader 字段
 
-```json
-{
-  "task_passed": true,
-  "grader_exit_code": 0,
-  "dimensions": [
-    {"name": "pytest", "tier": "A", "score": 1.0, "weight": 1.0}
-  ],
-  "anchors": [
-    {
-      "claim": "",
-      "span": "",
-      "source_url": "",
-      "fetched_at": "",
-      "verified": false,
-      "marginal_gain": 0.0
-    }
-  ],
-  "verifiable_coverage": 1.0
-}
-```
+| 字段 | 含义 |
+| --- | --- |
+| `task_passed` | grader 对本次运行的整体判断；应结合退出码与逐项结果解释 |
+| `grader_exit_code` | 测试进程退出码；基础设施失败、未收集到测试和超时不能当作有效通过 |
+| `dimensions` | 带 `name`、`tier`、`score`、`weight` 的评分记录 |
+| `task_dimensions` | `grade_pytest` 另外保留的逐任务记录，供 frozen supervisor 投影 |
+| `anchors` | 事实锚记录；普通 A 路为空 |
+| `verifiable_coverage` | grader 的覆盖字段，不是所有业务场景均已测试的证明 |
 
-## 字段说明
+`grade_pytest` 保留兼容的聚合 `dimensions`，同时从 verbose pytest 输出解析
+`task_dimensions`。普通 A 路的 `_grade_pytest_per_task` 直接提供逐项 `dimensions`。
+两种结构要按各自消费者解释，不能拿一个聚合分替代所有任务身份。
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `task_passed` | bool | 总体是否通过（A 档由 `grader_exit_code==0` 映射） |
-| `grader_exit_code` | int | pytest 退出码（0=全绿，非0=失败） |
-| `dimensions` | list[dict] | 各维度分值（M1a 只有 "pytest" 维度） |
-| `anchors` | list[dict] | 锚点列表（B 档使用；A 档为空列表） |
-| `verifiable_coverage` | float | 可验证覆盖度（M1a A 档固定 1.0） |
+## 父代配对
 
-### dimensions 维度结构
+`pair_parent_dimensions` 按 `name` 匹配任务。父代存在而候选缺失的任务仍进入比较，
+其 after 分为零；新增候选任务不会替换原有义务。旧的单个 `pytest` 聚合基线保留
+聚合语义，不能将它描述成逐任务证据。
 
-| 字段 | 说明 |
-|------|------|
-| `name` | 维度名（M1a: `"pytest"`） |
-| `tier` | 档位（`"A"`） |
-| `score` | 分值，A 档 ∈{0.0, 1.0}（grader_exit_code 二态映射） |
-| `weight` | 权重（M1a: 1.0） |
+主循环从所选父代的可用记录取得基线；无法证明基线可用时进入
+`BASELINE_UNAVAILABLE` / `PAUSE_FOR_HUMAN` 路径。低层 `evaluate` 保留冷启动
+和聚合兼容分支，直接调用这些分支不等于完成主循环的基线验证。
 
-### anchors 锚点结构（B 档，M2 实现）
+## 接受条件
 
-| 字段 | 说明 |
-|------|------|
-| `claim` | 可验证声明文本 |
-| `span` | 证据文本段 |
-| `source_url` | 来源 URL |
-| `fetched_at` | 抓取时间戳 |
-| `verified` | 是否已独立验证 |
-| `marginal_gain` | 边际增益估计 |
+`acceptor.decide(paired, tier, st, params)` 消费 before/after 配对。
+A 路任一已通过任务退化会触发 no-regression 硬拒绝。没有退化后，仍须满足
+当前统计接受条件和后续门控；“无退化即接受”的旧 M1a 说明不适用于当前实现。
+A 路不使用 CONTINUE 累积接受，B、C 的规则见 [signal-providers](signal-providers.md)。
+参数和数学定义见 [acceptor_math](acceptor_math.md)，实际默认值以代码为准。
 
-## M1a acceptor 判定逻辑
+## 自举与失败报告
 
-`acceptor.decide(paired, tier, st, params)` 接受 `paired = [(before_score, after_score)]`：
+自举时，基线和候选均由 frozen grader 取得相同口径的任务分，再交 frozen acceptor。
+被修改的 candidate 不能通过提供另一份 grader 替代这条调用路径。
+真实操作系统隔离仍须单独验证，见 [self-boot](../docs/modules/self-boot.md)。
 
-- 任一任务从 pass（score ≥ 1.0）退化到 fail（score < 1.0）→ **硬 REJECT**（no-regression 门）。
-- 无退化 → **ACCEPT**（M1a 兜底）。
+C 路的 `available`、`regression_evidence` 和 `consistency_evidence` 必须与实际输入一致。
+缺失记录不能生成 `no_regression=True`；scenario-eval 当前未实现。
+B 路的数值、事实身份、覆盖分母和留出集核验见 [evaluate](../docs/modules/evaluate.md)。
 
-M1b 将把 acceptor 内部换为 PACE A 档 anytime-valid e-process（confseq），
-`decide()` 签名不变，contract 结构不变。
-
-## 铁律约束
-
-- **铁律1**：judge 主观分由 `evaluate.py` 在 contract 外注入，非 candidate 提供。
-- **铁律5**：自举时 `grade()` 必须使用 frozen/外部版（不得读当前被迭代版本的 grader）。
-- **数据隔离**：frozen 锚真值/测试真值对 REFLECT/PROPOSE/PATCH 阶段不可读。
-
-## M1a 实现位置
-
-- `grade_pytest`：`tools/sie/verifiable.py:grade_pytest()`
-- `evaluate`：`tools/sie/evaluate.py:evaluate()`
-- acceptor：`tools/sie/acceptor.py:decide()`
+实现入口：`tools/sie/verifiable.py:grade_pytest`、`tools/sie/evaluate.py:evaluate`、
+`pair_parent_dimensions`、`tools/sie/statemachine.py:_parent_baseline` 和
+`tools/sie/acceptor.py:decide`。

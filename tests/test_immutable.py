@@ -39,7 +39,7 @@ def _init_repo_with_sie(tmp_path, line_ending=b"\n"):
            "GIT_COMMITTER_EMAIL": sample['git_email']}
     subprocess.run(["git", "init", "-q"], cwd=root, check=True, env=env)
     subprocess.run(["git", "config", "core.autocrlf", "false"], cwd=root, check=True, env=env)
-    subprocess.run(["git", "add", "-A"], cwd=root, check=True, env=env)
+    subprocess.run(["git", "-c", "core.autocrlf=false", "add", "-A"], cwd=root, check=True, env=env)
     subprocess.run(["git", "commit", "-q", "-m", sample["git_message"]], cwd=root, check=True, env=env)
     return root
 

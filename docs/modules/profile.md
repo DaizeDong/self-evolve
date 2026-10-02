@@ -22,7 +22,7 @@ INIT(建 worktree) -> PROFILE -> [REFLECT -> CHECK -> PROPOSE -> PATCH -> EVALUA
 
 profile 的核心任务，就是**探测目标到底提供得起哪几路信号**，并把它们**装配成一个组合**
 （而不是从 A/B/C 里挑一档）。一个目标完全可以**同时**提供可执行信号和事实锚信号，
-此时它的组合就是 `"A+B"`,两路 evaluator 都会在后续轮次里并用。只有当两路都探测不到时，
+此时 profile 会标记 `"A+B"`。当前 run_loop 在 PROFILE 后拒绝执行此组合，直到两路评测和采纳条件都接通。只有当两路都探测不到时，
 才落到 `"C"`。
 
 profile 还承担了一个反自欺的关键动作：在判定"A 路信号可用"之前，
@@ -33,9 +33,9 @@ profile 还承担了一个反自欺的关键动作：在判定"A 路信号可用
 
 ### 1. 探测可执行信号（A 路）
 
-入口 `run_profile` 先调 `_exec_signal(target, base_ref)`：
+入口 `run_profile` 默认先调 `_exec_signal(target, base_ref)`。显式传入 `include_exec_probe=False` 时跳过执行探针，只检查产物结构；B-target 验证脚本使用这一模式。默认路径如下：
 
-1. 用 `sandbox.make_worktree` 给目标在 `<target>/.sie/worktrees/profile_probe` 开一个 git worktree,
+1. 用 `sandbox.make_worktree` 给目标在 `<PRIVATE data root>/targets/<target identity>/worktrees/profile_probe_<resolved ref prefix>` 开一个 git worktree,
    探测在隔离副本里做，不碰目标本体。
 2. 调 `probes/exec_probe.run_exec_probe(sandbox_root)`，返回三件套：
    `has_tests` / `exit_code` / `mutation_killed`。
@@ -53,8 +53,7 @@ profile 还承担了一个反自欺的关键动作：在判定"A 路信号可用
   - `mutation_killed == False` → 注入了必然炸的 bug 测试居然还全绿 → 这套测试是装饰品，A 路信号作废。
 
 只有 **`has_tests` 且 `exit_code == 0` 且 `mutation_killed`** 三者同时为真，才把 `"A"` 加进 `tiers` 集合。
-注意 `_exec_signal` 对任何异常（目标不是 git 仓库、git 命令失败等）都**吞掉返回 None**,
-这是有意的优雅降级：不是所有目标都是仓库，探不到 A 路不应该让整个 profile 崩。
+执行探针失败时，`_exec_signal` 返回带 `unavailable_reason` 的结果，A 路不成立；该结果必须与“目标没有测试”区分。
 
 ### 2. 探测事实锚信号（B 路）
 
@@ -63,7 +62,7 @@ profile 还承担了一个反自欺的关键动作：在判定"A 路信号可用
 
 判定流程：
 
-1. `_find_artifacts` 收集产物 JSON（target 是文件则取该 `.json`；是目录则递归 glob 所有 `.json`，排序保确定性）。
+1. `_find_artifacts` 收集产物 JSON。显式 JSON 文件视为已选择的输入；目录发现排除测试、fixture、example、工具、guards/style 等支持目录，以及 `.dataclass.json` 声明的 fixture/tool 路径。结果排序以保持确定性，避免把工具自带示例误当目标的事实证据。
 2. 对每个文件调 `anchors.extract_anchors`，抽出真正合格的锚。
    一个锚要合格，必须**同时**带齐三件套字段且非空：`claim`（断言）、`span`（原文片段）、`source_url`（来源）。
    缺任何一件就不算锚,这是用代码堵死"塑造 docstring 放水刷信号"的口子。抽取时还按 `anchor_id`（三件套的 sha256）去重。
@@ -81,15 +80,15 @@ profile 还承担了一个反自欺的关键动作：在判定"A 路信号可用
   确定性的意义：同一批锚 + 同一 seed 永远切出同一个 holdout，
   proposer 没法靠"反复重试碰运气"刷过隐藏集。
 - **visible 锚**写进 `target.json` 的 `anchors_visible`，供后续 evaluate 计分。
-- **holdout 锚的真值**被**物理隔离**到一个独立目录的文件里：
+- **holdout 锚的真值**存放于独立文件，并从模型提示词中排除；目录分开不等于操作系统读取隔离：
   Holdouts use the verified PRIVATE run directory. Without `run_dir`, profiling resolves its own target namespace in the configured companion.
-- `target.json` 里**只存一个指针** `anchors_holdout_ref = {path, count, ref: "isolated"}`,
-  **绝不存 holdout 真值本身**。proposer 读 `target.json` 永远看不到隐藏答案。
+- `target.json` 里**只存一个指针** `anchors_holdout_ref = {path, count, ref: "isolated"}`，摘要另存顶层 `anchors_holdout_sha256`,
+  **绝不存 holdout 真值本身**。兼容读取旧的 `anchors_holdout_ref.sha256`；这些字段不构成操作系统文件读取隔离。
 
 ### 4. 装配组合 + 算分 + 冻结
 
 - **组合**：`tier_str = "+".join(sorted(tiers))`，集合为空则 `"C"`。
-  所以可能取值是 `"A"`、`"B"`、`"A+B"`、`"C"`,再次强调这是 evaluator 组合，不是难度档。
+  所以可能取值是 `"A"`、`"B"`、`"A+B"`、`"C"`,这是信号分类，不是执行支持承诺；当前 A+B 会明确拒绝执行。
 - **可验证分**：`verifiability_score = 1.0 if "A" in tiers else 0.0`（有可执行信号才算"可验证"）。
 - **冻结**：如果传了 `run_dir`，`run_profile` 末尾自动调 `freeze_target` 把整个 prof 写进 `target.json`。
   `freeze_target` 用 `临时文件 + os.replace` **原子写**，避免半截文件。
@@ -105,7 +104,8 @@ profile 还承担了一个反自欺的关键动作：在判定"A 路信号可用
 |---|---|---|
 | `target` | `str` | 目标仓库路径，或调研产物目录/文件路径 |
 | `base_ref` | `str` | git 基线引用，给 exec 探针开 worktree 用 |
-| `run_dir` | `str \| None` | 给了就自动冻结 `target.json`；不给只返回 prof 不落盘 |
+| `run_dir` | `str \| None` | 显式传入时验证 PRIVATE 目录并冻结 `target.json`；省略时解析 PRIVATE target namespace，B 路仍写 holdout，默认 A 探针也可能创建 worktree |
+| `include_exec_probe` | `bool`，keyword-only | 默认 `True`；`False` 跳过 A 执行探针，用于只检查已选择产物的结构 |
 
 ### 输出（prof dict / `target.json` schema）
 
@@ -119,6 +119,7 @@ profile 还承担了一个反自欺的关键动作：在判定"A 路信号可用
     "count": 7,
     "ref": "isolated"
   },
+  "anchors_holdout_sha256": "<canonical holdout SHA256 or null>",
   "probe_evidence": {
     "fact": { "scanned_files": [...], "anchor_set_min": 24 },
     "anchor_count": 31
@@ -154,14 +155,14 @@ profile 是反自欺的第一道关，本模块自身也有特有的自欺形态
 | **橡皮图章测试** | 目标自带的测试永远绿，根本测不出真缺陷，A 路"看着可验证"实则没杀伤力 | 变异二次校验：注入 `SIE_MUTANT` 必炸 bug，测试不变红就**不采信 A 路**（`exec_probe.run_exec_probe`） |
 | **空壳测试目录** | 有 `test_*.py` 文件但收集不到用例（退出码 5），冒充"有测试" | 基线必须退出码 `==0` 才进变异环节；5/1 一律不算有效 grader |
 | **prose 放水刷锚** | 在 docstring / 正文写满"已核实""有来源"等自称，骗 B 路信号 | 只认带齐 `claim+span+source_url` 三件套的**结构化**锚，缺字段不计数（`anchors.extract_anchors`） |
-| **对着答案改** | proposer 拿到全部事实锚后照着改，evaluate 失去鉴别力 | holdout 真值**物理隔离**到独立文件，`target.json` 只存指针，proposer 读不到（铁律5） |
+| **对着答案改** | proposer 拿到全部事实锚后照着改，evaluate 失去鉴别力 | holdout 真值不进入提示词，`target.json` 只存路径、数量与内容哈希；文件读取权限须由部署环境另行验证 |
 | **重试碰运气过隐藏集** | 反复重跑，赌某次 holdout 拆分对自己有利 | holdout 拆分**确定性**（seed = run_dir basename），同输入恒切同一隐藏集（`anchors.split_visible_holdout`） |
 | **中途换评测口径** | run 跑到一半改 tier，让难判的改动"换个尺子"显得通过 | tier **首次 PROFILE 冻结**、resume 只 `load_target` 不重跑（铁律4，`freeze_target` 原子写） |
 
 ## 代码锚
 
 - `tools/sie/profile.py:run_profile`, 探测 A/B 信号、装配 tier 组合、拆 visible/holdout、隔离 holdout、自动冻结
-- `tools/sie/profile.py:_exec_signal`, 开 worktree + 跑 exec 探针，异常吞掉降级为 None
+- `tools/sie/profile.py:_exec_signal`, 开 PRIVATE worktree 并跑 exec 探针，失败结果保留 unavailable_reason
 - `tools/sie/profile.py:freeze_target`, 原子写 `target.json`（铁律4 首次冻结）
 - `tools/sie/profile.py:load_target`, resume 读回冻结结果，不重新探测
 - `tools/sie/probes/exec_probe.py:run_exec_probe`, A 路三段闸门 + 变异二次校验

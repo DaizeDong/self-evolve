@@ -1,34 +1,29 @@
 {
-  "title": "ACME Corp deep-dive",
+  "_fixture": "Synthetic generated data; not a financial report or verified evidence.",
+  "title": "Synthetic anchor artifact",
   "sections": [
     {
-      "text": "ACME reported FY2024 revenue of $1.20B.",
+      "title": "Generated measurements",
       "anchors": [
         {
-          "claim": "FY2024 revenue = 1.20e9 USD",
-          "span": "revenue of $1.20B",
-          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?CIK=0000320193&type=10-K",
-          "metric": "Revenues",
-          "expected": 1.20e9,
-          "cik": "320193",
-          "period": "FY2024"
+          "claim": "Synthetic issuer 00 has generated measurement 100.",
+          "span": "Synthetic measurement 00: 100.",
+          "source_url": "https://source00.example.com/synthetic-report",
+          "metric": "synthetic_measurement",
+          "cik": "synthetic-issuer-00",
+          "period": "2000-FY",
+          "expected": 100.0
+        },
+        {
+          "claim": "Synthetic issuer 01 has generated measurement 101.",
+          "span": "Synthetic measurement 01: 101.",
+          "source_url": "https://source01.example.com/synthetic-report",
+          "metric": "synthetic_measurement",
+          "cik": "synthetic-issuer-01",
+          "period": "2000-FY",
+          "expected": 101.0
         }
       ]
-    },
-    {
-      "text": "Cash and equivalents stood at $0.30B.",
-      "anchors": [
-        {
-          "claim": "cash = 0.30e9 USD",
-          "span": "Cash and equivalents stood at $0.30B",
-          "source_url": "https://www.sec.gov/cgi-bin/browse-edgar?CIK=0000320193&type=10-Q",
-          "metric": "CashAndCashEquivalentsAtCarryingValue",
-          "expected": 0.30e9,
-          "cik": "320193",
-          "period": "FY2024"
-        }
-      ],
-      "no_anchor_prose": "We think the outlook is bright."
     }
   ]
 }

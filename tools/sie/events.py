@@ -58,16 +58,14 @@ def replay(run_dir: str) -> RunState:
     path = os.path.join(run_dir, EVENTS_FILE)
     if not os.path.exists(path):
         return rs
-    with open(path, "r", encoding="utf-8") as fh:
+    with open(path, "rb") as fh:
         for line in fh:
             line = line.strip()
             if not line:
                 continue
             try:
                 rs = _apply(rs, json.loads(line))
-            except json.JSONDecodeError:
-                # Corrupted/half-written line (crashed mid-append): skip silently
-                # (crash-replay invariant: events.jsonl is source of truth, incomplete
-                # events are never fully committed and should not affect state reconstruction)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                # Skip an incomplete event, including torn UTF-8, without losing later lines.
                 continue
     return rs

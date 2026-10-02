@@ -1,5 +1,6 @@
 """Resolve run state and disposable agent workspaces in a PRIVATE Git companion."""
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timezone
 import hashlib
 import importlib.util
@@ -8,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import stat
 import subprocess
 import tempfile
 from urllib.parse import urlsplit
@@ -159,35 +161,269 @@ def _private_visibility(slug):
                                 '~/.pii-guard/visibility.json before writing runtime data') from exc
 
 
-def verify_directory(value, *, expected_repo=None):
-    """Verify canonical containment and visibility without creating a directory."""
-    path = _safe_path(value)
+def _shared_data_boundary():
+    """Load the pinned kit's proof; missing capability cannot authorize a write."""
+    path = ROOT/'guards/tools/data_boundary.py'
+    if not path.is_file():
+        raise DataBoundaryError('Missing guards kit; run git submodule update --init --recursive')
+    spec = importlib.util.spec_from_file_location('_self_evolve_data_boundary', path)
+    if spec is None or spec.loader is None:
+        raise DataBoundaryError('Cannot load the guards data-boundary module')
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+    except (OSError, ImportError) as exc:
+        raise DataBoundaryError('Cannot load the guards data-boundary module') from exc
+    if (not callable(getattr(module, '_companion_git_context', None))
+            or not callable(getattr(module, '_companion_visibility', None))
+            or not isinstance(getattr(module, 'GitError', None), type)):
+        raise DataBoundaryError('The guards kit lacks the required PRIVATE proof; update its submodule')
+    return module
+
+
+_DIRECTORY_PROOF = ContextVar("self_evolve_directory_proof", default=None)
+
+
+@contextmanager
+def _directory_operation():
+    """Own one root/target proof pair; never share authorization between calls."""
+    operation = {}
+    token = _DIRECTORY_PROOF.set(operation)
+    try:
+        yield
+    finally:
+        operation.clear()
+        _DIRECTORY_PROOF.reset(token)
+
+
+def _directory_metadata(value):
+    """Bind existing directory identities while rejecting aliases and file ancestors."""
+    path = Path(value).expanduser()
+    identities = []
+    for component in (*reversed(path.parents), path):
+        try:
+            info = component.lstat()
+        except FileNotFoundError:
+            identities.append((str(component), None))
+            continue
+        except OSError as exc:
+            raise DataBoundaryError("Cannot inspect runtime directory identity") from exc
+        if (not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode)
+                or getattr(info, "st_file_attributes", 0) & 1024):
+            raise DataBoundaryError("Runtime directory path cannot contain an alias or file")
+        identities.append((str(component), (info.st_dev, info.st_ino, info.st_mode)))
+    return tuple(identities)
+
+
+def _marker_metadata(repository):
+    """Bind both an ordinary marker and a linked worktree's administration."""
+    marker = repository / ".git"
+    try:
+        info = marker.lstat()
+        if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 1024:
+            raise DataBoundaryError("Runtime Git marker cannot be an alias")
+        identity = (info.st_dev, info.st_ino, info.st_mode)
+        if stat.S_ISDIR(info.st_mode):
+            return identity, _directory_metadata(marker)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise DataBoundaryError("Runtime Git marker must be a regular single-link file")
+        body = marker.read_bytes()
+        match = re.fullmatch(r"gitdir: ([^\r\n]+)\r?\n?", body.decode("utf-8"))
+        if match is None:
+            raise DataBoundaryError("Invalid runtime Git worktree marker")
+        administration = Path(match.group(1))
+        if not administration.is_absolute():
+            administration = repository / administration
+        metadata = _directory_metadata(administration)
+        if not administration.is_dir():
+            raise DataBoundaryError("Runtime Git administration is missing")
+        after = marker.lstat()
+        if (identity != (after.st_dev, after.st_ino, after.st_mode)
+                or info.st_size != after.st_size or info.st_mtime_ns != after.st_mtime_ns
+                or after.st_nlink != 1):
+            raise DataBoundaryError("Runtime Git marker changed during inspection")
+        return identity, hashlib.sha256(body).hexdigest(), str(administration.resolve()), metadata
+    except (OSError, UnicodeError) as exc:
+        raise DataBoundaryError("Cannot inspect runtime Git marker identity") from exc
+
+
+def _directory_location(value):
+    requested = Path(value).expanduser()
+    path = _safe_path(requested)
+    metadata = _directory_metadata(requested)
     if path.is_relative_to(ROOT) or ROOT.is_relative_to(path):
-        raise DataBoundaryError('Runtime data requires a separate PRIVATE companion')
+        raise DataBoundaryError("Runtime data requires a separate PRIVATE companion")
     existing = path
     while not existing.exists() and existing != existing.parent:
         existing = existing.parent
     if not existing.is_dir():
-        raise DataBoundaryError('Runtime directory resolves to a file')
-    repository_marker = _nearest_repository(existing)
-    repo = Path(_git('-C', str(repository_marker), 'rev-parse', '--show-toplevel')).resolve()
-    if (repo != repository_marker or not path.is_relative_to(repo)
-            or repo.is_relative_to(ROOT) or ROOT.is_relative_to(repo)
-            or expected_repo is not None and repo != expected_repo):
-        raise DataBoundaryError('Runtime path crossed its private repository boundary')
-    slug = _slug(_git('-C', str(repo), 'config', '--get', 'remote.origin.url'))
-    _private_visibility(slug)
-    return path, repo
+        raise DataBoundaryError("Runtime directory resolves to a file")
+    return path, _nearest_repository(existing), metadata
 
 
-def private_root():
-    """Discover through the pinned guard, then prove PRIVATE before any mkdir."""
+def _proof_environment():
+    # Compare only in memory; environment values are never logged or persisted.
+    return str(ROOT), tuple(sorted(os.environ.items()))
+
+
+@contextmanager
+def _proof_queries(boundary):
+    """Record this fresh module's proof inputs without suppressing any Git calls."""
+    captured = {"configurations": [], "endpoints": []}
+    run = getattr(boundary, "_run", None)
+    if not callable(run):
+        yield captured
+        return
+
+    def record(command, *args, **kwargs):
+        result = run(command, *args, **kwargs)
+        if tuple(command) == ("git", "config", "--null", "--list"):
+            captured["configurations"].append((dict(kwargs.get("env") or {}), result))
+        elif tuple(command[:3]) == ("git", "remote", "get-url"):
+            captured["endpoints"].extend(result.splitlines())
+        return result
+
+    boundary._run = record
+    try:
+        yield captured
+    finally:
+        boundary._run = run
+
+
+def _same_operation_directory(value, expected_repo, proof):
+    path, repository, metadata = _directory_location(value)
+    if (repository != proof["repo"] or repository != expected_repo
+            or not path.is_relative_to(repository)):
+        raise DataBoundaryError("Runtime path crossed its private repository boundary")
+    if (_proof_environment() != proof["environment"]
+            or _directory_metadata(proof["requested"]) != proof["root_metadata"]
+            or _marker_metadata(repository) != proof["marker"]
+            or _directory_metadata(Path(value).expanduser()) != metadata
+            or _safe_path(value) != path):
+        raise DataBoundaryError("Runtime PRIVATE proof inputs changed during this operation")
+    try:
+        for environment, expected in proof["configurations"]:
+            current = proof["read_config"](
+                ["git", "config", "--null", "--list"], str(repository), env=environment)
+            if current != expected:
+                raise DataBoundaryError("Runtime Git configuration changed during this operation")
+        for destination in proof["destinations"]:
+            _private_visibility(destination)
+    except (proof["git_error"], OSError, ValueError) as exc:
+        raise DataBoundaryError("Cannot revalidate the runtime PRIVATE proof") from exc
+    if (_proof_environment() != proof["environment"]
+            or _directory_metadata(proof["requested"]) != proof["root_metadata"]
+            or _marker_metadata(repository) != proof["marker"]
+            or _directory_metadata(Path(value).expanduser()) != metadata
+            or _safe_path(value) != path):
+        raise DataBoundaryError("Runtime PRIVATE proof inputs changed during revalidation")
+    return path, repository
+
+
+def _only_missing_directories_created(before, after):
+    """Allow one resnapshot only when all existing directory identities survived."""
+    if len(before) != len(after):
+        return False
+    created = False
+    for (old_path, old_identity), (new_path, new_identity) in zip(before, after):
+        if old_path != new_path:
+            return False
+        if old_identity == new_identity:
+            continue
+        if (old_identity is not None or new_identity is None
+                or not stat.S_ISDIR(new_identity[2])):
+            return False
+        created = True
+    return created
+
+
+def verify_directory(value, *, expected_repo=None):
+    """Prove PRIVATE, allowing one fully rechecked concurrent directory creation."""
+    operation = _DIRECTORY_PROOF.get()
+    if (operation is not None and operation.get("proof") is not None
+            and expected_repo is not None and not operation.get("used")):
+        operation["used"] = True
+        return _same_operation_directory(value, expected_repo, operation["proof"])
+    previous = None
+    for attempt in range(2):
+        path, repository_marker, metadata = _directory_location(value)
+        marker = _marker_metadata(repository_marker)
+        environment = _proof_environment()
+        if previous is not None and (
+                (path, repository_marker, metadata) != previous["location"]
+                or marker != previous["marker"] or environment != previous["environment"]):
+            raise DataBoundaryError("Runtime PRIVATE proof inputs changed before revalidation")
+        boundary = _shared_data_boundary()
+        with _proof_queries(boundary) as captured:
+            try:
+                context = boundary._companion_git_context(str(repository_marker))
+                repo = Path(context[0]).resolve()
+            except (boundary.GitError, OSError, ValueError) as exc:
+                detail = ' '.join(str(exc).split())[:480]
+                raise DataBoundaryError('Cannot verify the runtime Git companion: '+detail) from exc
+            if (repo != repository_marker or not path.is_relative_to(repo)
+                    or repo.is_relative_to(ROOT) or ROOT.is_relative_to(repo)
+                    or expected_repo is not None and repo != expected_repo):
+                raise DataBoundaryError('Runtime path crossed its private repository boundary')
+            try:
+                destinations, errors = boundary._companion_visibility(
+                    str(repo), str(Path.home()/'.pii-guard/visibility.json'), git_context=context)
+            except (boundary.GitError, OSError, ValueError) as exc:
+                detail = ' '.join(str(exc).split())[:480]
+                raise DataBoundaryError('PRIVATE companion visibility is unavailable: '+detail) from exc
+            if errors or not destinations:
+                detail = '; '.join(errors)[:480] if errors else 'no PRIVATE destination was proved'
+                raise DataBoundaryError('PRIVATE companion visibility is unavailable: '+detail)
+        after_path, after_repository, after = _directory_location(value)
+        if (after_path != path or after_repository != repository_marker
+                or _marker_metadata(repository_marker) != marker
+                or _proof_environment() != environment or _safe_path(value) != path):
+            raise DataBoundaryError("Runtime PRIVATE proof inputs changed during verification")
+        if previous is not None and (
+                context != previous["context"] or captured != previous["queries"]
+                or tuple(destinations) != previous["destinations"]):
+            raise DataBoundaryError("Runtime PRIVATE proof authority changed during revalidation")
+        if after != metadata:
+            if (attempt or not _only_missing_directories_created(metadata, after)
+                    or len(captured["configurations"]) != 3 or not captured["endpoints"]):
+                raise DataBoundaryError("Runtime PRIVATE proof inputs changed during verification")
+            location = _directory_location(value)
+            if (location != (path, repository_marker, after)
+                    or _marker_metadata(repository_marker) != marker
+                    or _proof_environment() != environment):
+                raise DataBoundaryError("Runtime PRIVATE proof inputs changed before revalidation")
+            # Bind the newly observed identities, then repeat every Git/PRIVATE query.
+            # No failed proof, changed authority, or second creation receives a retry.
+            previous = {"location": location, "marker": marker, "environment": environment,
+                        "context": context, "queries": captured,
+                        "destinations": tuple(destinations)}
+            continue
+        configurations = captured["configurations"]
+        endpoints = captured["endpoints"]
+        # HTTPS routing is determined by the rechecked config/environment. SSH also
+        # depends on external policy files, so it retains a complete second proof.
+        reusable = (len(configurations) == 3 and endpoints
+                    and all(isinstance(url, str) and url.startswith("https://github.com/")
+                            for url in endpoints))
+        if operation is not None and not operation and expected_repo is None and reusable:
+            operation["proof"] = {"requested": Path(value).expanduser(), "repo": repo,
+                                  "root_metadata": metadata, "marker": marker,
+                                  "environment": environment,
+                                  "configurations": configurations[-2:],
+                                  "destinations": tuple(destinations),
+                                  "read_config": boundary._run, "git_error": boundary.GitError}
+        return path, repo
+    raise DataBoundaryError("Runtime PRIVATE directory proof did not stabilize")
+
+
+def _private_root_context():
+    """Discover and freshly prove the configured PRIVATE root and its repository."""
     guard_path = ROOT/'guards/tools/datadir.py'
     if not guard_path.is_file():
         raise DataBoundaryError('Missing guards kit; run git submodule update --init --recursive')
     explicit = os.environ.get('SELF_EVOLVE_DATA_DIR')
     if explicit:
-        return verify_directory(explicit)[0]
+        return verify_directory(explicit)
     for name in ('SELF_EVOLVE_CONFIG', 'SELF_EVOLVE_CONFIG_DIR'):
         value = os.environ.get(name)
         if value and not _safe_path(value).is_dir():
@@ -200,7 +436,13 @@ def private_root():
     value = guard.resolve_data_dir('self-evolve', create=False)
     if value is None:
         raise DataBoundaryError('Set SELF_EVOLVE_CONFIG or SELF_EVOLVE_DATA_DIR to a PRIVATE Git companion')
-    return verify_directory(value)[0]
+    return verify_directory(value)
+
+
+
+def private_root():
+    """Discover through the pinned guard, then prove PRIVATE before any mkdir."""
+    return _private_root_context()[0]
 
 
 def validate_run_id(run_id):
@@ -217,11 +459,16 @@ def validate_run_id(run_id):
 
 
 def _target_component(target, run_id, kind):
+    with _directory_operation():
+        return _target_component_in_operation(target, run_id, kind)
+
+
+def _target_component_in_operation(target, run_id, kind):
     validate_run_id(run_id)
     target_path = Path(target).expanduser().resolve(strict=True)
     if not target_path.is_dir():
         raise ValueError('target must be a directory')
-    root, repo = verify_directory(private_root())
+    root, repo = _private_root_context()
     identity = hashlib.sha256(os.path.normcase(str(target_path)).encode('utf-8')).hexdigest()
     requested = root/'targets'/identity/kind/run_id
     if kind == 'worktrees':
@@ -244,21 +491,39 @@ def worktree_directory(target, run_id):
     return _target_component(target, run_id, 'worktrees')
 
 
+def _file_in_parent(value, parent):
+    """Check one file against an operation's freshly proved parent."""
+    requested = Path(value).expanduser()
+    path = _safe_path(requested)
+    if path.parent != parent:
+        raise DataBoundaryError('Runtime report must be a file in the PRIVATE companion')
+    for component in (*reversed(requested.parents), requested):
+        try:
+            info = component.lstat()
+        except FileNotFoundError:
+            continue
+        if stat.S_ISLNK(info.st_mode) or getattr(info, 'st_file_attributes', 0) & 1024:
+            raise DataBoundaryError('Runtime report path cannot contain an alias')
+        if component == requested:
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise DataBoundaryError('Runtime report must be a regular single-link file')
+        elif not stat.S_ISDIR(info.st_mode):
+            raise DataBoundaryError('Runtime report ancestor must be a directory')
+    return path
+
+
 def private_file_path(value):
     path = _safe_path(value)
     parent = runtime_directory(path.parent)
-    if path.parent != parent or path.is_dir():
-        raise DataBoundaryError('Runtime report must be a file in the PRIVATE companion')
-    if path.exists() and path.stat().st_nlink > 1:
-        raise DataBoundaryError('Runtime report cannot be a hard link')
-    return path
+    return _file_in_parent(value, parent)
 
 
 def runtime_directory(value):
     """Prove the actual governing repository is the configured PRIVATE companion."""
-    root, repo = verify_directory(private_root())
-    path, _ = verify_directory(value, expected_repo=repo)
-    return path
+    with _directory_operation():
+        root, repo = _private_root_context()
+        path, _ = verify_directory(value, expected_repo=repo)
+        return path
 
 
 def make_directory(value):
@@ -270,18 +535,29 @@ def make_directory(value):
 def write_json(value, payload, *, append=False):
     """Write unchanged JSON payloads only after checking every destination."""
     path = private_file_path(value)
-    temporary = private_file_path(str(path)+'.tmp') if not append else path
-    path.parent.mkdir(parents=True, exist_ok=True)
+    parent = path.parent
+    temporary = _file_in_parent(str(path)+'.tmp', parent) if not append else path
+    parent.mkdir(parents=True, exist_ok=True)
+    _file_in_parent(path, parent)
     if append:
-        with path.open('a', encoding='utf-8') as stream:
-            stream.write(json.dumps(payload, ensure_ascii=False)+'\n')
+        record = (json.dumps(payload, ensure_ascii=False)+'\n').encode('utf-8')
+        with path.open('a+b') as stream:
+            stream.seek(0, 2)
+            if stream.tell():
+                stream.seek(-1, 2)
+                if stream.read(1) != b'\n':
+                    stream.write(b'\n')
+            stream.write(record)
             stream.flush()
             os.fsync(stream.fileno())
     else:
+        _file_in_parent(temporary, parent)
         with temporary.open('w', encoding='utf-8') as stream:
             json.dump(payload, stream, ensure_ascii=False, indent=2)
             stream.flush()
             os.fsync(stream.fileno())
+        _file_in_parent(temporary, parent)
+        _file_in_parent(path, parent)
         os.replace(temporary, path)
 
 
@@ -295,7 +571,7 @@ def temporary_directory(prefix):
 @contextmanager
 def agent_scratch():
     """Own one private disposable working directory without changing process cwd."""
-    root, repo = verify_directory(private_root())
+    root, repo = _private_root_context()
     scratch, _ = verify_directory(root/'agent-work', expected_repo=repo)
     if not scratch.is_relative_to(root):
         raise DataBoundaryError('Agent workspace escaped the private data root')

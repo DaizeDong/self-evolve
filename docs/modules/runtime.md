@@ -40,8 +40,9 @@ Missing or failed grading, empty dimensions and unknown parents pause
 with a structured `BASELINE_UNAVAILABLE` event. Task pairing uses test identities.
 Rejection mirrors the selected snapshot, including created and deleted files,
 while preserving Git metadata. A failed restoration writes `RESTORE_FAILED` and
-stops before another reflection or evaluation. B-tier comparisons use anchors
-from the selected parent. Accepted snapshots and version IDs
+stops before another reflection or evaluation. B-tier comparisons preserve the frozen visible identities and spans, using the selected
+parent only for their values. Missing candidate facts score zero. Sampled holdouts require
+pinned content, disjoint identities and independently observed correctness on both sides. Accepted snapshots and version IDs
 are retained when a run resumes.
 
 Use `python <absolute-skill-path>/tools/sie_cli.py doctor --target <target>` from
@@ -54,3 +55,35 @@ consistency evidence cannot establish no-regression success.
 Provider metadata, valid score spans and finite scores in `[0, 1]` are necessary
 inputs, not proof of improved user outcomes. Preserve candidate and oracle hashes,
 independent reviews and actual test evidence before claiming acceptance.
+
+
+Current execution accepts individual A, B or C signal paths. Profiling may detect A+B,
+but run_loop refuses that composite before proposing or patching until both components
+can be enforced. Selfboot uses one canonical candidate tree for patching, frozen grading
+and archived snapshots. The same frozen per-task grader measures its baseline and candidate.
+
+Archive schema 1 stores finite Pareto coordinates in scores and preserves per-task records
+separately in task_dimensions. Legacy records are normalized and validated on read.
+Calibration WORKS requires at least four valid repairs, a successful final suite with passing
+test observations, and a complete baseline, loop, event and attribution chain. BROKEN and
+failed completion return nonzero; downstream errors retain the partial report.
+
+The AST gate recognizes simple imported and assigned aliases, keyword open paths and
+basic pathlib expressions. It rejects outside or unprovable paths for recognized filesystem
+operations. Arbitrary Python indirection, runtime capabilities, filesystem races and ambient
+permissions still require an operating-system boundary; passing a static scan proves none
+of those properties. Relative literal paths use the target file directory, or sandbox root
+when no target is supplied, so execution must respect that resolution assumption.
+
+## PRIVATE destination proof
+
+Runtime writes use the pinned guards kit to bind the actual filesystem repository and
+check both its physical and effective fetch/push destinations. Process Git selectors cannot
+borrow another repository's PRIVATE receipt. A public, unknown or unproved destination blocks
+the write before output directories are created; no public-worktree fallback is available.
+
+Use canonical GitHub HTTPS or SSH remotes with fresh PRIVATE receipts. The shared kit rejects
+ambiguous aliases and unproved transport overrides. The legacy URL parser remains available
+for compatibility, but parsing an alias alone does not authorize a runtime destination.
+Missing guards files or proof APIs require updating the submodule, not bypassing validation.
+

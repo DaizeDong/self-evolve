@@ -102,7 +102,7 @@ return any(reflection.get(k) for k in keys)
 
 | 自欺形态 | 表现 | 闸门 |
 |----------|------|------|
-| **凭空臆造改进点** | 反思列出一堆"问题/改进方向"，但没有任何真实历史 trace 支撑,模型幻想或为显得勤奋而硬编 | `check_benchtrace`：每条 finding 必须引用 `available_traces` 内的真实 ID 才算 grounded |
+| **凭空臆造改进点** | 反思列出一堆"问题/改进方向"，但没有任何真实历史 trace 支撑,模型幻想或为显得勤奋而硬编 | `check_benchtrace` 的设计要求引用真实 trace ID，但该函数尚未接入当前主循环；当前运行没有这项保证 |
 | **引用不存在的 trace** | finding 编造一个看似合理的 trace ID（如 `tr_999`）来伪装"有据" | 集合核对 `r in avail`：不在真相集里的引用一律剔除，该 finding 落入 ungrounded |
 | **空壳反思骗过下游** | 交一个空 / 无意义的反思占位，骗系统认为"反思过了" | 空 `findings` → 直接 `pass=False`；弱校验也要求至少一个有意义字段非空 |
 | **少数真实掺大量臆造** | 引一两条真 trace，夹带一堆无根据 finding 来撑提案 | `grounded_ratio >= threshold` 比例门：多数 finding 必须有据，否则整轮不通过 |
@@ -114,7 +114,7 @@ return any(reflection.get(k) for k in keys)
 ## 代码锚
 
 - `tools/sie/check_reflection.py:check`, 弱校验（M1a，当前 live 接线）
-- `tools/sie/check_reflection.py:check_benchtrace`, trace 证据门（M3 反自欺核心）
+- `tools/sie/check_reflection.py:check_benchtrace`, 尚未接线的 trace 证据检查函数
 - `tools/sie/reflect.py:reflect`, 上游串行反思（M1a）
 - `tools/sie/reflect.py:run_reflections_parallel` / `tools/sie/reflect.py:meta_aggregate`, 上游并行反思去重 + 聚合（M3）
 - `tools/sie/statemachine.py:run`（约 514 to 544 行 CHECK 态过滤 + STATIC_REJECT 分支）, 调用方接线

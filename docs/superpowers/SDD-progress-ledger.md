@@ -1,3 +1,5 @@
+> Historical record. This document preserves an earlier plan or progress report; its paths, commands, capability claims and validation results are not current operating instructions. Use the [current README](../../README.md) and module documentation for current behavior.
+
 # self-evolve SDD progress ledger
 
 plan: docs/superpowers/plans/2026-06-21-self-evolve.md (52 tasks)

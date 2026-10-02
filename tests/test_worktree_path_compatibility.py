@@ -111,3 +111,33 @@ def test_native_probe_and_graders_run_in_long_worktree(tmp_path, monkeypatch):
     assert evaluate(str(actual), 'A')['result']['task_passed']
     assert Path.cwd() == original_cwd
     assert before == {name: (actual / name).read_bytes() for name in before}
+
+
+@pytest.mark.parametrize('case,minimum', runtime_samples()['worktree_lengths'])
+def test_profile_base_ref_remains_resolvable_at_private_worktree_path(tmp_path, monkeypatch, case, minimum):
+    from tools.sie.profile import _resolve_ref, freeze_target
+    from tools.sie.runtime_data import run_directory
+    from tools.sie.statemachine import _base_ref_worktree
+
+    sample = runtime_samples()
+    target, name, contents = _source_repo(tmp_path)
+    expected_ref = _resolve_ref(str(target), 'HEAD')
+    run_id = sample['run_id'] + '-profile-' + case
+    destination = worktree_directory(str(target), run_id)
+    if len(str(destination)) < minimum:
+        data_root = Path(os.environ['SELF_EVOLVE_DATA_DIR'])
+        data_root = data_root / ('p' * max(1, minimum - len(str(destination)) - 1))
+        monkeypatch.setenv('SELF_EVOLVE_DATA_DIR', str(data_root))
+        destination = worktree_directory(str(target), run_id)
+    assert len(str(destination)) >= minimum
+
+    actual = Path(make_worktree(str(target), expected_ref, run_id))
+    before = (actual / name).read_bytes()
+    assert _resolve_ref(str(actual), 'HEAD') == expected_ref
+    frozen_run = run_directory(str(target), run_id + '-frozen')
+    freeze_target(str(frozen_run), {
+        'probes': {'exec': {'worktree': str(actual), 'base_ref': expected_ref}},
+    })
+    assert _base_ref_worktree(str(frozen_run)) == str(actual)
+    assert (actual / name).read_bytes() == before
+    assert (target / name).read_text(encoding='utf-8') == contents

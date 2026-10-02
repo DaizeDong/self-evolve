@@ -1,3 +1,5 @@
+> Historical record. This document preserves an earlier plan or progress report; its paths, commands, capability claims and validation results are not current operating instructions. Use the [current README](../../../README.md) and module documentation for current behavior.
+
 # self-evolve Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
