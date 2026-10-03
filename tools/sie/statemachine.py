@@ -503,7 +503,7 @@ def _discard_rejected_changes(sandbox_root: str, snapshot: str | None = None) ->
     if not sandbox_root or not os.path.isdir(sandbox_root):
         return
     result = subprocess.run(['git', 'checkout', '--', '.'], cwd=sandbox_root,
-                            capture_output=True, text=True, encoding='utf-8',
+                            capture_output=True, text=True, encoding='utf-8', errors='replace',
                             env={**os.environ, 'GIT_OPTIONAL_LOCKS': '0'})
     if result.returncode != 0:
         print('sie: standalone tracked-edit discard unavailable: '+result.stderr.strip()[:300],
