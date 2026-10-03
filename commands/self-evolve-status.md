@@ -39,7 +39,7 @@ python <skill绝对路径>/tools/sie_cli.py status --target <target> --run-id <r
 | `round` | 当前轮次 |
 | `tier` | 目标档位（A=有效 pytest；C=无法验证） |
 | `no_progress` | 连续无改进轮次计数；`≥ 3` 起 `release_valve` 升人审频率，`≥ 8` 触发 `no_progress_circuit` 停机 |
-| `static_reject` | 静态拒绝累计（无有效反思/提案/patch） |
+| `static_reject` | 连续静态拒绝计数（无有效反思/提案/patch）；ACCEPT、REJECT、CONTINUE 及评测后的人审裁决清零；基线或 C 档证据不可用导致的暂停不清零 |
 | `forced_review` | 强制人审累计；`≥ 5` 触发 `forced_review_circuit` 停机 |
 | `pareto` | archive Pareto 前沿（已采纳版本及分值） |
 | `pending` | 待人审动作队列（出沙箱动作），来自 `gate_human.pending(run_dir)`；只列 status 仍为 `pending` 且未超 ttl（默认 86400 秒）的记录 |
@@ -47,4 +47,4 @@ python <skill绝对路径>/tools/sie_cli.py status --target <target> --run-id <r
 ## 说明
 
 - 此命令只读，不修改任何状态（`sie status` 只查询 state.json + archive + gate_human）。
-- 若 run 目录不存在会报错，先用 `/self-evolve <target>` 开跑。
+- 若 run 尚不存在，返回未初始化状态并以 `0` 退出；此结果不表示已有运行记录。先用 `/self-evolve <target>` 开跑。

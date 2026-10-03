@@ -37,9 +37,9 @@ avoid the actual first provider using llmcall's central policy.
 
 判官不可用时 `score` 直接返回 `available=False`、aggregate=0.0、所有跨度计罚。
 
-### 4. 去偏
+### 4. 结果对齐
 
-`debias_order(scores)` 做**位置去偏**：把 span_scores 按 span 文本升序重排，消除"呈现顺序影响打分"这种位置偏差，返回浅拷贝。**长度去偏**不在这里做数值缩放（缩放会引入新的偏差），而是委托给提示词,提示词里已经明写"不要奖励长度"。
+`debias_order(scores)` 把已返回的 span_scores 按 span 文本升序重排，返回浅拷贝，便于两份结果对齐。排序不改变已生成的分数，不能消除或证明消除了提示词呈现顺序带来的偏差。提示词要求不要奖励长度，但这项要求本身也不构成去偏效果的验证。
 
 ### 5. 配对一致性（α）,异质合谋检测
 
@@ -139,7 +139,7 @@ degenerate 的存在是核心：校准在样本太少或退化时**老实承认�
 - `tools/sie/judges.py:build_judge_prompt`, 提示词构造（铁律 5：无真值）
 - `tools/sie/judges.py:_parse_span_scores`, 解析判官输出 + 不补分降级
 - `tools/sie/judges.py:score`, 单家判官打分入口 + 路由
-- `tools/sie/judges.py:debias_order`, 位置去偏
+- `tools/sie/judges.py:debias_order`, 已返回结果的确定性排序
 - `tools/sie/judges.py:pairwise_agreement`, 配对一致性 α + None 哨兵
 - `tools/sie/judges.py:calibrate_judge_anchor`, judge↔锚 Pearson 校准 + degenerate 闸
 - `tools/sie/judge_codex.py:invoke_codex_judge`, Codex 判官子进程（只 web_search，绝不抛）

@@ -13,8 +13,10 @@
 import os
 import subprocess
 import pathlib
+import sys
 import pytest
 from tools.sie import selfboot, runtime_data
+from tools.make_fixtures import immutable_samples
 
 
 # ---------------------------------------------------------------------------
@@ -72,9 +74,34 @@ def test_selfboot_verifies_and_isolates(tmp_path):
 
     from tools.sie import supervisor as sup
 
-    cand_sie = os.path.join(boot["candidate_worktree"], "tools", "sie")
-    assert sup.candidate_path_is_isolated(boot["frozen_dir"], cand_sie) is True
+    assert sup.candidate_path_is_isolated(boot["frozen_dir"], boot["candidate_worktree"]) is True
     assert boot["supervisor"] is not None
+
+
+@pytest.mark.parametrize('entry', immutable_samples()['candidate_path_entries'])
+def test_selfboot_rejects_candidate_import_path_before_supervisor(tmp_path, monkeypatch, entry):
+    from tools.sie.immutable import ImmutableViolation
+    repository = _init_self_repo(tmp_path)
+    original = selfboot.make_worktree
+
+    def exposed_candidate(*args):
+        candidate = original(*args)
+        if entry == 'cwd':
+            monkeypatch.chdir(candidate)
+            monkeypatch.setattr(sys, 'path', ['', *sys.path])
+        else:
+            exposed = candidate if entry == 'root' else os.path.join(candidate, 'tools')
+            monkeypatch.syspath_prepend(exposed)
+        return candidate
+
+    def forbidden_supervisor(*args):
+        pytest.fail('candidate import exposure must fail before loading a supervisor')
+
+    monkeypatch.setattr(selfboot, 'make_worktree', exposed_candidate)
+    monkeypatch.setattr(selfboot, 'Supervisor', forbidden_supervisor)
+    runs = str(runtime_data.private_root() / tmp_path.name / 'runs')
+    with pytest.raises(ImmutableViolation):
+        selfboot.selfboot_init(repository, 'HEAD', immutable_samples()['run_id'], runs)
 
 
 def test_selfboot_candidate_worktree_is_independent(tmp_path):
@@ -182,6 +209,8 @@ def _stub_run_loop_infra(tmp_path, monkeypatch):
 
     sandbox = str(tmp_path / "sandbox")
     os.makedirs(sandbox)
+    (tmp_path / "target").mkdir()
+    (tmp_path / "candidate").mkdir()
     from tools.make_fixtures import repair_samples
     monkeypatch.setattr(_sm, '_parent_baseline', lambda *a: repair_samples()['supervisor_baseline'])
     monkeypatch.setattr(_sm, "make_worktree", lambda *a, **k: sandbox)

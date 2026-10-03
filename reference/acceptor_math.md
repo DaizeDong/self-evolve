@@ -9,7 +9,7 @@ d = after - before  ∈ {-1, 0, +1}
 u = 0.5 * (d + 1)  ∈ {0, 0.5, 1}
 ```
 
-For the two-sided betting formula below, the conditional null is H₀: E[u_t | F_{t-1}] = 0.5, where F_{t-1} contains prior observations and all information used to choose the next bet. An unconditional average of 0.5 is insufficient. Extending this result to the composite claim "no improvement" requires an additional argument; bounded deterministic task scores alone do not establish the conditional null.
+The one-sided improvement test uses the conditional null H₀: E[u_t | F_{t-1}] ≤ 0.5, where F_{t-1} contains prior observations and all information used to choose the next bet. Nonnegative predictable bets make wealth a supermartingale under this composite null. An unconditional average at most 0.5 is insufficient; bounded deterministic task scores alone do not establish the conditional null.
 
 | d | interpretation | u | payoff (u - 0.5) |
 |---|---|---|---|
@@ -26,9 +26,9 @@ W_0 = 1
 W_t = W_{t-1} * (1 + λ_t * (u_t - 0.5))
 ```
 
-where `λ_t ∈ (-2, 2)` is the betting fraction chosen adaptively before seeing `u_t`.
+where `λ_t ∈ [0, 2 - 1e-6]` is the betting fraction chosen adaptively before seeing `u_t`. With this sign restriction, a negative payoff cannot increase wealth.
 
-**Anytime-valid guarantee (Ville's inequality):** For any nonnegative martingale W_t with W_0=1,
+**Anytime-valid guarantee (Ville's inequality):** For any nonnegative supermartingale W_t with W_0=1,
 
 ```
 P(∃ t: W_t ≥ 1/α) ≤ α
@@ -100,7 +100,7 @@ where `σ` is the population standard deviation of the current round's diffs (`s
 ```python
 from confseq.betting import betting_mart
 u = [0.5*(d+1) for d in diffs]
-mart = betting_mart(u, m=0.5, alpha=alpha)  # returns wealth array
+mart = betting_mart(u, m=0.5, alpha=alpha, theta=1.0)  # positive capital only
 e_value = max(mart)
 ```
 
@@ -112,33 +112,30 @@ LAM_MAX = 2 - 1e-6  # 收紧上界，见下文
 For each d_t:
     u_t = 0.5*(d_t + 1)
     payoff_t = u_t - 0.5
-    lam_safe_t = clip(λ_t, -LAM_MAX, LAM_MAX)
+    lam_safe_t = clip(λ_t, 0, LAM_MAX)
     factor_t = 1 + lam_safe_t * payoff_t   # 恒 > 0，无需 max(1e-10, ...)
     W_t = W_{t-1} * factor_t
     g_t = payoff_t / factor_t              # gradient of log-wealth
     A ← A + g_t²
     b ← b + g_t
-    λ_{t+1} = clip(b / (A + 1), -LAM_MAX, LAM_MAX)  # ONS step
+    λ_{t+1} = clip(b / (A + 1), 0, LAM_MAX)  # ONS step
 path_max = max(W_1, ..., W_n)             # returned as the legacy evalue field
 ```
 
-ONS chooses λ_t from prior observations. Together with bounded payoffs, positive factors and the conditional null in §1, this yields a nonnegative martingale for that process. Ville then controls its boundary-crossing probability. Predictable betting alone does not validate the observation model, a composite no-improvement null, or repeated fresh proposal tests.
+ONS chooses nonnegative λ_t from prior observations. Together with bounded payoffs, positive factors and the conditional null in §1, this yields a nonnegative supermartingale for that process; equality in the conditional null gives a martingale. Ville then controls its boundary-crossing probability. The observation model and repeated fresh proposal tests still require separate justification.
 
-### 为什么收紧 λ 到 ±(2−δ)，而不是给 factor 兜底截断
+### λ 的取值范围与正财富保证
 
-**λ 的 clip 边界收紧到 ±(2−δ)，factor 一律不截断。** 另一条看似等价的路是让 factor
-兜底：`max(1e-10, 1+λ·payoff)`。那条路是错的,当 λ=±2、payoff=∓0.5 时 factor=0，被兜到
-1e-10，此时梯度 `g = payoff/factor` 爆炸（±5×10⁷），ONS 步长失控，wealth 永久趋零
-（过保守），且破坏鞅恒等式（财富乘子与梯度计算不一致）。
+λ 限于 `[0, 2−δ]`，保证负收益不能增加财富，同时让 `factor` 保持正数。代码直接使用 `factor = 1+λ·payoff`，不对它另做截断。若允许 λ=2，在 payoff=-0.5 时就会得到 factor=0；事后把它改成一个小正数，会改变财富更新公式和相应的 ONS 梯度，原来的统计论证便不再适用。
 
 **本实现收紧 λ-clip，不截断 factor：**
 - `LAM_MAX = 2 − 1e-6 = 1.999999`（代码：`tools/sie/acceptor.py` 的 `_LAM_MAX`）
-- 最坏情况 payoff = ±0.5：factor = 1 ± LAM_MAX·0.5 = 1 ∓ 0.9999995
+- 最坏情况 λ = LAM_MAX、payoff = -0.5：factor = 1 - LAM_MAX·0.5
   - 最小值 = 0.0000005 = 5×10⁻⁷ > 0，恒正
-- 正常路径（λ 远离边界）factor 远大于此，梯度有界，鞅恒等式成立
+- λ 远离上界时，factor 的下界更大，ONS 梯度也更小
 - ONS 梯度 g = payoff/factor 在所有可能输入下有限，财富更新自洽
 
-**前提分开检查：** factor 恒 > 0 只能保证 wealth 为正。鞅属性还需要可预测下注和条件零均值；满足这些前提后才能使用 Ville 不等式。
+**前提分开检查：** factor 恒 > 0 只能保证 wealth 为正。超鞅性质还需要非负、可预测的下注，以及条件均值 `E[u_t | F_{t-1}] ≤ 0.5`；满足这些前提后才能使用 Ville 不等式。
 
 ## 9. Params Reference
 

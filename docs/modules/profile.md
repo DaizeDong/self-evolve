@@ -43,14 +43,14 @@ profile 还承担了一个反自欺的关键动作：在判定"A 路信号可用
 `run_exec_probe` 内部是一条**三段闸门**，前一段不过后一段不做：
 
 - **有没有测试**：用 glob 找 `test_*.py` 或 `*_test.py`。没有 → 直接返回，A 路不成立。
-- **基线红绿**：`pytest -q --no-header` 跑一遍（60 秒超时，超时按失败算）。
+- **基线红绿**：`pytest -q --no-header` 跑一遍，默认超时为 600 秒，可用 `SIE_EXEC_PROBE_TIMEOUT` 调整。超时返回 `-1`，表示没有取得评测结果，不算测试失败。
   退出码必须是 `0` 才有资格继续。退出码 `5`（一个测试都没收集到）和 `1`（有失败）都**不算**有效 grader,
   尤其退出码 5 是个常见陷阱：有"测试文件"不等于真有可跑的测试。
 - **变异二次校验**：从源码里挑一个文件（排除 `test_*` / `__init__.py` / `setup.py` / `conftest.py`，
   排序后取第一个，保证确定性），往**文件尾部追加** `raise RuntimeError('SIE_MUTANT')`，
-  重跑测试。期望退出码非 0（mutant 被"杀死"）。跑完无论成败都用 `try/finally` 把源文件**还原**回原始内容。
+  重跑测试。只有退出码 `1` 或 `2` 才计为 mutant 被杀死；超时、没有收集到测试及其他运行错误都不能证明测试发现了变异。跑完无论成败都用 `try/finally` 把源文件**还原**回原始内容。
   - `mutation_killed == True` → 这套测试对真实缺陷有杀伤力，grader 可信。
-  - `mutation_killed == False` → 注入了必然炸的 bug 测试居然还全绿 → 这套测试是装饰品，A 路信号作废。
+  - `mutation_killed == False` → 未取得测试发现变异的证据，A 路信号不成立；具体原因由探针结果区分。
 
 只有 **`has_tests` 且 `exit_code == 0` 且 `mutation_killed`** 三者同时为真，才把 `"A"` 加进 `tiers` 集合。
 执行探针失败时，`_exec_signal` 返回带 `unavailable_reason` 的结果，A 路不成立；该结果必须与“目标没有测试”区分。

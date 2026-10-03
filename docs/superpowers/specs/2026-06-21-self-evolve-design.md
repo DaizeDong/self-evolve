@@ -1,3 +1,5 @@
+> Historical record. This document preserves an earlier design; its paths, commands, capability claims and validation results are not current operating instructions. Use the [current README](../../../README.md) and module documentation for current behavior.
+
 # self-evolve 设计规格（Design Spec v3.1）
 
 - **日期**：2026-06-21（v3.1：judge 池收敛为 Claude+Codex，去 gemini/minimax；其余同 v3）

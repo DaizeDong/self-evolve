@@ -112,8 +112,9 @@ class Supervisor:
             frozen_dir:      frozen 副本目录（由 materialize_frozen 生成，supervisor 私有）。
             frozen_digests:  {relpath: sha256} 哈希基线（由 materialize_frozen 返回）。
         """
+        verify_immutable(frozen_dir, frozen_digests)
         self.frozen_dir = frozen_dir
-        self.frozen_digests = frozen_digests
+        self.frozen_digests = dict(frozen_digests)
         # 隔离加载 frozen acceptor；绝不从 candidate import。
         self._acceptor = load_frozen_decider(frozen_dir, "acceptor")
 
@@ -121,7 +122,7 @@ class Supervisor:
         """验证 candidate 的 IMMUTABLE 文件哈希与 frozen 基线一致。
 
         Raises:
-            ImmutableViolation: 任一文件缺失、哈希不符，或 frozen_digests 为空。
+            ImmutableViolation: 清单不完整、哈希格式错误或任一文件缺失、哈希不符。
         """
         verify_immutable(candidate_sie_root, self.frozen_digests)
 

@@ -79,7 +79,7 @@ def selfboot_init(
     verify_immutable(cand_sie_root, frozen_digests)
 
     # 4) 断言 candidate sie root 不在 supervisor 解析路径（隔离）
-    if not candidate_path_is_isolated(frozen_dir, cand_sie_root):
+    if not candidate_path_is_isolated(frozen_dir, candidate_worktree):
         raise ImmutableViolation(
             "candidate worktree 出现在 supervisor 解析路径，自举隔离失败"
         )

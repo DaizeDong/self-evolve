@@ -5,7 +5,7 @@ from tools.make_fixtures import immutable_samples
 EXPECTED = {
     "statemachine.py", "acceptor.py", "judges.py", "verifiable.py",
     "anchors.py", "selfdeception.py", "gate_human.py", "profile.py",
-    "sandbox.py", "supervisor.py", "immutable.py",
+    "sandbox.py", "supervisor.py", "selfboot.py", "immutable.py",
     "patch.py", "proxy.py", "events.py",
     "runtime_data.py", "llm_adapter.py", "llm_agent_child.py",
 }
@@ -25,13 +25,15 @@ def test_is_immutable_relpath_normalizes_and_rejects_bypass():
     assert im.is_immutable_relpath("propose.py") is False
     assert im.is_immutable_relpath("reflect.py") is False
 
-def _init_repo_with_sie(tmp_path, line_ending=b"\n"):
+def _init_repo_with_sie(tmp_path, line_ending=b"\n", omitted=None):
     sample = immutable_samples()
     root = tmp_path / "repo"
     sie = root / "tools" / "sie"
     sie.mkdir(parents=True)
-    # 造两个 IMMUTABLE + 一个非 IMMUTABLE
+    # Complete generated decision set plus one non-IMMUTABLE module.
     for name, content in sample['files'].items():
+        if name == omitted:
+            continue
         (sie / name).write_bytes(content.replace(b"\n", line_ending))
     env = {**os.environ, "GIT_AUTHOR_NAME": sample['git_name'],
            "GIT_AUTHOR_EMAIL": sample['git_email'],
@@ -56,7 +58,7 @@ def test_materialize_frozen_writes_only_immutable_with_base_ref_content(tmp_path
     assert not (pathlib.Path(frozen) / "propose.py").exists()
     # 哈希与 frozen 内容一致
     assert digests["acceptor.py"] == im.hash_file(str(frozen_acc))
-    assert set(digests) >= {"acceptor.py", "gate_human.py"}
+    assert set(digests) == set(im.IMMUTABLE_RELPATHS)
 
 def test_verify_immutable_raises_on_tamper(tmp_path):
     root = _init_repo_with_sie(tmp_path)
@@ -87,3 +89,28 @@ def test_verify_immutable_raises_on_missing_file(tmp_path):
     (pathlib.Path(sie_root) / "gate_human.py").unlink()  # candidate 删了裁决文件
     with pytest.raises(im.ImmutableViolation):
         im.verify_immutable(sie_root, digests)
+
+
+@pytest.mark.parametrize('missing', immutable_samples()['missing_required'])
+def test_materialize_refuses_any_missing_required_committed_blob(tmp_path, missing):
+    root = _init_repo_with_sie(tmp_path, omitted=missing)
+    with pytest.raises(im.ImmutableViolation, match=missing):
+        im.materialize_frozen('HEAD', str(root / 'tools/sie'), str(tmp_path / 'frozen'))
+
+
+@pytest.mark.parametrize('kind', immutable_samples()['invalid_manifests'])
+def test_verify_rejects_incomplete_or_malformed_manifest(tmp_path, kind):
+    for name, content in immutable_samples()['files'].items():
+        (tmp_path / name).write_bytes(content)
+    digests = {name: im.hash_file(str(tmp_path / name), normalize_crlf=True)
+               for name in im.IMMUTABLE_RELPATHS}
+    if kind == 'only-acceptor':
+        digests = {'acceptor.py': digests['acceptor.py']}
+    elif kind == 'missing-last':
+        digests.pop(im.IMMUTABLE_RELPATHS[-1])
+    elif kind == 'unexpected-path':
+        digests['propose.py'] = im.hash_file(str(tmp_path / 'propose.py'))
+    else:
+        digests['acceptor.py'] = None
+    with pytest.raises(im.ImmutableViolation):
+        im.verify_immutable(str(tmp_path), digests)

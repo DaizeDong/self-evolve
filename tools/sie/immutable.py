@@ -15,6 +15,7 @@ IMMUTABLE_RELPATHS: tuple[str, ...] = (
     "profile.py",        # tier 画像冻结判定
     "sandbox.py",        # realpath 边界 / action 分级
     "supervisor.py",     # 双进程裁决 loader
+    "selfboot.py",       # candidate import isolation and frozen baseline assembly
     "immutable.py",      # 清单与哈希门自身
     "patch.py",          # AST 危险调用拒绝门（决策码自身、漏列则 candidate 可白名单任意危险 import）
     "proxy.py",          # 出站 harness 代发+熵/序列异常审查（漏列则 candidate 可开隐蔽 exfiltration）
@@ -97,12 +98,16 @@ def materialize_frozen(base_ref: str, sie_root: str, frozen_dir: str) -> dict[st
             content = subprocess.run(
                 ["git", "show", f"{base_ref}:{git_path}"], cwd=repo_root,
                 check=True, capture_output=True).stdout
-        except subprocess.CalledProcessError:
-            # base ref 尚无该文件（新文件未提交）：跳过物化（不入 digests），supervisor 待启动门才发现缺口。
-            continue
+        except subprocess.CalledProcessError as error:
+            raise ImmutableViolation(f"Cannot materialize required IMMUTABLE file: {rp}") from error
         out = str(private_file_path(os.path.join(frozen_dir, rp)))
-        with open(out, "wb") as f:
-            f.write(content)
+        try:
+            with open(out, "xb") as f:
+                f.write(content)
+        except FileExistsError:
+            with open(out, "rb") as f:
+                if f.read() != content:
+                    raise ImmutableViolation(f"Existing frozen file differs from base ref: {rp}")
         os.chmod(out, 0o444)  # 设置为只读（POSIX 去写权、Windows 只读属性）
         # Preserve committed bytes, but use the same canonical hash as verification.
         digests[rp] = hash_file(out, normalize_crlf=True)
@@ -116,15 +121,19 @@ class ImmutableViolation(Exception):
 def verify_immutable(candidate_sie_root: str, frozen_digests: dict[str, str]) -> None:
     """比对 candidate 内 IMMUTABLE 文件哈希是否与 frozen 记录一致。
 
-    任一文件缺失、哈希不符或 frozen_digests 为空，raise ImmutableViolation。
+    清单不完整、哈希格式错误或任一文件缺失、哈希不符，raise ImmutableViolation。
     fail-closed：绝无静默通过的异常路径。
 
     Frozen and candidate digests both normalize CRLF to LF.
     """
-    if not frozen_digests:
-        raise ImmutableViolation("frozen 哈希记录为空，拒绝在无基线下运行 IMMUTABLE 锁")
+    if not isinstance(frozen_digests, dict) or set(frozen_digests) != _IMMUTABLE_SET:
+        raise ImmutableViolation("Frozen manifest must contain exactly the complete IMMUTABLE decision set")
     bad: list[str] = []
     for rp, expected in frozen_digests.items():
+        if (not isinstance(expected, str) or len(expected) != 64
+                or any(char not in "0123456789abcdef" for char in expected)):
+            bad.append(f"{rp}: invalid SHA-256 digest")
+            continue
         cand = os.path.join(candidate_sie_root, rp)
         if not os.path.isfile(cand):
             bad.append(f"{rp}: 缺失")

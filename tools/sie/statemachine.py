@@ -635,6 +635,7 @@ def _resume_records(run_dir):
     records = {}
     last_holdout = 0
     current_round = 0
+    pending_holdout = None
     path = runtime_data.private_file_path(os.path.join(run_dir, "events.jsonl"))
     if not path.exists():
         return [], last_holdout
@@ -648,8 +649,16 @@ def _resume_records(run_dir):
                 raise ValueError("Run event must be an object")
             if event.get("type") == "ROUND_BEGIN":
                 current_round = event["round"]
+                pending_holdout = None
             if event.get("type") == "HOLDOUT_MEASURED":
-                last_holdout = max(last_holdout, event["holdout_round"])
+                pending_holdout = event["holdout_round"]
+            evaluated_outcome = event.get("type") in {"ACCEPT", "REJECT", "CONTINUE"} or (
+                event.get("type") == "PAUSE_FOR_HUMAN" and event.get("static_reject_reset") is True)
+            if evaluated_outcome and pending_holdout is not None and pending_holdout == current_round:
+                # Measurement alone cannot consume the schedule: evaluation or its decision
+                # may have been interrupted before this same-round outcome became durable.
+                last_holdout = max(last_holdout, pending_holdout)
+                pending_holdout = None
             record = event.get("record") if event.get("type") == "ROUND_HISTORY" else None
             if record is not None:
                 if not isinstance(record, dict) or type(record.get("round")) is not int:
@@ -703,7 +712,8 @@ def _btier_round_context(prof, parent_snapshot, sandbox_root, rnd, params, fetch
     if interval <= 0:
         raise ValueError("holdout_K must be positive")
     holdout_base = holdout_with = None
-    if params.get("_holdout_due", rnd > 0 and rnd % interval == 0):
+    holdout_due = params.get("_holdout_due", rnd > 0 and rnd % interval == 0)
+    if holdout_due:
         reference = prof.get("anchors_holdout_ref", {})
         if not isinstance(reference, dict):
             raise BaselineUnavailable("holdout_unavailable", "Sampled holdout reference is malformed")
@@ -734,6 +744,7 @@ def _btier_round_context(prof, parent_snapshot, sandbox_root, rnd, params, fetch
         holdout_base = sum(holdout_scores["base_scores"].values()) / len(holdout)
         holdout_with = sum(holdout_scores["with_scores"].values()) / len(holdout)
     return {"tier": prof["tier"], "round": rnd, "K": interval, **measured,
+            "_holdout_due": holdout_due,
             "holdout_base": holdout_base, "holdout_with": holdout_with,
             "intended_accept": None, "fetcher": fetcher}
 
@@ -1058,6 +1069,7 @@ def run_loop(
                     getattr(exc, 'status', 'reader_failed'), str(exc))
                 break
 
+        candidate_timeout = None
         if "B" in _tier_str:
             try:
                 ev_ctx = _btier_round_context(
@@ -1109,8 +1121,11 @@ def run_loop(
         else:
             # M4.6: 自举时跳过 evaluate（grade 由 supervisor.grade 在态7 内替代）
             if supervisor is None:
-                ev_result = evaluate(sandbox_root, prof["tier"],
-                                     base_result=baseline)
+                try:
+                    ev_result = evaluate(sandbox_root, prof["tier"], base_result=baseline)
+                except subprocess.TimeoutExpired as exc:
+                    candidate_timeout = f"pytest timed out after {exc.timeout} seconds"
+                    ev_result = {"result": None}
             else:
                 ev_result = {}  # 自举：ev_result 未使用（supervisor.grade 直接在决策块中调）
 
@@ -1151,6 +1166,7 @@ def run_loop(
                     "type": "PAUSE_FOR_HUMAN",
                     "phase": "PAUSE_FOR_HUMAN",
                     "forced_review_delta": 1,
+                    "static_reject_reset": True,
                 })
                 history.append({
                     "round": rnd,
@@ -1384,6 +1400,7 @@ def run_loop(
                     "type": "PAUSE_FOR_HUMAN",
                     "phase": "PAUSE_FOR_HUMAN",
                     "forced_review_delta": 1,
+                    "static_reject_reset": True,
                 })
                 history.append({
                     "round": rnd,
@@ -1432,14 +1449,19 @@ def run_loop(
                 if os.path.normcase(os.path.realpath(sandbox_root)) != os.path.normcase(
                         os.path.realpath(candidate_worktree)):
                     raise ValueError("Selfboot patch and grade candidate identities differ")
-                _grade = supervisor.grade({}, sandbox_root, self_mode=True)
-                _grade_error = candidate_grade_error(_grade, baseline["dimensions"])
+                try:
+                    _grade = supervisor.grade({}, sandbox_root, self_mode=True)
+                except subprocess.TimeoutExpired as exc:
+                    candidate_timeout = f"pytest timed out after {exc.timeout} seconds"
+                    _grade = None
+                _grade_error = candidate_timeout or candidate_grade_error(_grade, baseline["dimensions"])
                 if _grade_error is None:
                     from tools.sie.evaluate import pair_parent_dimensions
                     _sv_paired = pair_parent_dimensions(baseline["dimensions"], _grade["dimensions"])
                     dec = supervisor.decide(_sv_paired, prof["tier"], st, params)
             else:
-                _grade_error = candidate_grade_error(ev_result.get("result"), baseline["dimensions"])
+                _grade_error = candidate_timeout or candidate_grade_error(
+                    ev_result.get("result"), baseline["dimensions"])
                 if _grade_error is None:
                     dec = decide(ev_result["paired"], prof["tier"], st, params)
             if _grade_error is not None:
@@ -1500,6 +1522,7 @@ def run_loop(
                     "type": "PAUSE_FOR_HUMAN",
                     "phase": "PAUSE_FOR_HUMAN",
                     "forced_review_delta": 1,
+                    "static_reject_reset": True,
                 })
                 history.append({
                     "round": rnd,
@@ -1525,6 +1548,7 @@ def run_loop(
                     "type": "REJECT",
                     "phase": "REFLECT",
                     "no_progress_delta": 1,
+                    "reason": dec["reason"],
                 })
                 history.append({
                     "round": rnd,

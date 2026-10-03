@@ -116,6 +116,12 @@ class MemoryPath:
     def __fspath__(self):
         return self.value
 
+    def __eq__(self, other):
+        return isinstance(other, MemoryPath) and self.owner is other.owner and self.value == other.value
+
+    def expanduser(self):
+        return self
+
     def __truediv__(self, suffix):
         return self.owner.path(PurePosixPath(self.value) / str(suffix))
 
@@ -126,6 +132,10 @@ class MemoryPath:
     @property
     def parent(self):
         return self.owner.path(PurePosixPath(self.value).parent)
+
+    @property
+    def parents(self):
+        return tuple(self.owner.path(parent) for parent in PurePosixPath(self.value).parents)
 
     @property
     def parts(self):
@@ -186,7 +196,9 @@ def environment(case):
         private_file_path=fs.path,
     )
     rd = definitions("tools/sie/runtime_data.py", {"re": re, "os": fs.os(), "json": json,
-                     "private_file_path": fs.path}, {"DataBoundaryError", "validate_run_id", "write_json"})
+                     "Path": fs.path, "stat": stat, "_safe_path": fs.path,
+                     "private_file_path": fs.path},
+                     {"DataBoundaryError", "validate_run_id", "_file_in_parent", "write_json"})
     runtime.DataBoundaryError = rd["DataBoundaryError"]
     runtime.validate_run_id = rd["validate_run_id"]
     archive = definitions("tools/sie/archive.py",
@@ -390,4 +402,3 @@ class Review11BehaviorTests(unittest.TestCase):
         for row in run_controls():
             with self.subTest(group=row["group"], case=row["case"]):
                 self.assertTrue(row["satisfied"], row)
-

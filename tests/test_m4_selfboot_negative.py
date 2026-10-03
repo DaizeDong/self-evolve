@@ -18,6 +18,7 @@ import pytest
 from tools.sie import selfboot, runtime_data, patch as P
 from tools.sie import immutable as im
 from tools.sie.supervisor import Supervisor
+from tools.make_fixtures import immutable_samples
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +129,7 @@ def test_neg_b_candidate_grade_not_trusted(tmp_path):
 
     # 重建 supervisor 以加载新 frozen verifiable（哈希更新以通过内部校验）
     digests = dict(boot["frozen_digests"])
-    digests["verifiable.py"] = im.hash_file(str(vpath))
+    digests["verifiable.py"] = im.hash_file(str(vpath), normalize_crlf=True)
     sv2 = Supervisor(boot["frozen_dir"], digests)
 
     res = sv2.grade({"id": "t"}, cw, self_mode=True)
@@ -149,7 +150,11 @@ def test_neg_b_supervisor_grade_non_self_mode_raises():
             "def decide(paired, tier, st, params):\n"
             "    return {'decision': 'REJECT', 'evalue': 1.0, 'reason': 'frozen'}\n",
             encoding="utf-8")
-        digests = {"acceptor.py": im.hash_file(str(frozen / "acceptor.py"))}
+        for name, content in immutable_samples()['files'].items():
+            if name in im.IMMUTABLE_RELPATHS and not (frozen / name).exists():
+                (frozen / name).write_bytes(content)
+        digests = {name: im.hash_file(str(frozen / name), normalize_crlf=True)
+                   for name in im.IMMUTABLE_RELPATHS}
         sv = Supervisor(str(frozen), digests)
         with pytest.raises(RuntimeError, match="self-mode only"):
             sv.grade({}, td, self_mode=False)
@@ -239,6 +244,7 @@ def _stub_sm_infra(monkeypatch, tmp_path, tier: str):
 
     sandbox = str(tmp_path / "sandbox")
     os.makedirs(sandbox, exist_ok=True)
+    (tmp_path / "candidate").mkdir()
     monkeypatch.setattr(_sm, "make_worktree", lambda *a, **k: sandbox)
     monkeypatch.setattr(_sm, "run_profile",
                         lambda *a, **k: {"tier": tier, "anchors_visible": []})

@@ -76,7 +76,7 @@ A 路已通过任务退化时硬拒绝；C 检查已提供的 replay。B 保留�
 
 ### 3.5 自举隔离
 
-当 *T* 即框架自身：14 个 IMMUTABLE 决策码从 frozen base ref 物化并记 sha256，启动哈希
+当 *T* 即框架自身：`tools/sie/immutable.py` 中 `IMMUTABLE_RELPATHS` 列出的决策代码从 frozen base ref 物化并记 sha256，启动哈希
 fail-closed 校验，patch 写 IMMUTABLE 硬拒，**supervisor 双进程**用 frozen 代码裁决（candidate
 worktree 永不进 sys.path、不能自评 / 自打分）。见 [`modules/self-boot.md`](modules/self-boot.md)。
 
