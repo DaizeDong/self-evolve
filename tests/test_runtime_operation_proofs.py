@@ -303,10 +303,14 @@ def test_query_recorder_and_operation_reset_after_shared_proof_error(scene, monk
     assert len(scene.calls) == RECIPE["proof_queries"]
 
 
+def _allow_synthetic_ssh_host(host):
+    assert host == "github.com"
+
+
 def test_ssh_policy_keeps_complete_proofs_instead_of_reusing_https_receipt(scene, monkeypatch):
     origin = "git@github.com:" + scene.sample["slug"] + ".git"
     scene.state.update(fetch=origin, push=origin)
-    monkeypatch.setattr(scene.boundary, "_ssh_configuration_problem", lambda: None)
+    monkeypatch.setattr(scene.boundary, "_ssh_configuration_problem", _allow_synthetic_ssh_host)
     assert runtime.runtime_directory(scene.data / "child") == scene.data / "child"
     assert len(scene.calls) == 2 * RECIPE["standalone_queries"]
 
@@ -407,7 +411,7 @@ def test_plain_directory_creation_gets_one_complete_fresh_reproof(scene, monkeyp
         boundary = factory()
         boundary._run = git
         if protocol == "ssh":
-            boundary._ssh_configuration_problem = lambda: None
+            boundary._ssh_configuration_problem = _allow_synthetic_ssh_host
         factories.append(boundary)
         index = len(factories)
         visibility = boundary._companion_visibility

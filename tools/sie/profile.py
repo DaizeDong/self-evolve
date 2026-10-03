@@ -106,7 +106,7 @@ def run_profile(target: str, base_ref: str, run_dir: str | None = None,
     If run_dir is provided, automatically freeze the profile to target.json (铁律4).
 
     Args:
-        target: Path to target repo or research artifact directory.
+        target: Path to target repo, research artifact directory, or artifact file.
         base_ref: Git base reference for exec probe.
         run_dir: Optional run directory; if given, auto-freezes target.json (铁律4).
 
@@ -117,10 +117,18 @@ def run_profile(target: str, base_ref: str, run_dir: str | None = None,
     from .probes import fact_probe as _fact_probe
     from . import anchors as _anchors
 
+    profile_target = target
+    profile_id = hashlib.sha256(str(base_ref).encode('utf-8')).hexdigest()[:16]
+    artifact = Path(target).expanduser()
+    if run_dir is None and artifact.is_file():
+        artifact = artifact.resolve(strict=True)
+        profile_target = str(artifact.parent)
+        identity = json.dumps([str(artifact), str(base_ref)], ensure_ascii=False)
+        profile_id = hashlib.sha256(identity.encode('utf-8')).hexdigest()
+
     # Prove the runtime destination before the exec probe can create a worktree.
     profile_run = (runtime_data.runtime_directory(run_dir) if run_dir is not None else
-                   runtime_data.run_directory(target, 'profile-'+hashlib.sha256(
-                       str(base_ref).encode('utf-8')).hexdigest()[:16]))
+                   runtime_data.run_directory(profile_target, 'profile-'+profile_id))
 
     tiers: set[str] = set()
 

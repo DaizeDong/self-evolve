@@ -46,12 +46,12 @@ accept 对三种**信号来源**(代码里叫 tier "A"/"B"/"C",profile 可标记
 
 路径最大值的越界事件受上述定理控制，但 `max(path)` 本身未必是期望不超过 1 的 e-value。新提案、重跑评估或重新调用 `decide` 会启动新过程；当前没有跨这些过程的错误预算机制，不能把单条过程的 α 保证推广到任意多轮。
 
-**下注机制(`_ons_betting_wealth`)的细节**:把每对差 `d = after − before` 映射到 `u = 0.5·(d+1) ∈ [0,1]`,零假设中心 `m = 0.5`(即 `d=0` 是「没改进」)。每步 `wealth ×= (1 + λ·payoff)`,`payoff = u − 0.5 ∈ [−0.5, 0.5]`。下注比例 λ 用 **ONS(Online Newton Step)**自适应:`λ ← clip(b/(A+1), ±(2−1e-6))`,其中 A 是梯度平方累积、b 是梯度累积、`+1` 是正则项(避免 A=0 时初始大步)。
+**下注机制（`_ons_betting_wealth`）的细节**：把每对差 `d = after − before` 映射到 `u = 0.5·(d+1) ∈ [0,1]`，检验条件零假设 `E[u_t | F_{t-1}] ≤ 0.5`。每步 `wealth ×= (1 + λ·payoff)`，其中 `payoff = u − 0.5 ∈ [−0.5, 0.5]`。下注比例 λ 用 **ONS（Online Newton Step）**根据此前的观察更新：`λ ← clip(b/(A+1), 0, 2−1e-6)`。A 是梯度平方累积，b 是梯度累积，`+1` 是正则项。λ 始终非负，因此负收益不能增加财富。条件零假设成立时，财富过程才具有所需的超鞅性质。
 
 这里有两个被代码注释专门点名的工程坑:
 
-1. **只 clip λ,不 clip factor**。把 λ 收紧到 `±(2−δ)` 就能保证 `factor = 1+λ·payoff` 恒 `> 0`(下界 ≈ 5e-7),从而 wealth 永远是正数。**绝不能直接截断 factor 本身**,那会破坏鞅恒等式、让 ONS 梯度爆炸,等于偷偷把 type-I 保证给毁了。
-2. **优先用 confseq 库,缺失才回退自洽实现**。`_wealth_betting` 先尝试 `confseq.betting.betting_mart`(成熟实现),`import` 或运行失败才退回上面手写的 ONS 鞅。两条路同口径(同 u 映射、同 m=0.5、同取 max(path)),保证有没有装库结果一致。
+1. **λ 限于 `[0, 2−δ]`**。这能保证 `factor = 1+λ·payoff` 恒 `> 0`，下界约为 `5e-7`。代码直接使用这个 factor；另行截断会改变财富更新公式和相应的 ONS 梯度。
+2. **confseq 明确选取正向资本**。`_wealth_betting` 调用 `confseq.betting.betting_mart(u, m=0.5, alpha=alpha, theta=1.0)`。导入或执行失败时，回退到上述非负下注的 ONS 实现。两条路径都检验改进方向，并返回 `max(path)`；具体财富路径取决于各自的下注策略，不保证数值相同。
 
 ### 三、A 档路径:硬门优先 + 二态决策
 

@@ -1,10 +1,13 @@
 # Roadmap
 
-Current: **v0.1.0**
+The milestones below describe the original v0.1.0 plan. Use the current README and
+module documentation for implemented behavior and limitations.
 
-## v0.1.0 (current)
+## v0.1.0 historical milestone scope
 
-Implementation complete, safety / adjudication skeleton fully built and tested, ship-ready framework. 52 tasks / 5 milestones / 555 tests under `tests/` (what `pytest tests` collects; a bare `pytest` at the repo root reports 669 because it also collects the 114 vendored `pii_guard` tests under `tools/`).
+This list records intended milestone scope. It is not a current readiness assessment
+or test receipt. Current safety and style kits use pinned submodules; validation must
+identify the source snapshot, executed tests and unresolved failures.
 
 - **M1a**, deterministic state-machine harness: 10-state run_loop, `events.jsonl` append-only source of truth + crash-replay, git worktree sandbox, three orthogonal counters, A-tier no-regression hard gate.
 - **M1b**, PACE e-process acceptor (anti-self-deception linchpin, type-I ≤ α verified, ONS fallback), AST danger gate, mutation-validity gate, non-blocking human-review queue, circuit breaker + liveness.

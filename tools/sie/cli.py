@@ -82,15 +82,15 @@ def _main(argv: list[str] | None = None) -> int:
                        help="显式开 IMMUTABLE 哈希锁(非自举也可强制)")
     p_run.add_argument("--proposer", default="builtin",
                        choices=["builtin", "llm", "llm-artifact"],
-                       help="propose 后端: builtin(确定性,默认) | llm(真 Claude 改代码) | "
-                            "llm-artifact(真 Claude 改 B 档研究产物 JSON)")
+                       help="builtin: deterministic proposals; llm: code proposals via llmcall; "
+                            "llm-artifact: JSON artifact proposals via llmcall")
     p_run.add_argument("--reflect-mode", dest="reflect_mode", default="serial",
                        choices=["serial", "parallel"],
-                       help="反思: serial(M1a,默认) | parallel(N=3 MARS 真 Claude)")
+                       help="serial: deterministic reflection; parallel: agents via llmcall")
     p_run.add_argument("--live", action="store_true",
-                       help="便捷开关: 等价 --proposer llm --reflect-mode parallel(真 agent 闭环)")
+                       help="Use the llm proposer and parallel reflection with installed llmcall routing")
     p_run.add_argument("--single", action="store_true",
-                       help="降级: 关闭每阶段 codex&claude 双重校验(默认开), 仅 claude 单跑")
+                       help="Request one reflector and skip proposal cross-checks")
 
     # status
     p_st = sub.add_parser("status", help="Print run status")
@@ -143,15 +143,15 @@ def _main(argv: list[str] | None = None) -> int:
             _candidate_worktree = _boot["candidate_worktree"]
         _proposer = "llm" if args.live else args.proposer
         _reflect_mode = "parallel" if args.live else args.reflect_mode
-        # 每阶段 codex&claude 双重校验默认开; --single 显式关。
-        # 跑前预检 codex: 不可用则提醒 + 自动降级单跑(不硬失败)。
         from tools.sie import agents as _agents
-        _dual, _warn = _agents.preflight_dual(dual_requested=not args.single)
+        _model_checks = _proposer == "llm" or _reflect_mode == "parallel"
+        _dual, _warn = _agents.preflight_dual(
+            dual_requested=_model_checks and not args.single)
         if _warn:
             print(_warn, file=sys.stderr)
         elif _dual:
-            print("✓ 每阶段 codex&claude 双重校验已启用(2× 调用)。--single 可降级单跑。",
-                  file=sys.stderr)
+            print("Cross-checks requested for model stages; actual provider independence "
+                  "is verified from returned results.", file=sys.stderr)
         summary = run_loop(
             args.target,
             args.base_ref,

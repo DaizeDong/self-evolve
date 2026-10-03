@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import math
 import os
 import shutil
 import subprocess
@@ -210,6 +211,14 @@ def _parse_task_results(stdout: str) -> list[dict]:
     return dims
 
 
+def grader_timeout() -> float:
+    """Return the finite candidate-pytest limit in seconds, defaulting to ten minutes."""
+    limit = float(os.environ.get("SIE_GRADER_TIMEOUT", "600"))
+    if not math.isfinite(limit) or limit <= 0:
+        raise ValueError("SIE_GRADER_TIMEOUT must be finite and positive")
+    return limit
+
+
 def grade_pytest(sandbox_root: str) -> dict:
     """Run pytest in a sandboxed subprocess under minimal_env + sitecustomize network block.
 
@@ -225,6 +234,8 @@ def grade_pytest(sandbox_root: str) -> dict:
     score mapping (A-grade binary):
       grader_exit_code == 0  ->  score=1.0, task_passed=True
       otherwise              ->  score=0.0, task_passed=False
+
+    TimeoutExpired propagates: a timeout is not evidence that a mutant was killed.
     """
     env, site_dir, jail_dir = _grader_env(sandbox_root)
 
@@ -240,6 +251,7 @@ def grade_pytest(sandbox_root: str) -> dict:
             capture_output=True,
             text=True, encoding="utf-8", errors="replace",
             env=grader_env,
+            timeout=grader_timeout(),
         )
 
         code = proc.returncode

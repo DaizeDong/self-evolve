@@ -1,3 +1,5 @@
+> Historical record. This document preserves an earlier plan; its paths, commands, capability claims and validation results are not current operating instructions. Use the [current README](../../../README.md) and module documentation for current behavior.
+
 # 计划：接通 LLM 接缝（Claude + Codex 两个真 agent）
 
 把 self-evolve 从"骨架 + 桩"推到**真正能自我迭代**：用本机 `claude` 与 `codex` CLI

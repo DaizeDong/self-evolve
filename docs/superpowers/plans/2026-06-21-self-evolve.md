@@ -236,7 +236,7 @@ def run_profile(target: str, base_ref: str) -> dict       # -> target.json(tier,
   Run:
   ```
   cd ~/CodesSelf/self-evolve && git add tools/sie/__init__.py spikes/confseq_spike.py tests/test_confseq_spike.py requirements.txt && git commit -m "$(cat <<'EOF'
-M1a: confseq spike 第0步硬前置 — 纯噪声 e-process 拒绝率验证通过
+M1a: confseq spike 第0步硬前置，纯噪声 e-process 拒绝率验证通过
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_015s63syXfzXPq4Tz5UCM7yW

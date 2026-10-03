@@ -13,6 +13,7 @@ import pathlib
 import pytest
 from tools.sie import supervisor as sup
 from tools.sie import immutable as im
+from tools.make_fixtures import immutable_samples
 
 
 # ---------------------------------------------------------------------------
@@ -24,6 +25,40 @@ def _make_frozen(tmp_path, acceptor_src):
     frozen.mkdir()
     (frozen / "acceptor.py").write_text(acceptor_src, encoding="utf-8")
     return str(frozen)
+
+
+def _complete_digests(frozen):
+    root = pathlib.Path(frozen)
+    for name, content in immutable_samples()['files'].items():
+        if name in im.IMMUTABLE_RELPATHS and not (root / name).exists():
+            (root / name).write_bytes(content)
+    return {name: im.hash_file(str(root / name), normalize_crlf=True)
+            for name in im.IMMUTABLE_RELPATHS}
+
+
+def test_supervisor_rejects_partial_manifest_before_import(tmp_path, monkeypatch):
+    for name, content in immutable_samples()['files'].items():
+        (tmp_path / name).write_bytes(content)
+    partial = {'acceptor.py': im.hash_file(str(tmp_path / 'acceptor.py'))}
+
+    def forbidden_import(*args):
+        pytest.fail('partial decision set must fail before importing decision code')
+
+    monkeypatch.setattr(sup, 'load_frozen_decider', forbidden_import)
+    with pytest.raises(im.ImmutableViolation):
+        sup.Supervisor(str(tmp_path), partial)
+
+
+def test_supervisor_rejects_changed_frozen_file_before_import(tmp_path, monkeypatch):
+    digests = _complete_digests(tmp_path)
+    (tmp_path / 'acceptor.py').write_bytes(immutable_samples()['files']['propose.py'])
+
+    def forbidden_import(*args):
+        pytest.fail('frozen hash mismatch must fail before importing decision code')
+
+    monkeypatch.setattr(sup, 'load_frozen_decider', forbidden_import)
+    with pytest.raises(im.ImmutableViolation, match='acceptor.py'):
+        sup.Supervisor(str(tmp_path), digests)
 
 
 # ---------------------------------------------------------------------------
@@ -67,7 +102,7 @@ def test_supervisor_decide_uses_frozen_not_candidate(tmp_path):
         "    return {'decision':'REJECT','evalue':0.0,'reason':'frozen_rule'}\n"
     )
     frozen = _make_frozen(tmp_path, frozen_src)
-    digests = {"acceptor.py": im.hash_file(os.path.join(frozen, "acceptor.py"))}
+    digests = _complete_digests(frozen)
     cand_sie = tmp_path / "candidate" / "tools" / "sie"
     cand_sie.mkdir(parents=True)
     (cand_sie / "acceptor.py").write_text(
@@ -215,10 +250,7 @@ def test_supervisor_grade_self_mode_uses_frozen_grader(tmp_path):
         encoding="utf-8",
     )
 
-    digests = {
-        "acceptor.py": im.hash_file(str(frozen / "acceptor.py")),
-        "verifiable.py": im.hash_file(str(frozen / "verifiable.py")),
-    }
+    digests = _complete_digests(frozen)
 
     # candidate 目录,不含 grade()，但即使含有也会被忽略。
     cand = tmp_path / "cand"
@@ -248,7 +280,7 @@ def test_supervisor_grade_self_mode_false_raises(tmp_path):
         "    return {'decision': 'REJECT', 'evalue': 0.0, 'reason': 'x'}\n",
         encoding="utf-8",
     )
-    digests = {"acceptor.py": im.hash_file(str(frozen / "acceptor.py"))}
+    digests = _complete_digests(frozen)
     cand = tmp_path / "cand"
     cand.mkdir()
     s = sup.Supervisor(str(frozen), digests)
@@ -273,10 +305,7 @@ def test_supervisor_grade_uses_load_frozen_decider_for_verifiable(tmp_path):
         "            'graded_by': 'FROZEN'}\n",
         encoding="utf-8",
     )
-    digests = {
-        "acceptor.py": im.hash_file(str(frozen / "acceptor.py")),
-        "verifiable.py": im.hash_file(str(frozen / "verifiable.py")),
-    }
+    digests = _complete_digests(frozen)
     cand = tmp_path / "cand"
     cand.mkdir()
 

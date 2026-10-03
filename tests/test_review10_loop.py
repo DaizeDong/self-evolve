@@ -36,8 +36,9 @@ def fixture():
 def measurement():
     anchors = {"datetime": datetime, "timezone": timezone, "_REL_TOL": 0.01, "_ABS_TOL": 0.01}
     definitions("tools/sie/anchors.py", {"_within_tol", "verify_anchor"}, anchors)
-    evaluate = {"_anchors": SimpleNamespace(**anchors)}
-    definitions("tools/sie/evaluate.py", {"_btier_match_key", "build_btier_scores"}, evaluate)
+    evaluate = {"_anchors": SimpleNamespace(**anchors), "math": math}
+    definitions("tools/sie/evaluate.py",
+                {"_btier_match_key", "build_btier_scores", "candidate_grade_error"}, evaluate)
     return SimpleNamespace(**evaluate)
 
 
@@ -60,11 +61,11 @@ def loop(*, tier="B", holdout_missing=False, self_mode=False, holdout_mode=None)
     elif holdout_mode == "overlap":
         holdout_bytes = json.dumps(visible[:1], sort_keys=True, separators=(",", ":")).encode()
         profile["anchors_holdout_ref"]["sha256"] = hashlib.sha256(holdout_bytes).hexdigest()
-    state = SimpleNamespace(phase="INIT", tier=tier, round=0, parent_vid=None,
+    state = SimpleNamespace(run_id="", phase="INIT", tier=tier, round=0, parent_vid=None,
                             no_progress=0, continue_count=0, forced_review=0, drift_count=0)
     def step(root, event):
         seen["events"].append(event)
-        for name in ("phase", "tier", "round", "parent_vid"):
+        for name in ("run_id", "phase", "tier", "round", "parent_vid"):
             if name in event:
                 setattr(state, name, event[name])
         return state
@@ -85,7 +86,8 @@ def loop(*, tier="B", holdout_missing=False, self_mode=False, holdout_mode=None)
         return {"status": "APPLIED"}
     def grade(task, root, **kwargs):
         seen["grade_roots"].append(root)
-        return {"dimensions": copy.deepcopy(case["tasks"])}
+        return {"task_passed": True, "grader_exit_code": 0,
+                "dimensions": copy.deepcopy(case["tasks"])}
     def worktree(*args):
         seen["worktrees"].append(args)
         return case["candidate"]
@@ -120,6 +122,8 @@ def loop(*, tier="B", holdout_missing=False, self_mode=False, holdout_mode=None)
         "runtime_data": SimpleNamespace(make_directory=lambda path: path),
         "_run_dir": lambda *args: case["run_dir"], "make_worktree": worktree,
         "_step": step, "load_target": lambda root: copy.deepcopy(profile),
+        "replay": lambda root: state, "_resume_records": lambda root: ([], 0),
+        "append_event": lambda root, event: seen["events"].append(event),
         "run_profile": lambda *args: copy.deepcopy(profile), "freeze_target": lambda *args: None,
         "business_tree": SimpleNamespace(snapshot=snapshot, manifest=lambda path: {},
                                         selected_snapshot=lambda path: nullcontext()),
@@ -127,6 +131,7 @@ def loop(*, tier="B", holdout_missing=False, self_mode=False, holdout_mode=None)
         "reflect": lambda *args, **kwargs: [{}], "check": lambda *args: True,
         "propose": lambda *args, **kwargs: [case["proposal"]], "apply_patch": patch,
         "_record_model_stage": lambda *args: None, "evaluate": evaluate,
+        "candidate_grade_error": evaluator.candidate_grade_error,
         "resolve_accept": lambda *args, **kwargs: {"next_state": "8"},
         "_round_record": lambda *args, **kwargs: {}, "_parent_baseline": baseline,
         "_usable_baseline": lambda value: value, "_discard_rejected_changes": lambda *args: None,
@@ -136,7 +141,7 @@ def loop(*, tier="B", holdout_missing=False, self_mode=False, holdout_mode=None)
         "apply_acceptor_outcome": lambda *args: "ARCHIVE",
     }
     source = globals().get("BEFORE_LOOP_SOURCE")
-    names = {"run_loop", "BaselineUnavailable"}
+    names = {"run_loop", "BaselineUnavailable", "_RunHistory"}
     if source is None:
         names.add("_btier_round_context")
     definitions("tools/sie/statemachine.py", names, namespace, source)

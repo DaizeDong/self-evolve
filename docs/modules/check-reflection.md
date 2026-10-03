@@ -10,7 +10,7 @@
 INIT → PROFILE → [REFLECT → CHECK → PROPOSE → PATCH → EVALUATE → ACCEPT|REJECT] * max_rounds
 ```
 
-`CHECK` 这一态就是本模块。它接 `reflect()` 的输出，逐条过校验；**全部不通过则该轮直接判 STATIC_REJECT**（记一次静态拒绝计数，喂给熔断器），连 `propose` 都不进。也就是说，反思质量不达标的轮次不会浪费下游的 patch/评测算力，更重要的是,**它把"凭空想象的改进点"挡在系统演化之外**。
+`CHECK` 这一态就是本模块。它接 `reflect()` 的输出，逐条过校验；**全部不通过则该轮直接判 STATIC_REJECT**（记一次静态拒绝计数，喂给熔断器），连 `propose` 都不进。当前接入的弱校验只排除空反思，不能证明改进点有事实依据。
 
 模块本身只做一件事：判断一条反思是否站得住脚。它有两档强度：
 
@@ -33,14 +33,14 @@ INIT → PROFILE → [REFLECT → CHECK → PROPOSE → PATCH → EVALUATE → A
 
 ### 弱校验 `check`
 
-判据极简：反思 dict 非空，且在四个"有意义字段",`target_failure` / `static_review` / `fix_content` / `files`,中**任意一个**有非空值，即通过。
+判据极简：反思 dict 非空，且在 `target_failure` / `static_review` / `fix_content` / `files` / `merged_findings` 中**任意一个**有非空值，即通过。
 
 ```python
-keys = ("target_failure", "static_review", "fix_content", "files")
+keys = ("target_failure", "static_review", "fix_content", "files", "merged_findings")
 return any(reflection.get(k) for k in keys)
 ```
 
-这对应 `reflect()` 在 M1a 串行模式下的两种产出形态：有历史时产 `{target_failure, round}`（读上一轮失败摘要），首轮无历史时产 `{static_review, files}`（对 target 当前源码做静态审查）。弱校验只确认"反思不是空壳"，不验证内容真伪,所以它**不是**反自欺门，只是脚手架阶段的占位。真正的证据约束在下面。
+这覆盖串行 `reflect()` 的 `target_failure`、`static_review` 产出，以及并行聚合的 `merged_findings`。弱校验只确认反思包含内容，不验证内容真伪。下面的 trace 证据检查尚未接入主循环。
 
 ### trace 证据门 `check_benchtrace`
 
@@ -73,7 +73,7 @@ return any(reflection.get(k) for k in keys)
 
 | 项 | 内容 |
 |----|------|
-| 入参 `reflection` | `dict`，单条反思。识别字段 `target_failure` / `static_review` / `fix_content` / `files` |
+| 入参 `reflection` | `dict`，单条反思。识别字段 `target_failure` / `static_review` / `fix_content` / `files` / `merged_findings` |
 | 入参 `threshold` | `float`，当前实现未使用（保留位，与下游签名对齐） |
 | 返回 | `bool`，True=有意义可放行 |
 
@@ -109,7 +109,7 @@ return any(reflection.get(k) for k in keys)
 
 闸门触发后的系统后果：反思被拒 → 该轮 `STATIC_REJECT` → 计入静态拒绝计数 → 累积可触发熔断（`static_reject_circuit`），从机制上让"持续产出无根据反思"的演化路径自我终止，而非污染下游提案与采纳。
 
-> 关于 A/B/C：它们是评测策略 / 信号 provider（怎么取信号、取什么信号），不是"目标等级"，与本门的判定无关,无论用哪种信号策略，反思都得先过 trace 证据门。权威定义见 `docs/reference/signal-providers.md`。
+> 关于 A/B/C：它们是评测策略 / 信号 provider，与本门的判定无关。当前三种策略的反思均经过弱校验 `check`；`check_benchtrace` 尚未接线。权威定义见 `docs/reference/signal-providers.md`。
 
 ## 代码锚
 

@@ -48,7 +48,7 @@ def _apply(rs: RunState, ev: dict) -> RunState:
     # through the patch gate and into evaluation has answered no, even when the evidence then
     # rejected the change. Counting only upward made its budget of 6 a ceiling on total barren
     # rounds for the LIFETIME of a run, whatever --max-rounds said.
-    if ev.get("type") in ("ACCEPT", "REJECT"):
+    if ev.get("type") in ("ACCEPT", "REJECT", "CONTINUE"):
         patch["static_reject"] = 0
     return replace(rs, **patch)
 

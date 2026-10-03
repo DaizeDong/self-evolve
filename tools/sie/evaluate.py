@@ -17,7 +17,7 @@ Public API:
       coverage_floor_violation: bool      — coverage<floor (可选 intent 门控；无 intent 时回退原始信号)
 """
 from __future__ import annotations
-from tools.sie.verifiable import grade_pytest, minimal_env
+from tools.sie.verifiable import grade_pytest, grader_timeout, minimal_env
 from . import anchors as _anchors
 
 import os
@@ -50,6 +50,7 @@ def _grade_pytest_per_task(sandbox_root: str) -> dict:
             capture_output=True,
             text=True, encoding="utf-8", errors="replace",
             env=grader_env,
+            timeout=grader_timeout(),
         )
         code = proc.returncode
         dims = _parse_per_test(proc.stdout)
@@ -239,14 +240,14 @@ def _evaluate_btier(ctx: dict) -> dict:
     _intent = ctx.get("intended_accept")  # bool | None
     coverage_floor_violation = cov_low if _intent is None else (cov_low and bool(_intent))
 
-    # ③ holdout 每 K 轮抽检: round % K == 0 → 计算 holdout_gain 喂 selfdeception
+    # Use the producer's durable schedule; legacy callers retain modulo sampling.
     K = int(ctx.get("K", 5))
     rnd = int(ctx.get("round", 0))
     if K <= 0:
         raise ValueError("K must be positive")
     holdout_gain: float | None = None
     holdout_missing = False
-    if rnd > 0 and rnd % K == 0:
+    if ctx.get("_holdout_due", rnd > 0 and rnd % K == 0):
         hb = ctx.get("holdout_base")
         hw = ctx.get("holdout_with")
         if hb is None or hw is None:

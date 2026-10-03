@@ -16,10 +16,11 @@ _PASS = 1.0  # A 档 score ∈ {0,1}; >= _PASS 视为 pass
 # ---------------------------------------------------------------------------
 
 def _ons_betting_wealth(diffs: list[float], alpha: float) -> tuple[float, list[float]]:
-    """自洽 ONS-betting 鞅 (anytime-valid).
+    """One-sided ONS betting for improvement (anytime-valid under the null).
 
-    将每对差 d 映射到 u = 0.5*(d+1) ∈ [0,1], null m=0.5.
-    wealth = ∏ (1 + λ_t * (u_t - 0.5)), λ_t 由 ONS 步长自适应.
+    Map bounded differences d to u = 0.5*(d+1), with null conditional mean <= 0.5.
+    Predictable nonnegative bets make wealth a nonnegative supermartingale under
+    this null. Negative bets would instead turn regressions into acceptance evidence.
 
     Returns
     -------
@@ -35,7 +36,7 @@ def _ons_betting_wealth(diffs: list[float], alpha: float) -> tuple[float, list[f
     b = 0.0   # ONS: 梯度累积
 
     # payoff ∈ [-0.5, 0.5]; 保证 factor = 1+λ·payoff > 0:
-    # λ_safe = clip(λ, -(2-δ), 2-δ), δ=1e-6 → factor ≥ δ/2 = 5e-7 > 0 恒成立.
+    # λ_safe = clip(λ, 0, 2-δ), δ=1e-6 → factor ≥ δ/2 = 5e-7 > 0 恒成立.
     # 不截断 factor 本身 (截断 factor 会破坏鞅恒等式并使梯度爆炸).
     _LAM_MAX = 2.0 - 1e-6
 
@@ -43,7 +44,7 @@ def _ons_betting_wealth(diffs: list[float], alpha: float) -> tuple[float, list[f
         u = 0.5 * (d + 1.0)
         payoff = u - 0.5
         # 收紧 λ-clip 保证 factor > 0，去掉 factor 截断
-        lam_safe = max(-_LAM_MAX, min(_LAM_MAX, lam))
+        lam_safe = max(0.0, min(_LAM_MAX, lam))
         factor = 1.0 + lam_safe * payoff  # 恒 > 0 by λ-clip 设计
         wealth *= factor
         path.append(wealth)
@@ -51,9 +52,9 @@ def _ons_betting_wealth(diffs: list[float], alpha: float) -> tuple[float, list[f
         g = payoff / factor
         A += g * g
         b += g
-        # ONS 更新: λ_{t+1} = clip(b / (A+1), -(2-δ), 2-δ)
+        # ONS 更新: λ_{t+1} = clip(b / (A+1), 0, 2-δ)
         # 除数 +1 为正则项 (A=0 时避免初始大步)
-        lam = max(-_LAM_MAX, min(_LAM_MAX, b / (A + 1.0)))
+        lam = max(0.0, min(_LAM_MAX, b / (A + 1.0)))
 
     evalue = max(path) if path else 1.0
     return evalue, path
@@ -64,7 +65,7 @@ def _ons_betting_wealth(diffs: list[float], alpha: float) -> tuple[float, list[f
 # ---------------------------------------------------------------------------
 
 def _wealth_betting(diffs: list[float], alpha: float) -> tuple[float, list[float]]:
-    """betting martingale e-process: confseq 优先, 缺失时回退 ONS-betting.
+    """One-sided improvement betting: prefer confseq, with an ONS fallback.
 
     Returns (evalue, path). evalue = max(path) (路径最大值).
     """
@@ -72,7 +73,8 @@ def _wealth_betting(diffs: list[float], alpha: float) -> tuple[float, list[float
         import numpy as np
         from confseq.betting import betting_mart  # type: ignore
         u = np.array([0.5 * (d + 1.0) for d in diffs], dtype=float)
-        mart = betting_mart(u, m=0.5, alpha=alpha)
+        # theta=1 selects positive capital only; the default also rewards regressions.
+        mart = betting_mart(u, m=0.5, alpha=alpha, theta=1.0)
         path = [float(v) for v in np.asarray(mart).ravel()]
         evalue = max(path) if path else 1.0
         return evalue, path
@@ -223,8 +225,8 @@ def decide(paired: list[tuple[float, float]], tier: str,
                     "force_review": False, "degrade_reason": None, **base}
 
         # e-process: per-anchor 边际增益配对 (客观增益, 不走 _scale_subjective)
-        # diffs = (after_gain - before_gain) per anchor; H₀: diff=0 (无改进)
-        # ONS betting 鞅: u=0.5*(d+1) ∈ [0,1], null m=0.5, 即 d=0 为零假设中心
+        # diffs = (after_gain - before_gain) per anchor; H₀: conditional mean diff <= 0.
+        # Nonnegative bets accumulate evidence only in the improvement direction.
         # 可选: 若 params 提供 cluster_ids, 先去相关降权
         cluster_ids = params.get("cluster_ids")
         b_diffs = diffs  # per-anchor (after_gain - before_gain)

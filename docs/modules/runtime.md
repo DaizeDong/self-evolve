@@ -45,6 +45,22 @@ parent only for their values. Missing candidate facts score zero. Sampled holdou
 pinned content, disjoint identities and independently observed correctness on both sides. Accepted snapshots and version IDs
 are retained when a run resumes.
 
+Holdout sampling advances only after a measured round records a durable ACCEPT, REJECT,
+CONTINUE or evaluated human-review decision. A measurement marker alone remains pending:
+interruption before evaluation, decision calculation or decision writing keeps the holdout
+due on resume, even off the original modulo cadence. An unrelated later round cannot
+consume that pending marker. Older human-review events without an explicit evaluated flag
+conservatively leave the holdout due. Reaching an ACCEPT, REJECT, CONTINUE or post-evaluation
+human-review outcome clears the consecutive static-rejection count. Pausing for
+unavailable baseline or C-tier evidence does not clear that count.
+
+Candidate pytest grading has a finite positive timeout, defaulting to 600 seconds and
+configurable through `SIE_GRADER_TIMEOUT`. Invalid limits raise an error. Both raw graders
+propagate timeouts so mutation testing cannot count them as killed mutants. The normal
+and frozen candidate loops reject timed-out grades, record the reason and restore the
+selected parent. The timeout terminates and waits for the direct pytest child; it does
+not establish containment of arbitrary descendant processes.
+
 Use `python <absolute-skill-path>/tools/sie_cli.py doctor --target <target>` from
 any cwd. Doctor lists evidence providers, patchable scope, required inputs, model
 policy and scenario-evaluation status without model calls or runtime writes.
@@ -61,6 +77,8 @@ Current execution accepts individual A, B or C signal paths. Profiling may detec
 but run_loop refuses that composite before proposing or patching until both components
 can be enforced. Selfboot uses one canonical candidate tree for patching, frozen grading
 and archived snapshots. The same frozen per-task grader measures its baseline and candidate.
+Reopening a frozen run reuses existing read-only files only when their exact bytes match
+the committed base. A mismatch is refused without overwriting the existing file.
 
 Archive schema 1 stores finite Pareto coordinates in scores and preserves per-task records
 separately in task_dimensions. Legacy records are normalized and validated on read.
@@ -72,8 +90,8 @@ The AST gate recognizes simple imported and assigned aliases, keyword open paths
 basic pathlib expressions. It rejects outside or unprovable paths for recognized filesystem
 operations. Arbitrary Python indirection, runtime capabilities, filesystem races and ambient
 permissions still require an operating-system boundary; passing a static scan proves none
-of those properties. Relative literal paths use the target file directory, or sandbox root
-when no target is supplied, so execution must respect that resolution assumption.
+of those properties. Relative literal paths resolve against the sandbox cwd, including
+when the file being patched is in a subdirectory. Execution must use the same cwd.
 
 ## PRIVATE destination proof
 
@@ -86,4 +104,3 @@ Use canonical GitHub HTTPS or SSH remotes with fresh PRIVATE receipts. The share
 ambiguous aliases and unproved transport overrides. The legacy URL parser remains available
 for compatibility, but parsing an alias alone does not authorize a runtime destination.
 Missing guards files or proof APIs require updating the submodule, not bypassing validation.
-
