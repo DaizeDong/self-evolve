@@ -11,6 +11,7 @@ description: "Improve an existing skill or repository through isolated proposals
 ## 开始前
 
 1. 确认目标仓库、基线 revision、允许修改的范围和期望改善的行为。
+   记录文档影响；无需修改的文档也说明原因。设计理由见 [PHILOSOPHY.md](PHILOSOPHY.md)。
 2. 确定评测信号：A 为测试结果，B 为独立事实核验，C 为已提供的主观证据。
    主循环尚无 C 回归与一致性测量生产者，也不执行 A+B 组合。
 3. 按 [DATA.md](DATA.md) 配置 PRIVATE 伴生仓，保留真实运行证据。
@@ -21,7 +22,7 @@ description: "Improve an existing skill or repository through isolated proposals
 
 | 步骤 | 要做的事 |
 | --- | --- |
-| PROFILE | 检查证据来源并冻结目标契约；续跑沿用原契约 |
+| PROFILE | 实现前冻结评测策略、目标契约与留出集；续跑沿用原契约 |
 | REFLECT | 从已有记录形成诊断，核对引用；结构检查不等于事实核验 |
 | PROPOSE | 提出允许范围内的修改，保留实际 provider 和失败原因 |
 | PATCH | 在候选工作树应用提案，执行路径、AST 与 IMMUTABLE 检查 |
@@ -52,6 +53,8 @@ python <skill-path>/tools/sie_cli.py status --target <target> --run-id <id>
 - 缺少基线、回归记录、核验结果或独立 provider 时，明确报告缺口。
 - 没有回归或测试全绿不单独构成改进；按 [evaluation](reference/evaluation.md) 解释证据。
 - 人审队列记录待审动作；发布、合并和对外发送仍按已有授权单独执行。
+- 评审前完成实现、文档和已获授权的版本更新，再冻结准确的候选快照。
+  这不改变实现前的评测冻结；评审后改动须重新检查受影响部分。流程见 [maintenance](reference/maintenance.md)。
 - 交付候选差异、源码版本、实际测量、采纳原因、未覆盖范围和运行状态。
   统计解释须满足 [acceptor_math](reference/acceptor_math.md) 的假设。
 
