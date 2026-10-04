@@ -9,15 +9,37 @@ Improve a skill or repository through proposed changes, evaluation in a Git work
 
 [English](README.md) | [中文版](README_CN.md)
 
-## ⭐ Read this first
+## ⭐ Design Philosophy
 
-Define how improvement will be measured before proposing a change. Models produce
-suggestions; deterministic code checks the evidence and decides acceptance. Missing
-measurements remain unavailable. Passing a gate establishes only what it measured.
+A self-improvement loop can raise its score by changing the task, dropping hard
+cases, or grading its own output. Open-ended work makes that especially difficult
+to detect because there may be no single ground truth. self-evolve therefore
+starts with an observable improvement contract and keeps the comparison stable.
 
-The loop is `profile → reflect → propose → patch → evaluate → accept or review`.
-Accepted candidates are archived for review. Publishing, merging, and sending are
-separate actions governed by the caller's authorization.
+- **Keep one method, adapt the evidence.** The loop is
+  `profile → reflect → propose → patch → evaluate → accept or review`.
+  A uses executed tests, B uses independently verified facts, and C needs supplied
+  measurements. Missing measurements remain unavailable; changing a label cannot
+  create evidence.
+- **Freeze the rules before changing the candidate.** Keep the evaluation policy,
+  obligations, and holdout fixed, and compare the parent and candidate by the same
+  identities. This limits task removal and grader changes as routes to a higher
+  score, at the cost of starting a new evaluation contract when the goal changes.
+- **Let models propose and code decide.** Deterministic gates handle evidence and
+  acceptance. Retain actual provider metadata when judging independence; different
+  requested aliases cannot establish it. A gate still depends on the quality of
+  its inputs and the assumptions behind its statistics.
+- **Retain reasons and recoverable candidates.** Failures, rejection, and review
+  are useful outcomes. Preserve measured populations and exact candidate bytes,
+  with the final documentation and source revision ready before review. This costs
+  storage and review effort but makes a decision auditable and a rollback possible.
+- **Separate tool, data, and landing authority.** Real evidence stays in a verified
+  PRIVATE Git companion. Worktrees isolate edits, but do not prove operating-system
+  isolation. Accepted candidates are archived; publishing, merging, and sending
+  follow the caller's authorization as separate actions.
+
+The [full rationale and tradeoffs](PHILOSOPHY.md) explain these choices.
+[Current limits](#current-limits) define what the shipped loop can execute.
 
 ## Install
 
@@ -77,8 +99,12 @@ and selfboot. [Evaluation](reference/evaluation.md) defines accepted evidence.
 
 ## Documentation
 
-[Agent workflow](SKILL.md) · [Runtime](reference/runtime.md) ·
+[Philosophy](PHILOSOPHY.md) · [Agent workflow](SKILL.md) · [Runtime](reference/runtime.md) ·
 [Evaluation](reference/evaluation.md) · [Data](DATA.md) · [Roadmap](ROADMAP.md)
+
+For changes to the tool or a target, record the affected documentation, finish it
+before reviewing the candidate, and hand off the exact reviewed revision and
+checks. See [documentation lifecycle](reference/maintenance.md).
 
 ## License
 
