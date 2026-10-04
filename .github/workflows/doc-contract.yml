@@ -1,0 +1,24 @@
+name: doc-contract
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - uses: ./style/ci/doc-contract
+        with:
+          profile: skill
+          stage: accepted
