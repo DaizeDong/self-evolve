@@ -10,6 +10,9 @@ from contextvars import ContextVar
 from . import runtime_data
 
 EXCLUDED = frozenset({'.git', '__pycache__', '.sie'})
+CACHE_DIRECTORIES = frozenset({
+    '.pytest_cache', '.mypy_cache', '.ruff_cache', '.tox', '.nox', '.venv', 'node_modules',
+})
 _SELECTED_SNAPSHOT = ContextVar('self_evolve_selected_snapshot', default=None)
 
 
@@ -27,6 +30,37 @@ def selected_snapshot(path):
 def _linked(info):
     return stat.S_ISLNK(info.st_mode) or bool(
         getattr(info, 'st_file_attributes', 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT)
+
+
+def _cache_only_directory(path):
+    """Recognize ordinary cache ancestors without treating empty dirs as caches."""
+    info = path.lstat()
+    if _linked(info) or not stat.S_ISDIR(info.st_mode):
+        return False
+    children = list(path.iterdir())
+    if not children:
+        return False
+    for child in children:
+        info = child.lstat()
+        if _linked(info) or not stat.S_ISDIR(info.st_mode):
+            return False
+        if child.name in CACHE_DIRECTORIES or child.name == '__pycache__':
+            continue
+        if child.name in EXCLUDED or not _cache_only_directory(child):
+            return False
+    return True
+
+
+def _excluded(path):
+    if path.name in EXCLUDED:
+        return True
+    if path.name not in CACHE_DIRECTORIES:
+        return False
+    info = path.lstat()
+    # Do not hide a link or a legitimate regular file behind a cache-like name.
+    if _linked(info) or not stat.S_ISDIR(info.st_mode):
+        return False
+    return True
 
 
 def _entry(path, root, *, missing_ok=False):
@@ -58,7 +92,7 @@ def manifest(root):
     def visit(directory):
         _entry(directory, root)
         for path in directory.iterdir():
-            if path.name in EXCLUDED:
+            if _excluded(path):
                 continue
             info = _entry(path, root)
             name = path.relative_to(root).as_posix()
@@ -75,6 +109,23 @@ def manifest(root):
                 raise OSError(f'Unsupported or hardlinked business file: {path}')
     visit(root)
     return entries
+
+
+def _manifest_matches(expected, actual, destination):
+    if any(actual.get(name) != entry for name, entry in expected.items()):
+        return False
+    root = Path(destination).resolve(strict=True)
+    return all(actual[name] == ('directory',) and _cache_only_directory(root / name)
+               for name in sorted(actual.keys() - expected.keys()))
+
+
+def matches(snapshot, destination):
+    """Require the snapshot's entries, allowing only extra cache-only directories.
+
+    This comparison is directional: required empty business directories cannot
+    disappear, while an unrelated ancestor of retained caches may remain.
+    """
+    return _manifest_matches(manifest(snapshot), manifest(destination), destination)
 
 
 def _private_tree(root):
@@ -98,7 +149,9 @@ def snapshot(source, destination):
     expected = manifest(source)
     if destination.exists():
         shutil.rmtree(destination)
-    shutil.copytree(source, destination, symlinks=True, ignore=shutil.ignore_patterns(*EXCLUDED))
+    def ignored(directory, names):
+        return [name for name in names if _excluded(Path(directory) / name)]
+    shutil.copytree(source, destination, symlinks=True, ignore=ignored)
     if manifest(destination) != expected:
         raise OSError('Snapshot does not match the business tree')
 
@@ -126,7 +179,7 @@ def restore(source, destination):
             path.unlink()
             return
         for child in path.iterdir():
-            if child.name not in EXCLUDED:
+            if not _excluded(child):
                 remove(child)
         _entry(path, destination)
         if not any(path.iterdir()):
@@ -141,9 +194,9 @@ def restore(source, destination):
         destination_info = _entry(dst, destination)
         if _linked(destination_info) or not stat.S_ISDIR(destination_info.st_mode):
             raise OSError(f'Business destination directory changed: {dst}')
-        wanted = {p.name: p for p in src.iterdir() if p.name not in EXCLUDED}
+        wanted = {p.name: p for p in src.iterdir() if not _excluded(p)}
         for path in dst.iterdir():
-            if path.name not in EXCLUDED and path.name not in wanted:
+            if not _excluded(path) and path.name not in wanted:
                 remove(path)
         for name, path in wanted.items():
             info = _entry(path, source)
@@ -170,5 +223,6 @@ def restore(source, destination):
                 raise OSError(f'Unsupported or hardlinked business file: {path}')
 
     mirror(source, destination)
-    if manifest(destination) != expected or manifest(source) != expected:
+    if (not _manifest_matches(expected, manifest(destination), destination)
+            or manifest(source) != expected):
         raise OSError('Restored business tree does not match the selected snapshot')

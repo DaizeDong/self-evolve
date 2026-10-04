@@ -16,7 +16,13 @@ six rounds running and in two languages. These tests pin what they asked for.
 from __future__ import annotations
 
 import inspect
+import json
+from pathlib import Path
 
+import pytest
+
+from tools.make_fixtures import caller_contract_samples
+from tools.sie import agents, events, statemachine
 from tools.sie.statemachine import _round_record, run_loop
 
 
@@ -38,26 +44,40 @@ def test_a_barren_round_leaves_a_record_instead_of_a_hole():
     assert rec["phase"] == "PROPOSE", "a barren round must say WHERE it died, or it reads as data loss"
 
 
-def test_every_static_reject_site_appends_to_history():
-    """The hole came from four sites, and fixing three of them would leave the same symptom.
-
-    Reads the source because the alternative is driving a live loop, and because the failure mode is
-    precisely "one site was missed".
-    """
-    src = inspect.getsource(run_loop)
-    lines = src.split("\n")
-    reject_lines = [i for i, l in enumerate(lines) if '"type": "STATIC_REJECT"' in l]
-    assert len(reject_lines) >= 4, "expected the four static-reject sites; found %d" % len(reject_lines)
-
-    # Each site is checked INDIVIDUALLY, within its own few lines. Counting records against rejects
-    # across the whole function does not work: the accept branches also append, so deleting one
-    # reject's record still satisfies a total-count comparison. Poisoning proved exactly that, and a
-    # check that survives the poison is not checking the thing it was written for.
-    for i in reject_lines:
-        window = "\n".join(lines[i:i + 12])
-        assert "history.append(_round_record(rnd," in window, (
-            "the static-reject site at run_loop line %d does not append to history, so a round "
-            "dying there leaves a hole the reflectors read as data loss:\n%s" % (i, window))
+@pytest.mark.parametrize("phase", ["REFLECT", "PROPOSE", "REVIEW", "PATCH"])
+def test_every_static_reject_site_appends_to_history(tmp_path, monkeypatch, phase):
+    """Every refusal stage preserves both rounds in durable reflection history."""
+    sample = caller_contract_samples()
+    (tmp_path / sample["code_path"]).write_text(sample["code"], encoding="utf-8")
+    proposal = {"file_rel": sample["code_path"], "new_content": sample["code"]}
+    monkeypatch.setattr(statemachine, "make_worktree", lambda *args: str(tmp_path))
+    monkeypatch.setattr(statemachine, "run_profile", lambda *args: {"tier": "A"})
+    monkeypatch.setattr(statemachine, "freeze_target", lambda *args: None)
+    monkeypatch.setattr(statemachine, "select_parent", lambda *args: "base")
+    monkeypatch.setattr(statemachine, "reflect", lambda *args, **kwargs: [{}])
+    monkeypatch.setattr(statemachine, "check", lambda *args: phase != "REFLECT")
+    monkeypatch.setattr(statemachine, "propose", lambda *args, **kwargs:
+                        [] if phase == "PROPOSE" else [proposal])
+    monkeypatch.setattr(statemachine, "apply_patch", lambda *args, **kwargs:
+                        {"status": "REJECTED", "reason": "Synthetic patch refusal"})
+    monkeypatch.setattr(agents, "cross_check_verdicts", lambda *args, **kwargs:
+                        {"status": "independent", "agree": True,
+                         "verdicts": {"claude": "reject", "codex": "reject"}})
+    result = run_loop(str(tmp_path), "HEAD", "synthetic-history", max_rounds=2,
+                      proposer="llm" if phase == "REVIEW" else "builtin")
+    log = Path(result["run_dir"]) / "events.jsonl"
+    records = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    refusals = [index for index, event in enumerate(records) if event["type"] == "STATIC_REJECT"]
+    assert len(refusals) == 2
+    for rnd, index in enumerate(refusals, 1):
+        assert records[index]["phase"] == phase
+        history = records[index + 1]
+        assert history["type"] == "ROUND_HISTORY"
+        assert history["record"]["round"] == rnd
+        assert history["record"]["phase"] == phase
+        assert history["record"]["passed"] is False
+    state = events.replay(result["run_dir"])
+    assert state.static_reject == 2 and state.no_progress == 0
 
 
 def test_no_accept_branch_writes_a_bare_constant_any_more():

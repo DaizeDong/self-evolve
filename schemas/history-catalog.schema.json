@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Self-evolve retained historical events",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "record_kind", "status", "source_repository", "source_commit", "source_file_count", "source_bytes", "retired_file_count", "retained_event_count", "retained_event_bytes", "capabilities", "contract_gaps", "retained_reason", "runs", "recovery"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_kind": {"const": "legacy_history_catalog"},
+    "status": {"const": "historical_only"},
+    "source_repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+    "source_commit": {"type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"},
+    "source_file_count": {"$ref": "#/$defs/count"},
+    "source_bytes": {"$ref": "#/$defs/count"},
+    "retired_file_count": {"$ref": "#/$defs/count"},
+    "retained_event_count": {"$ref": "#/$defs/count"},
+    "retained_event_bytes": {"$ref": "#/$defs/count"},
+    "capabilities": {
+      "type": "object", "additionalProperties": false,
+      "required": ["state_replay_input_retained", "resume", "rollback", "recovery_verified"],
+      "properties": {
+        "state_replay_input_retained": {"const": true},
+        "resume": {"const": false},
+        "rollback": {"const": false},
+        "recovery_verified": {"const": false}
+      }
+    },
+    "contract_gaps": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "retained_reason": {"type": "string", "minLength": 1},
+    "runs": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["run_id", "events", "original_events", "events_count", "event_bytes", "events_sha256"],
+        "properties": {
+          "run_id": {"type": "string", "minLength": 1},
+          "events": {"$ref": "#/$defs/relative_path"},
+          "original_events": {"$ref": "#/$defs/relative_path"},
+          "events_count": {"$ref": "#/$defs/count"},
+          "event_bytes": {"$ref": "#/$defs/count"},
+          "events_sha256": {"$ref": "#/$defs/sha256"}
+        }
+      }
+    },
+    "state_reduction_check": {
+      "description": "Optional evidence of current reducer execution, not historical state equivalence or recovery readiness.",
+      "type": "object", "additionalProperties": false,
+      "required": ["checked_at", "reducer", "source_sha256", "strict_json_object_lines", "runs_completed", "event_bytes_unchanged", "original_state_compared"],
+      "properties": {
+        "checked_at": {"type": "string", "format": "date-time"},
+        "reducer": {"const": "tools.sie.events.replay"},
+        "source_sha256": {
+          "type": "object", "additionalProperties": false,
+          "required": ["events", "state"],
+          "properties": {
+            "events": {"$ref": "#/$defs/sha256"},
+            "state": {"$ref": "#/$defs/sha256"}
+          }
+        },
+        "strict_json_object_lines": {"const": true},
+        "runs_completed": {"type": "integer", "minimum": 1},
+        "event_bytes_unchanged": {"const": true},
+        "original_state_compared": {"const": false}
+      }
+    },
+    "recovery": {"type": "string", "minLength": 1}
+  },
+  "$defs": {
+    "count": {"type": "integer", "minimum": 0},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "relative_path": {
+      "type": "string", "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^\\\\:\\u0000-\\u001f]+$"
+    }
+  }
+}

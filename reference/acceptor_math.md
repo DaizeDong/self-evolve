@@ -59,22 +59,29 @@ Before the e-process is evaluated, a **hard gate** checks for regressions:
 regression := (before ≥ 1.0) AND (after < 1.0)  [pass → fail]
 ```
 
-If ANY task shows a regression, the decision is immediately **REJECT** regardless of the e-process result. This ensures backward compatibility: a change that breaks passing tests is never accepted.
+If any paired task shows a regression, the decision is immediately **REJECT** regardless of the e-process result. This protects the measured passing tasks; it does not establish compatibility outside that tested population.
 
 **Order of precedence:**
+
 1. Check no-regression hard gate → if any regression, REJECT
 2. Run e-process → ACCEPT if e-value ≥ 1/α, else REJECT
 
+If every paired difference is zero, the returned REJECT also carries
+`force_review=True` and `degrade_reason="unobservable-by-tier-A"`. The loop
+routes this to human review because the test signal did not observe the change.
+
 ## 5. A-Tier Binary Decision (No CONTINUE)
 
-A-tier uses discrete 0/1 scores, making the test result unambiguous. There is no intermediate evidence state, so **CONTINUE is prohibited**, every A-tier call returns exactly ACCEPT or REJECT.
+A-tier does not use CONTINUE to accumulate observations. Its decision label is
+ACCEPT or REJECT, with a separate review flag for unobservable changes. The loop
+also handles unavailable baselines before this statistical decision.
 
 ## 6. Per-Tier Pairing Table
 
 | Tier | Unit of pairing | Score type | Null m | Scaling |
 |------|----------------|------------|--------|---------|
 | A | per-task `task_passed` ∈ {0, 1} | Binary | 0.5 | none (discrete) |
-| B | per-anchor marginal gain | Continuous [0,1] | 0.5 | none; de-correlation downweight + clip to [-1,1] + e-value total clamp |
+| B | correctness of each frozen fact | Continuous [0,1] | 0.5 | none; de-correlation downweight + clip to [-1,1] + e-value total clamp |
 | C | aggregate subjective rating | Continuous [0,1] | 0.5 | variance-scaled + cap, then `c_tier_weight` |
 
 ## 7. C Tier: Variance Scaling and Cap

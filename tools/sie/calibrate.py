@@ -378,7 +378,7 @@ def scoring_root(root: str, run_id: str) -> str:
         accepted = archive_dir / "versions" / vid / "snapshot"
         if not accepted.is_dir():
             raise CalibrationError("the latest accepted snapshot is missing; grading is refused")
-        if business_tree.manifest(w) != business_tree.manifest(accepted):
+        if not business_tree.matches(accepted, w):
             raise CalibrationError(
                 "the sandbox differs from the latest accepted snapshot; pending or refused edits "
                 "cannot be credited as accepted repairs")

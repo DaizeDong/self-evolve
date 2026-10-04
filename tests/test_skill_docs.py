@@ -1,9 +1,9 @@
-"""test_skill_docs.py — doc consistency gate for M1a skill layer.
+"""Check the skill entry, command adapters, and evaluation contract.
 
 Verifies:
   1. SKILL.md exists and contains the four gate-law keywords.
   2. commands/ three files each reference 'sie' and the expected CLI subcommand.
-  3. reference/target_contract.md contains all five A-grade contract fields.
+  3. reference/evaluation.md contains all five A-grade contract fields.
 """
 import os
 import re
@@ -34,7 +34,7 @@ def test_commands_reference_cli():
 
 
 def test_contract_doc_has_grade_fields():
-    t = _read("reference/target_contract.md")
+    t = _read("reference/evaluation.md")
     for f in (
         "task_passed",
         "grader_exit_code",
@@ -42,4 +42,4 @@ def test_contract_doc_has_grade_fields():
         "anchors",
         "verifiable_coverage",
     ):
-        assert f in t, f"reference/target_contract.md missing field: {f!r}"
+        assert f in t, f"reference/evaluation.md missing field: {f!r}"

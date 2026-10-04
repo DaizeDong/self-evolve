@@ -206,7 +206,9 @@ def environment(case):
                           {"_score_record", "_version_record", "_load_versions", "lineage"}, ("LINEAGE",))
     business = definitions("tools/sie/business_tree.py",
                            {"Path": fs.path, "hashlib": hashlib, "stat": stat, "os": fs.os()},
-                           {"_linked", "_entry", "manifest"}, ("EXCLUDED",))
+                           {"_linked", "_entry", "_excluded", "_cache_only_directory",
+                            "manifest", "_manifest_matches", "matches"},
+                           ("EXCLUDED", "CACHE_DIRECTORIES"))
     modules = {"tools.sie.runtime_data": runtime,
                "tools.sie": SimpleNamespace(archive=SimpleNamespace(**archive),
                                             business_tree=SimpleNamespace(**business))}
@@ -287,6 +289,21 @@ def check_scoring(name, allowed):
     assert cal["check_sandbox_baseline"](result, defects) == 1
     assert git_calls == [case["sandbox"]], "baseline checked a snapshot without Git metadata"
     return {"refused": False, "baseline_checked": True}
+
+
+def test_scoring_preserves_required_empty_dirs_and_ignores_only_cache_ancestors():
+    case, fs, cal = scoring_case('latest-match')
+    snapshot = case['run'] + '/archive/versions/v2/snapshot'
+    required = case['extra_directory']
+    fs.mkdir(snapshot + '/' + required)
+    with unittest.TestCase().assertRaises(cal['CalibrationError']):
+        cal['scoring_root'](case['target'], case['run_id'])
+    fs.put(case['sandbox'] + '/' + required + '/node_modules/cache.bin', case['extra_text'])
+    fs.put(case['sandbox'] + '/extra-cache-parent/.pytest_cache/cache.bin', case['extra_text'])
+    assert cal['scoring_root'](case['target'], case['run_id']) == case['sandbox']
+    fs.put(case['sandbox'] + '/extra-cache-parent/business.py', case['extra_text'])
+    with unittest.TestCase().assertRaises(cal['CalibrationError']):
+        cal['scoring_root'](case['target'], case['run_id'])
 
 
 def check_counter(fragment):

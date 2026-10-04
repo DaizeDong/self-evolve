@@ -11,9 +11,8 @@ proposals across 11 rounds and left 330 changed lines across five files in its s
 calibration harness, which grades the sandbox, scored those refused edits as 6 of 21 defects
 repaired, a number produced entirely by changes the loop had rejected.
 
-The spec is silent (docs/pipeline.md 态9 says only "拒绝本轮, no_progress++" and nothing about the
-tree), so discarding is a judgement call: A-tier is two-state with CONTINUE forbidden, which makes
-REJECT terminal, and select_parent already points the next round at the lineage tail.
+The recovery contract in reference/runtime.md requires restoring the selected parent after
+rejection. A-tier has no CONTINUE state, and the next round must not inherit refused edits.
 """
 from __future__ import annotations
 

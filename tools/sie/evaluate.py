@@ -17,100 +17,19 @@ Public API:
       coverage_floor_violation: bool      — coverage<floor (可选 intent 门控；无 intent 时回退原始信号)
 """
 from __future__ import annotations
-from tools.sie.verifiable import grade_pytest, grader_timeout, minimal_env
+from tools.sie.verifiable import grade_pytest
 from . import anchors as _anchors
 
-import os
 import math
-import subprocess
-import sys
-from tools.sie.sandbox import native_cwd
 
 
 def _grade_pytest_per_task(sandbox_root: str) -> dict:
-    """Run pytest with per-test result capture.
-
-    Returns dict with keys:
-      "task_passed": bool (all passed)
-      "grader_exit_code": int
-      "dimensions": list[dict] — one entry per test item (name, tier, score, weight)
-      "anchors": []
-      "verifiable_coverage": float
-    """
-    from tools.sie.verifiable import _grader_env
-
-    env, site_dir, jail_dir = _grader_env(sandbox_root)
-    grader_env = env.copy()
-    grader_env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
-
-    try:
-        proc = subprocess.run(
-            [sys.executable, "-m", "pytest", "-v", "--tb=no", "--no-header"],
-            cwd=native_cwd(sandbox_root),
-            capture_output=True,
-            text=True, encoding="utf-8", errors="replace",
-            env=grader_env,
-            timeout=grader_timeout(),
-        )
-        code = proc.returncode
-        dims = _parse_per_test(proc.stdout)
-        if dims:
-            # task_passed uses exit_code (consistent with profiler's baseline check).
-            # Per-test score can be 0.0 for XFAIL even when exit_code==0 (expected fails).
-            return {
-                "task_passed": code == 0,
-                "grader_exit_code": code,
-                "dimensions": dims,
-                "anchors": [],
-                "verifiable_coverage": 1.0,
-            }
-        # Fallback: aggregate score
-        score = 1.0 if code == 0 else 0.0
-        return {
-            "task_passed": code == 0,
-            "grader_exit_code": code,
-            "dimensions": [{"name": "pytest", "tier": "A", "score": score, "weight": 1.0}],
-            "anchors": [],
-            "verifiable_coverage": 1.0,
-        }
-    finally:
-        import shutil
-        for tmpdir in [site_dir, jail_dir]:
-            try:
-                shutil.rmtree(tmpdir, ignore_errors=True)
-            except Exception:
-                pass
-
-
-def _parse_per_test(stdout: str) -> list[dict]:
-    """Parse `pytest -v --tb=no` output to get per-test pass/fail scores.
-
-    Handles:
-      PASSED  → score 1.0 (test assertion passed)
-      FAILED  → score 0.0 (test assertion failed)
-      ERROR   → score 0.0 (collection/fixture error)
-      XFAIL   → score 0.0 (expected-fail, test is not yet passing)
-      XPASS   → score 1.0 (unexpected-pass: fix made a xfail test pass!)
-
-    Returns list of {"name": str, "tier": "A", "score": float, "weight": float}.
-    Returns [] if no parseable per-test lines found.
-    """
-    import re
-    dims = []
-    # Match lines like: "path/test.py::test_name PASSED [ 33%]"
-    # Also: "test.py::test_name XFAIL (reason) [60%]"
-    pattern = re.compile(
-        r"^(.+?)\s+(PASSED|FAILED|ERROR|XFAIL|XPASS)\b"
-    )
-    for line in stdout.splitlines():
-        m = pattern.match(line.strip())
-        if m:
-            name = m.group(1).strip()
-            status = m.group(2)
-            # XPASS = unexpected pass (fix worked!) = 1.0; XFAIL = still failing = 0.0
-            score = 1.0 if status in ("PASSED", "XPASS") else 0.0
-            dims.append({"name": name, "tier": "A", "score": score, "weight": 1.0})
-    return dims
+    """Project the shared grader's per-test scores, retaining its aggregate fallback."""
+    result = dict(grade_pytest(sandbox_root))
+    task_dimensions = result.pop("task_dimensions", [])
+    if task_dimensions:
+        result["dimensions"] = task_dimensions
+    return result
 
 
 def _verify_visible(anchors: list[dict], ctx: dict) -> list[dict]:

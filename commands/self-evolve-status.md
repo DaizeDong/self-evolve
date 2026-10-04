@@ -1,50 +1,19 @@
 # /self-evolve-status
 
-查看某 run 的当前态、archive Pareto 前沿、三计数器、待审队列。
+查看现有运行的状态。除 run ID 外，还需同一目标路径；没有上下文时先取得目标。
 
-## 用法
-
-```
-/self-evolve-status <run_id>
+```text
+/self-evolve-status <run_id> --target <target>
 ```
 
-`<run_id>` 为 `sie init` 返回的 run 标识符（12 位 hex）。需同时提供 `--target`。
-
-## 底层命令
-
-```
-python <skill绝对路径>/tools/sie_cli.py status --target <target> --run-id <run_id>
+```bash
+python <skill-path>/tools/sie_cli.py status --target <target> --run-id <run_id>
 ```
 
-## 输出格式（JSON）
+run ID 使用 init 返回值，或初始化时指定的单个非空路径段。
+JSON 包含 phase、round、tier、三个计数器、archive Pareto 前沿和待审动作。
+读取 state 快照不等于重新评测候选。
 
-```json
-{
-  "phase": "REFLECT",
-  "round": 2,
-  "tier": "A",
-  "no_progress": 0,
-  "static_reject": 1,
-  "forced_review": 0,
-  "pareto": [
-    {"vid": "v1", "scores": [{"name": "pytest", "score": 1.0}], "parent": "base"}
-  ],
-  "pending": []
-}
-```
-
-| 字段 | 说明 |
-|------|------|
-| `phase` | 当前所在态（INIT/PROFILE/REFLECT/PROPOSE/PATCH/EVALUATE/ACCEPT/ARCHIVE） |
-| `round` | 当前轮次 |
-| `tier` | 目标档位（A=有效 pytest；C=无法验证） |
-| `no_progress` | 连续无改进轮次计数；`≥ 3` 起 `release_valve` 升人审频率，`≥ 8` 触发 `no_progress_circuit` 停机 |
-| `static_reject` | 连续静态拒绝计数（无有效反思/提案/patch）；ACCEPT、REJECT、CONTINUE 及评测后的人审裁决清零；基线或 C 档证据不可用导致的暂停不清零 |
-| `forced_review` | 强制人审累计；`≥ 5` 触发 `forced_review_circuit` 停机 |
-| `pareto` | archive Pareto 前沿（已采纳版本及分值） |
-| `pending` | 待人审动作队列（出沙箱动作），来自 `gate_human.pending(run_dir)`；只列 status 仍为 `pending` 且未超 ttl（默认 86400 秒）的记录 |
-
-## 说明
-
-- 此命令只读，不修改任何状态（`sie status` 只查询 state.json + archive + gate_human）。
-- 若 run 尚不存在，返回未初始化状态并以 `0` 退出；此结果不表示已有运行记录。先用 `/self-evolve <target>` 开跑。
+没有运行记录或私有数据根不可用时，命令可返回 `status: uninitialized`
+并退出零；须查看返回原因。该命令不修改运行状态。
+恢复说明见 [runtime](../reference/runtime.md#resume-and-recovery)。
