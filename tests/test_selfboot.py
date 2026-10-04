@@ -107,11 +107,19 @@ def test_selfboot_rejects_candidate_import_path_before_supervisor(tmp_path, monk
 def test_selfboot_candidate_worktree_is_independent(tmp_path):
     """candidate worktree 路径含 self__ 前缀，与普通 run worktree 区分。"""
     repo = _init_self_repo(tmp_path)
+    heads = subprocess.run(
+        ['git', '-C', repo, 'for-each-ref', '--format=%(refname):%(objectname)', 'refs/heads'],
+        check=True, capture_output=True, text=True).stdout
     runs = str(runtime_data.private_root() / tmp_path.name / "runs")
     boot = selfboot.selfboot_init(repo, "HEAD", "run_self_3", runs)
     cw = boot["candidate_worktree"]
     # 路径包含 self__ 前缀（make_worktree 内部用 run_id="self__run_self_3"）
     assert "self__" in cw, f"candidate_worktree 应含 self__ 前缀，实际: {cw}"
+    assert subprocess.run(['git', '-C', cw, 'symbolic-ref', '-q', 'HEAD'],
+                          capture_output=True).returncode == 1
+    assert subprocess.run(
+        ['git', '-C', repo, 'for-each-ref', '--format=%(refname):%(objectname)', 'refs/heads'],
+        check=True, capture_output=True, text=True).stdout == heads
 
 
 def test_selfboot_frozen_dir_inside_runs_root(tmp_path):

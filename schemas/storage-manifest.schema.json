@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Self-evolve storage inventory",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "status", "run_id", "scope", "activity", "cleanup_allowed", "recovery_verified", "areas", "categories", "unknown_count", "issues", "issues_omitted"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "status": {"enum": ["uninitialized", "inventoried", "review_required"]},
+    "run_id": {"type": "string", "minLength": 1},
+    "scope": {"const": "run_and_candidate_worktrees"},
+    "activity": {"const": "unverified"},
+    "cleanup_allowed": {"const": false},
+    "recovery_verified": {"const": false},
+    "areas": {
+      "type": "object", "additionalProperties": false,
+      "required": ["run", "candidate", "self_candidate"],
+      "properties": {
+        "run": {"$ref": "#/$defs/area"},
+        "candidate": {"$ref": "#/$defs/area"},
+        "self_candidate": {"$ref": "#/$defs/area"}
+      }
+    },
+    "categories": {
+      "type": "object", "additionalProperties": false,
+      "required": ["CORE", "EVIDENCE", "DERIVED", "SCRATCH", "UNKNOWN"],
+      "properties": {
+        "CORE": {"$ref": "#/$defs/counts"},
+        "EVIDENCE": {"$ref": "#/$defs/counts"},
+        "DERIVED": {"$ref": "#/$defs/counts"},
+        "SCRATCH": {"$ref": "#/$defs/counts"},
+        "UNKNOWN": {"$ref": "#/$defs/counts"}
+      }
+    },
+    "unknown_count": {"type": "integer", "minimum": 0},
+    "issues_omitted": {"type": "integer", "minimum": 0},
+    "issues": {
+      "type": "array", "maxItems": 64,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["area", "path", "kind"],
+        "properties": {
+          "area": {"enum": ["run", "candidate", "self_candidate"]},
+          "path": {"type": "string", "maxLength": 512},
+          "kind": {"enum": ["link_not_followed", "unclassified_file", "unclassified_directory", "unsupported_entry", "not_a_directory"]}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "counts": {
+      "type": "object", "additionalProperties": false, "required": ["files", "bytes"],
+      "properties": {"files": {"type": "integer", "minimum": 0}, "bytes": {"type": "integer", "minimum": 0}}
+    },
+    "area": {
+      "type": "object", "additionalProperties": false, "required": ["exists", "files", "bytes", "links"],
+      "properties": {
+        "exists": {"type": "boolean"}, "files": {"type": "integer", "minimum": 0},
+        "bytes": {"type": "integer", "minimum": 0}, "links": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

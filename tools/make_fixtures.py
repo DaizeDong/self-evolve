@@ -199,6 +199,35 @@ def business_tree_samples():
                            ('file', 'file.txt')],
         'source_junction': 'borrowed',
         'hardlink_source': 'borrowed.txt',
+        'cache_directories': ['.pytest_cache', '.mypy_cache', '.ruff_cache', '.tox',
+                              '.nox', '.venv', 'node_modules'],
+        'cache_only_cases': ['__pycache__', '.pytest_cache', 'node_modules'],
+        'business_inputs': {'data/input.txt': 'Synthetic required input.\n',
+                            'build/input.txt': 'Synthetic build input.\n',
+                            'dist/input.txt': 'Synthetic distributed input.\n'},
+    }
+
+
+def storage_samples():
+    """Generate payloads whose inventory must use metadata without parsing them."""
+    return {
+        'run_id': 'synthetic-storage',
+        'run_files': {
+            'events.jsonl': b'{"type":"PROFILE","tier":"A"}\n',
+            'target.json': b'{}',
+            'state.json': b'{}',
+            'pending_actions.jsonl': b'',
+            'archive/lineage.json': b'[]',
+            'archive/versions/v1/snapshot/main.py': b'value = 1\n',
+            'base-snapshot/main.py': b'value = 0\n',
+            '_holdout/holdout.json': b'[]',
+            '_frozen/acceptor.py': b'value = 0\n',
+            'reflections.jsonl': b'Not a parseable result; metadata only.\n',
+            '.pytest_cache/cache.bin': b'generated cache',
+            'unclassified.bin': b'\xff\x00\xfe',
+        },
+        'candidate_files': {'main.py': b'value = 2\n', '.git': b'synthetic metadata'},
+        'outside_bytes': b'Synthetic outside sentinel.\n',
     }
 
 
@@ -1927,6 +1956,107 @@ def test_generated_guardrail_source_is_reproducible():
     from tools.make_fixtures import resume_guardrail_test_source
     assert resume_guardrail_test_source() == Path(__file__).read_text(encoding="utf-8")
 '''
+
+
+def stage_record_samples():
+    """Generate successful and rejected model records for storage projection tests."""
+    import copy
+    import json
+
+    content = 'SYNTHETIC_LABEL = "Café 雪 🚀"\r\n\r\n# Preserve trailing whitespace.  \t\r\n'
+    metadata = {
+        "ok": True, "provider": "codexg", "family": "codex",
+        "requested_family": "claude", "error": None,
+        "attempts": [
+            {"provider": "cc", "success": False, "error": "Synthetic retry",
+             "result": "Synthetic attempt evidence"},
+            {"provider": "codexg", "success": True},
+        ],
+        "status": "completed", "terminal": True, "group": None,
+        "groups_refused": ["synthetic-group"], "crossed": False,
+        "diagnostic": "Synthetic child diagnostic",
+        "extension": {"result": "Synthetic opaque metadata"},
+    }
+    payload = {"file_rel": "synthetic_module.py", "new_content": content}
+    backend = {**copy.deepcopy(metadata), "result": json.dumps(payload, ensure_ascii=False)}
+    proposal = {**payload, "fixes": "llm-proposer", "backend": copy.deepcopy(backend)}
+    proposal_record = {
+        "round": 1, "backend": "llm", "proposals": [proposal],
+        "backend_outcomes": [backend], "diagnostics": [],
+    }
+    findings = ["Synthetic finding: preserve exact candidate content."]
+    reflection = {**copy.deepcopy(metadata), "reflector": 0, "findings": findings,
+                  "result": json.dumps({"findings": findings})}
+    reflection_record = {
+        "round": 1, "mode": "parallel", "reflections": [{"merged_findings": findings}],
+        "backend_outcomes": [reflection],
+    }
+    rejected = {}
+    for name in ("failure", "error_with_success", "malformed", "extra_keys",
+                 "different_content", "empty_content"):
+        record = copy.deepcopy(proposal_record)
+        outcome = record["proposals"][0]["backend"]
+        if name == "failure":
+            outcome.update(ok=False, error="Synthetic backend failure")
+        elif name == "error_with_success":
+            outcome["error"] = "Synthetic contradictory failure"
+        elif name == "malformed":
+            outcome["result"] = "Synthetic malformed response"
+        elif name == "extra_keys":
+            outcome["result"] = json.dumps({**payload, "notes": "Synthetic extra evidence"})
+        elif name == "different_content":
+            outcome["result"] = json.dumps({**payload, "new_content": content + "\n"})
+        else:
+            record["proposals"][0]["new_content"] = " "
+            outcome["result"] = json.dumps({**payload, "new_content": " "})
+        record["backend_outcomes"] = [copy.deepcopy(outcome)]
+        rejected[name] = record
+    fallback = copy.deepcopy(proposal_record)
+    fallback["proposals"][0].pop("backend")
+    fallback["diagnostics"] = ["Synthetic model output was rejected before builtin fallback"]
+    rejected["unmatched_fallback"] = fallback
+    reflection_rejected = {}
+    for name in ("failure", "error_with_success", "malformed", "extra_keys",
+                 "different_findings", "invalid_findings"):
+        record = copy.deepcopy(reflection_record)
+        outcome = record["backend_outcomes"][0]
+        if name == "failure":
+            outcome.update(ok=False, error="Synthetic reflection failure")
+        elif name == "error_with_success":
+            outcome["error"] = "Synthetic contradictory failure"
+        elif name == "malformed":
+            outcome["result"] = "Synthetic malformed reflection"
+        elif name == "extra_keys":
+            outcome["result"] = json.dumps({"findings": findings, "notes": "Synthetic extra evidence"})
+        elif name == "different_findings":
+            outcome["result"] = json.dumps({"findings": []})
+        else:
+            outcome.update(findings=[" "], result=json.dumps({"findings": [" "]}))
+        reflection_rejected[name] = record
+    envelopes = {}
+    for kind, record in (("proposal", proposal_record), ("reflection", reflection_record)):
+        raw = record["backend_outcomes"][0]["result"]
+        duplicated = ('{"new_content":"Synthetic unretained content",' if kind == "proposal"
+                      else '{"findings":["Synthetic unretained finding"],') + raw[1:]
+        responses = {
+            "whitespace": " \n" + raw + "\n\t",
+            "json_fence": " \n```json\n" + raw + "\n```\n ",
+            "prefix_prose": "Synthetic unique explanation.\n" + raw,
+            "suffix_prose": raw + "\nSynthetic unique explanation.",
+            "fence_prose": "```json Synthetic unique explanation\n" + raw + "\n```",
+            "multiple_fences": "```json\n" + raw + "\n```\n```json\n" + raw + "\n```",
+            "duplicate_keys": duplicated,
+        }
+        envelopes[kind] = {}
+        for name, response in responses.items():
+            variant = copy.deepcopy(record)
+            variant["backend_outcomes"][0]["result"] = response
+            if kind == "proposal":
+                variant["proposals"][0]["backend"]["result"] = response
+            envelopes[kind][name] = variant
+    return {"content": content, "metadata": metadata, "proposal": proposal_record,
+            "reflection": reflection_record, "proposal_rejected": rejected,
+            "reflection_rejected": reflection_rejected, "envelopes": envelopes}
 
 
 def main(argv=None):

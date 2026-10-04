@@ -6,6 +6,7 @@ Subcommands:
   status    Print current state + archive pareto + pending actions.
   replay    Replay events.jsonl and print reconstructed RunState.
   rollback  Rollback archive to a given version id (vid).
+  storage   Inventory retained run data; optionally write its manifest.
 
 Reserved for later milestones (not implemented here):
   review / land / diff
@@ -108,12 +109,24 @@ def _main(argv: list[str] | None = None) -> int:
     p_rb.add_argument("--run-id", required=True)
     p_rb.add_argument("--vid", required=True, help="Version ID to restore")
 
+    p_storage = sub.add_parser("storage", help="Inspect the run's data retention inventory")
+    p_storage.add_argument("--target", required=True)
+    p_storage.add_argument("--run-id", required=True)
+    p_storage.add_argument("--write-manifest", action="store_true",
+                           help="Save one structured inventory in the verified private run directory")
+
     args = ap.parse_args(argv)
 
     if args.cmd == 'doctor':
         report = doctor(args.target)
         print(json.dumps(report, ensure_ascii=False))
         return 0 if report['target_exists'] else 1
+
+    if args.cmd == "storage":
+        from tools.sie.storage import inventory
+        report = inventory(args.target, args.run_id, write=args.write_manifest)
+        print(json.dumps(report, ensure_ascii=False))
+        return 1 if report.get("unknown_count", 0) else 0
 
     # ------------------------------------------------------------------
     if args.cmd == "init":

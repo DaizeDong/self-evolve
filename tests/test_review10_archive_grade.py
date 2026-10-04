@@ -1,6 +1,5 @@
 """Archive and frozen-grader controls with generated inputs and in-memory storage."""
 import ast
-import builtins
 import copy
 import io
 import json
@@ -10,6 +9,7 @@ import statistics
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -81,33 +81,35 @@ class ArchiveGradeTests(unittest.TestCase):
                     namespace["lineage"](case["run_dir"] + "/archive")
 
     def test_frozen_grader_preserves_passed_and_removed_task_identities(self):
+        from tools.sie import evaluate, verifiable
+        from tools.sie.supervisor import Supervisor
+
         case = fixture()
         output = {"stdout": "\n".join(task["name"] + " PASSED" for task in case["tasks"])}
-        process = SimpleNamespace(run=lambda *args, **kwargs: SimpleNamespace(
-            returncode=0, stdout=output["stdout"], stderr=""))
-        grader_env = lambda root: ({}, "/synthetic/site", "/synthetic/jail")
-        real_import = builtins.__import__
-        def importing(name, *args, **kwargs):
-            if name == "shutil":
-                return SimpleNamespace(rmtree=lambda *args, **kwargs: None)
-            if name == "tools.sie.verifiable":
-                return SimpleNamespace(_grader_env=grader_env)
-            return real_import(name, *args, **kwargs)
-        base_namespace = {"__builtins__": dict(vars(builtins), __import__=importing),
-                          "subprocess": process, "sys": SimpleNamespace(executable="synthetic-python"),
-                          "native_cwd": lambda path: path, "_grader_env": grader_env}
-        normal = definitions("tools/sie/evaluate.py", {"_grade_pytest_per_task", "_parse_per_test",
-                                                       "pair_parent_dimensions"}, dict(base_namespace))
-        frozen = definitions("tools/sie/verifiable.py", {"grade_pytest"}, dict(base_namespace),
-                             optional={"_parse_task_results"})
-        supervisor_module = definitions("tools/sie/supervisor.py", {"Supervisor"}, {})
-        supervisor = object.__new__(supervisor_module["Supervisor"])
-        supervisor._verifiable = SimpleNamespace(**frozen)
-        before = normal["_grade_pytest_per_task"](case["target"])
-        current = supervisor.grade({}, case["self_candidate"], self_mode=True)
-        self.assertEqual(normal["pair_parent_dimensions"](before["dimensions"], current["dimensions"]),
-                         [(1.0, 1.0), (1.0, 1.0)])
-        output["stdout"] = case["tasks"][0]["name"] + " PASSED"
-        current = supervisor.grade({}, case["self_candidate"], self_mode=True)
-        self.assertEqual(normal["pair_parent_dimensions"](before["dimensions"], current["dimensions"]),
-                         [(1.0, 1.0), (1.0, 0.0)])
+        supervisor = object.__new__(Supervisor)
+        supervisor._verifiable = SimpleNamespace(grade_pytest=verifiable.grade_pytest)
+        with patch.object(verifiable, "_grader_env", return_value=(
+                {}, "/synthetic/site", "/synthetic/jail")), \
+                patch.object(verifiable, "native_cwd", side_effect=lambda path: path), \
+                patch.object(verifiable.subprocess, "run", side_effect=lambda *args, **kwargs:
+                             SimpleNamespace(returncode=0, stdout=output["stdout"], stderr="")), \
+                patch("shutil.rmtree"):
+            before = evaluate._grade_pytest_per_task(case["target"])
+            self.assertNotIn("task_dimensions", before)
+            self.assertEqual(before["dimensions"], case["tasks"])
+            with patch.object(evaluate, "grade_pytest", side_effect=AssertionError(
+                    "Self-mode must use the frozen grader")), \
+                    patch.object(verifiable, "grade_pytest", side_effect=AssertionError(
+                        "Self-mode must not bypass its frozen grader")):
+                current = supervisor.grade({}, case["self_candidate"], self_mode=True)
+                self.assertEqual(evaluate.pair_parent_dimensions(
+                    before["dimensions"], current["dimensions"]), [(1.0, 1.0), (1.0, 1.0)])
+                output["stdout"] = case["tasks"][0]["name"] + " PASSED"
+                current = supervisor.grade({}, case["self_candidate"], self_mode=True)
+                self.assertEqual(evaluate.pair_parent_dimensions(
+                    before["dimensions"], current["dimensions"]), [(1.0, 1.0), (1.0, 0.0)])
+            output["stdout"] = ""
+            aggregate = verifiable.grade_pytest(case["target"])
+            projected = evaluate._grade_pytest_per_task(case["target"])
+            self.assertEqual(projected["dimensions"], aggregate["dimensions"])
+            self.assertNotIn("task_dimensions", projected)

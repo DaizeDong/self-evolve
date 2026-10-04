@@ -400,35 +400,6 @@ def _run_dir(target: str, run_id: str) -> str:
     return str(run_directory(target, run_id))
 
 
-def _load_datadir():
-    """Load the resolver from the guards submodule. None when absent; every other failure
-    propagates. The single caller turns None into a refusal to write, which is the point: a
-    resolver that cannot be reached must never degrade into a repo-relative default."""
-    p = os.path.join(_REPO_ROOT, "guards", "tools", "datadir.py")
-    if not os.path.isfile(p):
-        return None
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("_dd_for_sie", p)
-    if spec is None or spec.loader is None:
-        return None
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-def _target_is_own_repo(target_abs: str) -> bool:
-    """Is this target the repository this code lives in?
-
-    Compared by normalised absolute path rather than by asking git, because the question is about
-    where BYTES will land, and a worktree or a symlinked checkout would answer the git question
-    differently from the filesystem one.
-    """
-    return os.path.normcase(target_abs) == os.path.normcase(_REPO_ROOT)
-
-
-_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-
 def _round_record(rnd, summary, passed, props=None, dec=None, phase=None):
     """One history entry, carrying what actually happened rather than a verdict word.
 
@@ -473,6 +444,16 @@ def _step(run_dir: str, ev: dict) -> RunState:
     append_event(run_dir, ev)        # 真相源先行 (hard invariant)
     st = replay(run_dir)             # derive state purely from events
     save_state(st, run_dir)          # side-channel snapshot (crash-safe)
+    return st
+
+
+def _record_static_reject(run_dir, st, history, rnd, phase, summary, **evidence):
+    """Persist a static refusal before exposing its reflection history record."""
+    note_static_reject(st)
+    st = _step(run_dir, {
+        "type": "STATIC_REJECT", "phase": phase, "static_reject_delta": 1, **evidence,
+    })
+    history.append(_round_record(rnd, summary, False, phase=phase))
     return st
 
 
@@ -617,12 +598,13 @@ def _record_model_stage(run_dir, filename, record):
     """Persist caller evidence in its PRIVATE run; failed writes stop the caller."""
     from pathlib import Path
     from tools.sie import runtime_data
+    from tools.sie.stage_records import compact_record
 
     directory = Path(run_dir).resolve()
     path = runtime_data.private_file_path(directory/filename)
     if path.parent != directory:
         raise runtime_data.DataBoundaryError('Model evidence escaped its run directory')
-    line = json.dumps(record, ensure_ascii=False) + '\n'
+    line = json.dumps(compact_record(filename, record), ensure_ascii=False) + '\n'
     with path.open('a', encoding='utf-8') as stream:
         stream.write(line)
         stream.flush()
@@ -871,7 +853,7 @@ def run_loop(
 
         # A resumed or differently selected parent must be the tree reflection sees.
         try:
-            if business_tree.manifest(sandbox_root) != business_tree.manifest(parent_snapshot):
+            if not business_tree.matches(parent_snapshot, sandbox_root):
                 with business_tree.selected_snapshot(parent_snapshot):
                     _discard_rejected_changes(sandbox_root)
         except Exception as exc:
@@ -931,13 +913,8 @@ def run_loop(
                       "for=%s" % (_i, _keys, list(_REFLECTION_CONTENT_KEYS)), file=sys.stderr)
             if not _before_gate:
                 print("sie: the reflect stage returned no reflections at all", file=sys.stderr)
-            note_static_reject(st)   # in-memory counter update
-            st = _step(run_dir, {
-                "type": "STATIC_REJECT",
-                "phase": "REFLECT",
-                "static_reject_delta": 1,
-            })
-            history.append(_round_record(rnd, "no reflection cleared the evidence gate", False, phase="REFLECT"))
+            st = _record_static_reject(run_dir, st, history, rnd, "REFLECT",
+                                       "no reflection cleared the evidence gate")
             # circuit_check after static_reject
             cc = circuit_check(st, params)
             if cc in ("no_progress_circuit", "static_reject_circuit",
@@ -954,13 +931,8 @@ def run_loop(
              'backend_outcomes': getattr(props, 'backend_outcomes', []),
              'diagnostics': getattr(props, 'diagnostics', [])})
         if not props:
-            note_static_reject(st)   # in-memory counter update
-            st = _step(run_dir, {
-                "type": "STATIC_REJECT",
-                "phase": "PROPOSE",
-                "static_reject_delta": 1,
-            })
-            history.append(_round_record(rnd, "the proposer produced no admissible proposal", False, phase="PROPOSE"))
+            st = _record_static_reject(run_dir, st, history, rnd, "PROPOSE",
+                                       "the proposer produced no admissible proposal")
             cc = circuit_check(st, params)
             if cc in ("no_progress_circuit", "static_reject_circuit",
                       "forced_review_circuit", "drift_circuit"):
@@ -991,10 +963,8 @@ def run_loop(
                 break
             _got = [v for v in (_rv.get("verdicts") or {}).values() if v]
             if _got and all(v == "reject" for v in _got) and len(_got) >= 2:
-                note_static_reject(st)
-                st = _step(run_dir, {"type": "STATIC_REJECT", "phase": "REVIEW",
-                                     "static_reject_delta": 1})
-                history.append(_round_record(rnd, "both reviewers rejected", False, phase="REVIEW"))
+                st = _record_static_reject(run_dir, st, history, rnd, "REVIEW",
+                                           "both reviewers rejected")
                 cc = circuit_check(st, params)
                 if cc in ("no_progress_circuit", "static_reject_circuit",
                           "forced_review_circuit", "drift_circuit"):
@@ -1021,19 +991,11 @@ def run_loop(
                                    "reason": str(res.get("reason") or "")[:300]})
 
         if not applied:
-            note_static_reject(st)   # in-memory counter update
-            st = _step(run_dir, {
-                "type": "STATIC_REJECT",
-                "phase": "PATCH",
-                "static_reject_delta": 1,
-                "proposals": len(props),
-                # rejections[:10] caps what the trace carries. Without the total, a trace
-                # holding exactly 10 rejection records is indistinguishable from a complete
-                # one, and the reasons this block exists to preserve go missing unannounced.
-                "rejections_total": len(rejections),
-                "rejections": rejections[:10],
-            })
-            history.append(_round_record(rnd, "the patch gate refused every proposal", False, phase="PATCH"))
+            # Retain the total so a capped trace cannot look complete.
+            st = _record_static_reject(run_dir, st, history, rnd, "PATCH",
+                                       "the patch gate refused every proposal",
+                                       proposals=len(props), rejections_total=len(rejections),
+                                       rejections=rejections[:10])
             cc = circuit_check(st, params)
             if cc in ("no_progress_circuit", "static_reject_circuit",
                       "forced_review_circuit", "drift_circuit"):

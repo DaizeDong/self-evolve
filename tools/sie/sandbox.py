@@ -133,8 +133,8 @@ def native_cwd(path: str) -> str:
 def make_worktree(target: str, base_ref: str, run_id: str) -> str:
     """Create (or resume) a git worktree for *run_id* and return its absolute path.
 
-    The worktree is placed under the verified private target namespace on a new
-    branch ``sie/<run_id>``.  If the worktree already exists it is returned as-is
+    New worktrees use detached HEAD under the verified private target namespace.
+    An existing worktree is returned as-is, preserving its checkout and edits
     (idempotent / resume-safe).
 
     Raises subprocess.CalledProcessError if git fails.
@@ -162,7 +162,6 @@ def make_worktree(target: str, base_ref: str, run_id: str) -> str:
             raise RuntimeError('Existing candidate worktree belongs to another repository')
         return sandbox_root
 
-    branch = f"sie/{run_id}"
     git_destination = _git_path(sandbox_root)
     git_target = _git_path(target)
     try:
@@ -173,7 +172,7 @@ def make_worktree(target: str, base_ref: str, run_id: str) -> str:
         if len(relative) < len(git_destination):
             git_destination = relative
     subprocess.run(
-        ["git", "-c", "core.longpaths=true", "-C", git_target, "worktree", "add", "-b", branch, git_destination, base_ref],
+        ["git", "-c", "core.longpaths=true", "-C", git_target, "worktree", "add", "--detach", git_destination, base_ref],
         check=True,
         capture_output=True,
         text=True, encoding="utf-8", errors="replace",

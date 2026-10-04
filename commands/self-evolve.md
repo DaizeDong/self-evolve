@@ -1,61 +1,24 @@
 # /self-evolve
 
-对 `<target>` 启动一次自迭代 run（沙箱内全自动）。
+对目标启动一次运行。目标必须有 Git 历史、可用评测证据和 PRIVATE 伴生仓。
 
-## 用法
-
-```
+```text
 /self-evolve <target>
 ```
 
-`<target>` 为目标仓库/目录的绝对路径（必须有 git 历史）。
+从安装目录使用绝对入口：
 
-## 步骤
-
-先运行 `doctor --target <target>` 检查私有伴生仓与证据需求。
-
-1. 调用 `python <skill绝对路径>/tools/sie_cli.py init --target <target>` 取 run_id。
-2. 调用 `python <skill绝对路径>/tools/sie_cli.py run --target <target> --run-id <run_id> --base-ref HEAD`
-   启动闭环（PROFILE → REFLECT → PROPOSE → PATCH → EVALUATE → ACCEPT/ARCHIVE）。
-3. 采纳的版本进 archive lineage；沙箱内全自动，出沙箱的动作（`land` / `push` / `merge_main`
-   / `send` 等）一律判为 gated，进人审队列，harness 自己不落地。
-
-## 参数说明
-
-| 参数 | 默认 | 说明 |
-|------|------|------|
-| `--base-ref` | `HEAD` | 基线 git ref，worktree 从此分叉 |
-| `--max-rounds` | `3` | 最大迭代轮数 |
-| `--mode` | `auto` | 只在**纯 C 档接受门**这一处被读到：`auto` 时，一轮纯 C（`coverage=0`）本可 ACCEPT 的结果被强制改判 PAUSE_FOR_HUMAN 进人审队列；`gated` 关掉这条兜底。**尚未实现「每步人审」**，见 ROADMAP。 |
-
-## 输出
-
-运行结束后打印 JSON：
-
-```json
-{
-  "run_id": "<run_id>",
-  "accepted_versions": ["v1", "v2"],
-  "final_phase": "REFLECT",
-  "run_dir": "<private-data>/targets/<target-id>/runs/<run_id>"
-}
+```bash
+python <skill-path>/tools/sie_cli.py doctor --target <target>
+python <skill-path>/tools/sie_cli.py init --target <target>
+python <skill-path>/tools/sie_cli.py run --target <target> --run-id <id> --base-ref HEAD
 ```
 
-## 铁律提示
+先检查 doctor 的 JSON，再使用 init 返回的 run ID。
+默认使用已提供的确定性修复；`--live` 启用模型提案与并行反思，
+`--proposer llm-artifact` 处理 JSON 产物。
 
-- **LLM 只提议，代码裁决**：ACCEPT/REJECT 由 harness 确定性代码执行，非 LLM 自判。
-- 沙箱内全自动（`sie` harness 驱动）；落地到真目标须走人审（`land` 属 `OUTWARD_OPS`，恒 gated）。
-- 被采纳 = PACE e-process 判定证据足够（`evalue ≥ 1/α`），且 A 档另有 no-regression 硬门：
-  任一 pass→fail 直接 REJECT，覆盖 e-process 结果。
-
-## 查看进度
-
-```
-/self-evolve-status <run_id>
-```
-
-## 续跑（恢复中断）
-
-```
-/self-evolve-resume <run_id>
-```
+输出包含运行目录、采纳版本和最终状态。退出零不等于有改进。
+模型提出建议，代码裁决；对外动作按已有授权单独处理。
+完整参数与能力限制见 [runtime](../reference/runtime.md) 和
+[evaluation](../reference/evaluation.md)。

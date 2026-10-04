@@ -126,6 +126,7 @@ def loop(*, tier="B", holdout_missing=False, self_mode=False, holdout_mode=None)
         "append_event": lambda root, event: seen["events"].append(event),
         "run_profile": lambda *args: copy.deepcopy(profile), "freeze_target": lambda *args: None,
         "business_tree": SimpleNamespace(snapshot=snapshot, manifest=lambda path: {},
+                                        matches=lambda snapshot, candidate: True,
                                         selected_snapshot=lambda path: nullcontext()),
         "archive": archive, "select_parent": lambda root, st: "base" if st.round == 0 else "v1",
         "reflect": lambda *args, **kwargs: [{}], "check": lambda *args: True,

@@ -32,10 +32,10 @@ runs/
 r/
 */pending_actions.jsonl
 
-# SDD process scratch (per-task reports/diffs; canonical ledger in docs/superpowers/)
+# Local process scratch
 .superpowers/
 
-# B 档夜跑目标的独立 repo（由 scripts/setup_btarget_repo.py 生成，含其 .sie 运行态）
+# Legacy runtime paths; DATA belongs in the private companion.
 .btarget_run/
 examples/btarget/.git/
 examples/btarget/.sie/
@@ -45,11 +45,7 @@ examples/*/_run/
 _run/
 .btarget_strong/
 
-# Run artifacts written into the repo root by a live proposer round. `proposal_tmp.json` holds a
-# FULL COPY of the candidate file the proposer rewrote, which for a large target is a hundred
-# kilobytes of somebody else's source sitting untracked in this repo. It was not ignored, and the
-# only reason it never got committed by a `git add -A` is that pii_guard blocked the commit --
-# which is a guard doing its job, not a design.
+# Defense in depth for legacy artifacts; ignore rules do not authorize runtime writes.
 proposal_*.json
 proposal_*.txt
 _tmp_*

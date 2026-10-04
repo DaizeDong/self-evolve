@@ -113,3 +113,102 @@ def test_restore_preserves_excluded_metadata(trees):
     assert metadata.read_text(encoding='utf-8') == marker
     _assert_files(destination, sample['accepted_tree'])
     _assert_files(source, sample['accepted_tree'])
+
+
+def test_snapshots_omit_cache_directories_but_keep_business_inputs(trees):
+    source, destination, outside, sample = trees
+    _populate(source, sample['business_inputs'])
+    for name in sample['cache_directories']:
+        _populate(source / 'nested' / name, sample['outside_tree'])
+        _populate(destination / 'nested' / name, sample['outside_tree'])
+    snapshot = source.parent / 'snapshot'
+    business_tree.snapshot(source, snapshot)
+    _assert_files(snapshot, sample['accepted_tree'])
+    _assert_files(snapshot, sample['business_inputs'])
+    for name in sample['cache_directories']:
+        assert not (snapshot / 'nested' / name).exists()
+    business_tree.restore(snapshot, destination)
+    _assert_files(destination, sample['business_inputs'])
+    for name in sample['cache_directories']:
+        _assert_files(destination / 'nested' / name, sample['outside_tree'])
+    assert business_tree.manifest(snapshot) == business_tree.manifest(destination)
+
+
+def test_regular_file_with_cache_directory_name_remains_business_data(trees):
+    source, destination, outside, sample = trees
+    content = sample['outside_tree']['kept.txt']
+    (source / '.venv').write_text(content, encoding='utf-8')
+    snapshot = source.parent / 'snapshot'
+    business_tree.snapshot(source, snapshot)
+    assert (snapshot / '.venv').read_text(encoding='utf-8') == content
+
+
+@pytest.mark.parametrize('cache_name', business_tree_samples()['cache_only_cases'])
+def test_cache_only_ancestors_preserve_data_and_match_selected_snapshot(trees, cache_name):
+    source, destination, outside, sample = trees
+    source_cache = source / 'cache-parent' / 'nested' / cache_name
+    destination_cache = destination / 'candidate-only' / 'nested' / cache_name
+    _populate(source_cache, sample['outside_tree'])
+    _populate(destination_cache, sample['outside_tree'])
+    (source / 'empty-business-directory').mkdir()
+    required_cache = destination / 'empty-business-directory' / cache_name
+    _populate(required_cache, sample['outside_tree'])
+    snapshot = source.parent / 'snapshot'
+
+    business_tree.snapshot(source, snapshot)
+    assert (snapshot / 'cache-parent' / 'nested').is_dir()
+    assert not (snapshot / 'cache-parent' / 'nested' / cache_name).exists()
+    assert (snapshot / 'empty-business-directory').is_dir()
+    business_tree.restore(snapshot, destination)
+
+    _assert_files(source_cache, sample['outside_tree'])
+    _assert_files(destination_cache, sample['outside_tree'])
+    _assert_files(required_cache, sample['outside_tree'])
+    assert (destination / 'empty-business-directory').is_dir()
+    assert business_tree.manifest(source) == business_tree.manifest(snapshot)
+    assert business_tree.manifest(destination) != business_tree.manifest(snapshot)
+    assert business_tree.matches(snapshot, destination)
+
+
+def test_matches_requires_business_files_and_empty_directories(trees):
+    source, destination, outside, sample = trees
+    business_tree.restore(source, destination)
+    (source / 'required-empty').mkdir()
+    assert not business_tree.matches(source, destination)
+    _populate(destination / 'required-empty' / '.venv', sample['outside_tree'])
+    assert business_tree.matches(source, destination)
+    _populate(destination / 'extra-cache-parent' / '.venv', sample['outside_tree'])
+    assert business_tree.matches(source, destination)
+    assert not business_tree.matches(destination, source)
+    (destination / 'extra-empty').mkdir()
+    assert not business_tree.matches(source, destination)
+    (destination / 'extra-empty').rmdir()
+    (destination / 'main.py').unlink()
+    assert not business_tree.matches(source, destination)
+
+
+def test_matches_does_not_allow_cache_named_junctions(trees):
+    source, destination, outside, sample = trees
+    business_tree.restore(source, destination)
+    parent = destination / 'candidate-only'
+    parent.mkdir()
+    alias = parent / '.venv'
+    _junction(outside, alias)
+    try:
+        with pytest.raises(OSError, match='reparse point'):
+            business_tree.matches(source, destination)
+    finally:
+        _remove_remaining_junction(alias)
+    _assert_files(outside, sample['outside_tree'])
+
+
+def test_cache_named_junction_is_not_hidden_from_source_boundary(trees):
+    source, destination, outside, sample = trees
+    alias = source / '.venv'
+    _junction(outside, alias)
+    try:
+        with pytest.raises(OSError, match='reparse point'):
+            business_tree.snapshot(source, source.parent / 'snapshot')
+    finally:
+        _remove_remaining_junction(alias)
+    _assert_files(outside, sample['outside_tree'])
