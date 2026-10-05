@@ -109,3 +109,7 @@ checks. See [documentation lifecycle](reference/maintenance.md).
 ## License
 
 [MIT](LICENSE). Release history is in [CHANGELOG.md](CHANGELOG.md).
+
+## Private storage lifecycle
+
+See [DATA.md](DATA.md) and [storage.contract.json](storage.contract.json) for core outputs, reviewed retirement, recovery and generated-storage admission limits. Keep final deliverables and their unique cited evidence in the PRIVATE companion.

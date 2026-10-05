@@ -13,10 +13,12 @@
     "logs/",
     "_run/",
     ".nightrun/",
-    "examples/btarget/.sie/"
+    "examples/btarget/.sie/",
+    "retention.json"
   ],
   "data_sealed": [],
   "fixture": [
+    "retention.json.example",
     "tests/test_runtime_operation_proofs.py",
     "tests/fixtures/anchored_artifact.json",
     "tests/fixtures/smallcap_artifact.json",

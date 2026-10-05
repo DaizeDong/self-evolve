@@ -423,6 +423,7 @@ def disk_fixture_payloads():
     return {
         "anchored_artifact.json": synthetic_artifact(2),
         "smallcap_artifact.json": synthetic_artifact(24),
+        "retention.json.example": retention_samples()["registry"],
     }
 
 
@@ -2077,6 +2078,22 @@ def main(argv=None):
                      'business_trees': business_tree_samples(),
                      'repairs': repair_samples()}, indent=2))
     return 0
+
+
+def retention_samples():
+    """Generate core, retired and changed-plan controls without live records."""
+    return {
+        "core": "dossiers/synthetic-case/buyer_research.pdf",
+        "scratch": "diagnostics/synthetic-complete.json",
+        "content": b"Synthetic retained report.\n",
+        "changed": b"Synthetic changed receipt.\n",
+        "registry": {"schema_version": 1, "source_commit": "a" * 40,
+                     "protected_paths": [], "retirements": []},
+        "contract": {"schema_version": 1, "tool": "synthetic",
+                     "artifacts": [
+                         {"path_pattern": "dossiers/*/*.pdf", "retention_rule": {"class": "core"}},
+                         {"path_pattern": "diagnostics/**", "retention_rule": {"class": "retired"}}]},
+    }
 
 
 if __name__ == "__main__":
