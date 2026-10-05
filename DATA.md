@@ -53,8 +53,8 @@ materializes `archive/current/`; it does not change the future selected parent.
 
 Candidate trees, profile probes, `agent-work/`, `grader-work/`, `edgar-cache/` and
 `calibration/` may be removed only after an explicit activity check and proof that
-the retained run no longer depends on them. The tool has no durable inactivity
-contract and performs no automatic deletion. Disposable agent directories have
+the retained run no longer depends on them. Age alone never proves inactivity.
+The reviewed retirement command below is separate from metadata inventory. Disposable agent directories have
 context-managed cleanup; other scratch can survive interrupted processes.
 New run, probe and self-mode worktrees use detached HEAD without creating branches;
 resuming an existing worktree preserves its checkout and uncommitted changes.
@@ -103,3 +103,34 @@ and execution of the identified current reducer. It does not establish agreement
 with the old saved state or verify resume/rollback. Recover original files from
 the referenced PRIVATE Git commit when needed. Keep that existing history as the
 recovery source instead of duplicating retired worktrees, logs or bundles.
+
+## Companion lifecycle
+
+The machine-readable artifact contract is [storage.contract.json](storage.contract.json).
+Its paths are relative to the PRIVATE companion's DATA directory. Each artifact
+records its producer, consumer or final deliverable, schema and recovery method.
+The companion README identifies selected final deliverables. Runtime records never
+fall back into this public repository.
+
+Keep a current `retention.json` in DATA, following
+[schemas/storage-retention.schema.json](schemas/storage-retention.schema.json).
+List active runs, supported rollback dependencies and selected final evidence in
+`protected_paths`. A retirement entry requires completed work, released dependencies
+and a concrete reason. Unknown files and core artifacts are refused even when a
+retirement entry claims completion. Stop writers before maintenance; age is not
+an inactivity proof. Preview with `python -m tools.storage_retention`, then apply the
+reviewed selection with `python -m tools.storage_retention --apply`.
+
+The command checks confinement, link metadata, content hashes and core protection
+before removing ordinary files. It never follows junctions or rewrites event logs.
+The registry is one current document, not a sequence of timestamped backups.
+Restore retired bytes from its `source_commit` in the existing PRIVATE Git history.
+Keep that commit reachable; no new archive bundle is required.
+
+Generated-area admission refuses further writes once existing usage reaches
+2,000 files or 128 MiB. The check measures current usage before a writer receives
+its destination; it is an admission limit, not a per-write reservation. Core
+purchase records, final research, event chains and recovery snapshots are never
+evicted to make room. Self-evolve additionally stops admitting new runs at 32
+retained run directories; existing runs can continue. Review completed work and
+its recovery obligations before reclaiming capacity.

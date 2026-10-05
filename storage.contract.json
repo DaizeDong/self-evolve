@@ -1,0 +1,357 @@
+{
+  "schema_version": 1,
+  "tool": "self-evolve",
+  "artifacts": [
+    {
+      "artifact_id": "retention-register",
+      "path_pattern": "retention.json",
+      "purpose": "Explicit protected dependencies and completed retirement selections",
+      "schema": "schemas/storage-retention.schema.json",
+      "producer": "Owner-reviewed maintenance",
+      "consumer_or_final_deliverable": "tools/storage_retention.py",
+      "rebuild_or_restore": "Restore the registry from the private companion main history",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Keep the current registry; a completed job does not authorize deleting its protected outputs."
+      }
+    },
+    {
+      "artifact_id": "run-events",
+      "path_pattern": "targets/*/runs/*/events.jsonl",
+      "purpose": "Run state transitions and holdout cadence",
+      "schema": "tools/sie/events.py and tools/sie/state.py event readers",
+      "producer": "Self-evolve event writer",
+      "consumer_or_final_deliverable": "Resume, replay and accepted-run history",
+      "rebuild_or_restore": "Restore exact event bytes from the private companion main history",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Keep all events for active runs and supported recovery; never truncate an event chain."
+      }
+    },
+    {
+      "artifact_id": "run-dependency-0",
+      "path_pattern": "targets/*/runs/*/target.json",
+      "purpose": "Complete current execution and rollback dependency",
+      "schema": "DATA.md and the corresponding tools/sie reader",
+      "producer": "Self-evolve run and archive writers",
+      "consumer_or_final_deliverable": "Current run, holdout and supported rollback",
+      "rebuild_or_restore": "Restore the complete dependency closure, not a digest or summary",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Keep while the run or a promised rollback can read it; no automatic eviction."
+      }
+    },
+    {
+      "artifact_id": "run-dependency-1",
+      "path_pattern": "targets/*/runs/*/base-snapshot/**",
+      "purpose": "Complete current execution and rollback dependency",
+      "schema": "DATA.md and the corresponding tools/sie reader",
+      "producer": "Self-evolve run and archive writers",
+      "consumer_or_final_deliverable": "Current run, holdout and supported rollback",
+      "rebuild_or_restore": "Restore the complete dependency closure, not a digest or summary",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Keep while the run or a promised rollback can read it; no automatic eviction."
+      }
+    },
+    {
+      "artifact_id": "run-dependency-2",
+      "path_pattern": "targets/*/runs/*/archive/**",
+      "purpose": "Complete current execution and rollback dependency",
+      "schema": "DATA.md and the corresponding tools/sie reader",
+      "producer": "Self-evolve run and archive writers",
+      "consumer_or_final_deliverable": "Current run, holdout and supported rollback",
+      "rebuild_or_restore": "Restore the complete dependency closure, not a digest or summary",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Keep while the run or a promised rollback can read it; no automatic eviction."
+      }
+    },
+    {
+      "artifact_id": "run-dependency-3",
+      "path_pattern": "targets/*/runs/*/pending_actions.jsonl",
+      "purpose": "Complete current execution and rollback dependency",
+      "schema": "DATA.md and the corresponding tools/sie reader",
+      "producer": "Self-evolve run and archive writers",
+      "consumer_or_final_deliverable": "Current run, holdout and supported rollback",
+      "rebuild_or_restore": "Restore the complete dependency closure, not a digest or summary",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Keep while the run or a promised rollback can read it; no automatic eviction."
+      }
+    },
+    {
+      "artifact_id": "run-dependency-4",
+      "path_pattern": "targets/*/runs/*/_frozen/**",
+      "purpose": "Complete current execution and rollback dependency",
+      "schema": "DATA.md and the corresponding tools/sie reader",
+      "producer": "Self-evolve run and archive writers",
+      "consumer_or_final_deliverable": "Current run, holdout and supported rollback",
+      "rebuild_or_restore": "Restore the complete dependency closure, not a digest or summary",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Keep while the run or a promised rollback can read it; no automatic eviction."
+      }
+    },
+    {
+      "artifact_id": "run-dependency-5",
+      "path_pattern": "targets/*/runs/*/_holdout/**",
+      "purpose": "Complete current execution and rollback dependency",
+      "schema": "DATA.md and the corresponding tools/sie reader",
+      "producer": "Self-evolve run and archive writers",
+      "consumer_or_final_deliverable": "Current run, holdout and supported rollback",
+      "rebuild_or_restore": "Restore the complete dependency closure, not a digest or summary",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Keep while the run or a promised rollback can read it; no automatic eviction."
+      }
+    },
+    {
+      "artifact_id": "run-dependency-6",
+      "path_pattern": "targets/*/runs/*/state.json",
+      "purpose": "Complete current execution and rollback dependency",
+      "schema": "DATA.md and the corresponding tools/sie reader",
+      "producer": "Self-evolve run and archive writers",
+      "consumer_or_final_deliverable": "Current run, holdout and supported rollback",
+      "rebuild_or_restore": "Restore the complete dependency closure, not a digest or summary",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Keep while the run or a promised rollback can read it; no automatic eviction."
+      }
+    },
+    {
+      "artifact_id": "history",
+      "path_pattern": "history/**",
+      "purpose": "Retained historical event bytes and recovery catalog",
+      "schema": "schemas/history-catalog.schema.json",
+      "producer": "Reviewed run retirement",
+      "consumer_or_final_deliverable": "Historical review and explicit Git recovery",
+      "rebuild_or_restore": "Restore the catalog source_commit and original paths",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Keep the catalog and its event bytes; historical does not imply resumable."
+      }
+    },
+    {
+      "artifact_id": "research-delivery-0",
+      "path_pattern": "research/*/REPORT.zh-CN.md",
+      "purpose": "Final research, citation index and unique cited evidence",
+      "schema": "Research index fields and source references documented in DATA.md",
+      "producer": "Reviewed research workflow",
+      "consumer_or_final_deliverable": "User-requested final report, references and adopted roadmap",
+      "rebuild_or_restore": "Restore from private companion main; original upstream URLs remain in the citation index",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Keep selected final research and every unique cited dependency regardless of age."
+      }
+    },
+    {
+      "artifact_id": "research-delivery-1",
+      "path_pattern": "research/*/OUTLINE.zh-CN.md",
+      "purpose": "Final research, citation index and unique cited evidence",
+      "schema": "Research index fields and source references documented in DATA.md",
+      "producer": "Reviewed research workflow",
+      "consumer_or_final_deliverable": "User-requested final report, references and adopted roadmap",
+      "rebuild_or_restore": "Restore from private companion main; original upstream URLs remain in the citation index",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Keep selected final research and every unique cited dependency regardless of age."
+      }
+    },
+    {
+      "artifact_id": "research-delivery-2",
+      "path_pattern": "research/*/INDEX.json",
+      "purpose": "Final research, citation index and unique cited evidence",
+      "schema": "Research index fields and source references documented in DATA.md",
+      "producer": "Reviewed research workflow",
+      "consumer_or_final_deliverable": "User-requested final report, references and adopted roadmap",
+      "rebuild_or_restore": "Restore from private companion main; original upstream URLs remain in the citation index",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Keep selected final research and every unique cited dependency regardless of age."
+      }
+    },
+    {
+      "artifact_id": "research-delivery-3",
+      "path_pattern": "research/*/REFERENCES.md",
+      "purpose": "Final research, citation index and unique cited evidence",
+      "schema": "Research index fields and source references documented in DATA.md",
+      "producer": "Reviewed research workflow",
+      "consumer_or_final_deliverable": "User-requested final report, references and adopted roadmap",
+      "rebuild_or_restore": "Restore from private companion main; original upstream URLs remain in the citation index",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Keep selected final research and every unique cited dependency regardless of age."
+      }
+    },
+    {
+      "artifact_id": "research-delivery-4",
+      "path_pattern": "research/*/HISTORY.md",
+      "purpose": "Final research, citation index and unique cited evidence",
+      "schema": "Research index fields and source references documented in DATA.md",
+      "producer": "Reviewed research workflow",
+      "consumer_or_final_deliverable": "User-requested final report, references and adopted roadmap",
+      "rebuild_or_restore": "Restore from private companion main; original upstream URLs remain in the citation index",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Keep selected final research and every unique cited dependency regardless of age."
+      }
+    },
+    {
+      "artifact_id": "research-delivery-5",
+      "path_pattern": "research/*/DESIGN-AGENDA.md",
+      "purpose": "Final research, citation index and unique cited evidence",
+      "schema": "Research index fields and source references documented in DATA.md",
+      "producer": "Reviewed research workflow",
+      "consumer_or_final_deliverable": "User-requested final report, references and adopted roadmap",
+      "rebuild_or_restore": "Restore from private companion main; original upstream URLs remain in the citation index",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Keep selected final research and every unique cited dependency regardless of age."
+      }
+    },
+    {
+      "artifact_id": "research-delivery-6",
+      "path_pattern": "research/*/MANIFEST.json",
+      "purpose": "Final research, citation index and unique cited evidence",
+      "schema": "Research index fields and source references documented in DATA.md",
+      "producer": "Reviewed research workflow",
+      "consumer_or_final_deliverable": "User-requested final report, references and adopted roadmap",
+      "rebuild_or_restore": "Restore from private companion main; original upstream URLs remain in the citation index",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Keep selected final research and every unique cited dependency regardless of age."
+      }
+    },
+    {
+      "artifact_id": "research-delivery-7",
+      "path_pattern": "research/*/VALIDATION.json",
+      "purpose": "Final research, citation index and unique cited evidence",
+      "schema": "Research index fields and source references documented in DATA.md",
+      "producer": "Reviewed research workflow",
+      "consumer_or_final_deliverable": "User-requested final report, references and adopted roadmap",
+      "rebuild_or_restore": "Restore from private companion main; original upstream URLs remain in the citation index",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Keep selected final research and every unique cited dependency regardless of age."
+      }
+    },
+    {
+      "artifact_id": "research-delivery-8",
+      "path_pattern": "research/*/sources/**",
+      "purpose": "Final research, citation index and unique cited evidence",
+      "schema": "Research index fields and source references documented in DATA.md",
+      "producer": "Reviewed research workflow",
+      "consumer_or_final_deliverable": "User-requested final report, references and adopted roadmap",
+      "rebuild_or_restore": "Restore from private companion main; original upstream URLs remain in the citation index",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Keep selected final research and every unique cited dependency regardless of age."
+      }
+    },
+    {
+      "artifact_id": "research-reviews",
+      "path_pattern": "research/*/*REVIEW.json",
+      "purpose": "Completed intermediate review receipts",
+      "schema": "JSON review records",
+      "producer": "Research review workflow",
+      "consumer_or_final_deliverable": "Final report and validation already retain accepted conclusions",
+      "rebuild_or_restore": "Restore exact original path from the pre-retirement private commit",
+      "retention_rule": {
+        "class": "retired",
+        "rule": "Remove only after the work is complete and final report/index dependencies are released."
+      }
+    },
+    {
+      "artifact_id": "research-rounds",
+      "path_pattern": "research/*/ROUND*.json",
+      "purpose": "Superseded intermediate roadmap reviews",
+      "schema": "JSON review records",
+      "producer": "Roadmap integration workflow",
+      "consumer_or_final_deliverable": "Final integration manifest",
+      "rebuild_or_restore": "Restore from the pre-retirement private commit",
+      "retention_rule": {
+        "class": "retired",
+        "rule": "Remove after the integrated roadmap and final manifest are retained."
+      }
+    },
+    {
+      "artifact_id": "completed-process-0",
+      "path_pattern": "research/*/HANDOFF.json",
+      "purpose": "Completed workflow instructions",
+      "schema": "JSON or Markdown",
+      "producer": "Research workflow",
+      "consumer_or_final_deliverable": "Closed research task",
+      "rebuild_or_restore": "Restore from existing private Git history",
+      "retention_rule": {
+        "class": "retired",
+        "rule": "Remove only after completion; preserve all separately declared final outputs."
+      }
+    },
+    {
+      "artifact_id": "completed-process-1",
+      "path_pattern": "research/*/PROTOCOL.md",
+      "purpose": "Completed workflow instructions",
+      "schema": "JSON or Markdown",
+      "producer": "Research workflow",
+      "consumer_or_final_deliverable": "Closed research task",
+      "rebuild_or_restore": "Restore from existing private Git history",
+      "retention_rule": {
+        "class": "retired",
+        "rule": "Remove only after completion; preserve all separately declared final outputs."
+      }
+    },
+    {
+      "artifact_id": "scratch-0",
+      "path_pattern": "agent-work/**",
+      "purpose": "Rebuildable scratch and cached observations",
+      "schema": "Producer-specific temporary format",
+      "producer": "Self-evolve disposable stage writers",
+      "consumer_or_final_deliverable": "Current stage only",
+      "rebuild_or_restore": "Recreate through the original producer",
+      "retention_rule": {
+        "class": "rebuildable",
+        "rule": "Remove only with stopped writers and released dependencies. New scratch admission stops at 2000 files or 128 MiB; new runs stop at 32 retained run directories."
+      }
+    },
+    {
+      "artifact_id": "scratch-1",
+      "path_pattern": "grader-work/**",
+      "purpose": "Rebuildable scratch and cached observations",
+      "schema": "Producer-specific temporary format",
+      "producer": "Self-evolve disposable stage writers",
+      "consumer_or_final_deliverable": "Current stage only",
+      "rebuild_or_restore": "Recreate through the original producer",
+      "retention_rule": {
+        "class": "rebuildable",
+        "rule": "Remove only with stopped writers and released dependencies. New scratch admission stops at 2000 files or 128 MiB; new runs stop at 32 retained run directories."
+      }
+    },
+    {
+      "artifact_id": "scratch-2",
+      "path_pattern": "edgar-cache/**",
+      "purpose": "Rebuildable scratch and cached observations",
+      "schema": "Producer-specific temporary format",
+      "producer": "Self-evolve disposable stage writers",
+      "consumer_or_final_deliverable": "Current stage only",
+      "rebuild_or_restore": "Recreate through the original producer",
+      "retention_rule": {
+        "class": "rebuildable",
+        "rule": "Remove only with stopped writers and released dependencies. New scratch admission stops at 2000 files or 128 MiB; new runs stop at 32 retained run directories."
+      }
+    },
+    {
+      "artifact_id": "scratch-3",
+      "path_pattern": "calibration/**",
+      "purpose": "Rebuildable scratch and cached observations",
+      "schema": "Producer-specific temporary format",
+      "producer": "Self-evolve disposable stage writers",
+      "consumer_or_final_deliverable": "Current stage only",
+      "rebuild_or_restore": "Recreate through the original producer",
+      "retention_rule": {
+        "class": "rebuildable",
+        "rule": "Remove only with stopped writers and released dependencies. New scratch admission stops at 2000 files or 128 MiB; new runs stop at 32 retained run directories."
+      }
+    }
+  ]
+}

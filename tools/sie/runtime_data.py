@@ -471,6 +471,9 @@ def _target_component_in_operation(target, run_id, kind):
     root, repo = _private_root_context()
     identity = hashlib.sha256(os.path.normcase(str(target_path)).encode('utf-8')).hexdigest()
     requested = root/'targets'/identity/kind/run_id
+    if kind == 'runs':
+        from tools.storage_retention import enforce_capacity
+        enforce_capacity(root, requested.relative_to(root).as_posix())
     if kind == 'worktrees':
         parent, _ = verify_directory(requested.parent, expected_repo=repo)
         path = _safe_path(requested)
@@ -563,7 +566,10 @@ def write_json(value, payload, *, append=False):
 
 def temporary_directory(prefix):
     """Allocate grader scratch alongside other runtime DATA, never in system temp."""
-    root = make_directory(private_root()/'grader-work')
+    from tools.storage_retention import enforce_capacity
+    data_root = private_root()
+    enforce_capacity(data_root, 'grader-work')
+    root = make_directory(data_root/'grader-work')
     path = tempfile.mkdtemp(prefix=prefix, dir=runtime_directory(root))
     return str(runtime_directory(path))
 
@@ -572,6 +578,8 @@ def temporary_directory(prefix):
 def agent_scratch():
     """Own one private disposable working directory without changing process cwd."""
     root, repo = _private_root_context()
+    from tools.storage_retention import enforce_capacity
+    enforce_capacity(root, 'agent-work')
     scratch, _ = verify_directory(root/'agent-work', expected_repo=repo)
     if not scratch.is_relative_to(root):
         raise DataBoundaryError('Agent workspace escaped the private data root')
