@@ -5,6 +5,7 @@ All notable changes to this project are documented here (Keep a Changelog style)
 ## [Unreleased]
 
 ### Added
+- A research roadmap with phased evaluation, six falsifiable mechanism studies, operator scheduling, and long-term meta-improvement criteria. These are planned studies; detailed evidence remains in the private companion.
 - Read-only prerequisite diagnosis and metadata-only storage inventory, with explicit unavailable and boundary-failure results.
 - Reproducible synthetic B-target fixtures and support commands that require an explicit input and verified PRIVATE destination.
 - Reachable bilingual design rationale and documentation-impact, candidate-freeze, review, and handoff obligations. Documentation obligations are a contributor workflow, not an automatic runtime gate.
