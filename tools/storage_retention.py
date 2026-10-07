@@ -6,6 +6,7 @@ fail closed. The caller must stop writers before applying a retirement plan.
 from __future__ import annotations
 
 import argparse
+import copy
 import fnmatch
 import hashlib
 import json
@@ -37,6 +38,27 @@ def matches(name, pattern):
             return visit(i, j + 1) or (i < len(parts) and visit(i + 1, j))
         return i < len(parts) and fnmatch.fnmatchcase(parts[i], patterns[j]) and visit(i + 1, j + 1)
     return visit(0, 0)
+
+
+def contract_for_data_root(contract, root, repository):
+    """Project repository-relative ownership into a freshly proved DATA root."""
+    root, repository = Path(root).absolute(), Path(repository).absolute()
+    try:
+        scope = root.relative_to(repository).as_posix()
+    except ValueError as exc:
+        raise ValueError("Retention DATA must stay in its verified companion") from exc
+    if scope == ".":
+        return copy.deepcopy(contract)
+    prefix = relative_name(scope) + "/"
+    projected = copy.deepcopy(contract)
+    projected["artifacts"] = [
+        {**artifact, "path_pattern": artifact["path_pattern"][len(prefix):]}
+        for artifact in contract["artifacts"]
+        if artifact["path_pattern"].startswith(prefix)
+    ]
+    if not projected["artifacts"]:
+        raise ValueError("Retention DATA scope is not declared by its source contract")
+    return projected
 
 
 def checked(root, relative):
@@ -166,8 +188,9 @@ def main(argv=None):
     args = parser.parse_args(argv)
     contract = json.loads((ROOT / "storage.contract.json").read_text(encoding="utf-8"))
     if contract["tool"] == "self-evolve":
-        from tools.sie.runtime_data import private_root
-        root = private_root()
+        from tools.sie.runtime_data import _private_root_context
+        root, repository = _private_root_context()
+        contract = contract_for_data_root(contract, root, repository)
     else:
         from tools.runtime_paths import resolve_data_dir
         root = resolve_data_dir(required=True)

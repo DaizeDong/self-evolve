@@ -107,10 +107,18 @@ recovery source instead of duplicating retired worktrees, logs or bundles.
 ## Companion lifecycle
 
 The machine-readable artifact contract is [storage.contract.json](storage.contract.json).
-Its paths are relative to the PRIVATE companion's DATA directory. Each artifact
-records its producer, consumer or final deliverable, schema and recovery method.
-The companion README identifies selected final deliverables. Runtime records never
-fall back into this public repository.
+Its paths are relative to the exact PRIVATE companion repository root, including
+the `data/` prefix used by the default runtime layout. Each artifact records its
+producer, consumer or final deliverable, schema and recovery method. The shared
+checker inventories that whole root, including companion setup metadata; selecting
+only `data/` does not establish repository coverage. The companion README identifies
+selected final deliverables. Runtime records never fall back into this public repository.
+
+The runtime keeps its existing verified DATA root and DATA-relative retention
+registry paths. `tools.storage_retention` projects only declarations inside that
+freshly proved DATA scope before planning; it refuses an undeclared scope instead
+of matching repository paths against an unrelated subtree. No runtime destination
+or existing registry is moved by this contract normalization.
 
 Keep a current `retention.json` in DATA, following
 [schemas/storage-retention.schema.json](schemas/storage-retention.schema.json).
@@ -126,6 +134,20 @@ before removing ordinary files. It never follows junctions or rewrites event log
 The registry is one current document, not a sequence of timestamped backups.
 Restore retired bytes from its `source_commit` in the existing PRIVATE Git history.
 Keep that commit reachable; no new archive bundle is required.
+
+The historical catalog and original event bytes stay on hold while attribution,
+selected evidence or recovery obligations remain. Catalog presence does not prove
+resume or rollback capability. Necessary current conclusions must be retained
+before the owner considers historical retirement. Final research, adopted roadmap
+materials and unique cited dependencies keep their existing core protection.
+
+Observed empty legacy run, worktree, snapshot and holdout containers are declared
+at their exact container paths. They remain temporarily core on hold for target
+and restoration review; replacing a container with a file stays protected, and
+child files do not inherit those declarations. The owner must approve a later
+reclassification after the obligations close. Do not refill or replicate empty old
+execution scaffolding, and do not infer that empty directories preserve accepted
+run snapshots. Current run and accepted-parent dependency declarations remain core.
 
 Generated-area admission refuses further writes once existing usage reaches
 2,000 files or 128 MiB. The check measures current usage before a writer receives

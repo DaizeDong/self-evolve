@@ -117,3 +117,65 @@ def test_run_limit_counts_empty_runs_and_allows_existing_run(tmp_path, monkeypat
     storage.enforce_capacity(tmp_path, "targets/synthetic-target/runs/first")
     with pytest.raises(ValueError, match="Run capacity"):
         storage.enforce_capacity(tmp_path, "targets/synthetic-target/runs/second")
+
+
+def test_repository_contract_projects_into_data_without_weakening_core(tmp_path):
+    case = retention_samples()
+    repository = tmp_path / "synthetic-companion"
+    data = repository / "data"
+    data.mkdir(parents=True)
+    for name in ("core", "scratch"):
+        path = data / case[name]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(case["content"])
+    original = copy.deepcopy(case["contract"])
+    for artifact in original["artifacts"]:
+        artifact["path_pattern"] = "data/" + artifact["path_pattern"]
+    original["artifacts"].append({"path_pattern": "README.md",
+                                  "retention_rule": {"class": "core"}})
+    snapshot = copy.deepcopy(original)
+    projected = storage.contract_for_data_root(original, data, repository)
+    assert original == snapshot
+    assert projected["artifacts"] == case["contract"]["artifacts"]
+    with pytest.raises(ValueError, match="core"):
+        storage.build_plan(data, selected(case, case["core"]), projected)
+    assert storage.build_plan(data, selected(case, case["scratch"]), projected)["file_count"] == 1
+
+
+def test_data_projection_requires_declared_scope_and_repository_confinement(tmp_path):
+    case = retention_samples()
+    with pytest.raises(ValueError, match="declared"):
+        storage.contract_for_data_root(case["contract"], tmp_path / "data", tmp_path)
+    with pytest.raises(ValueError, match="companion"):
+        storage.contract_for_data_root(case["contract"], tmp_path.parent, tmp_path)
+
+
+def test_retention_main_projects_verified_data_root_before_planning(tmp_path, monkeypatch, capsys):
+    import json
+    from tools.sie import runtime_data
+
+    case = retention_samples()
+    source = tmp_path / "synthetic-source"
+    source.mkdir()
+    repository = tmp_path / "synthetic-companion"
+    data = repository / "data"
+    data.mkdir(parents=True)
+    for name in ("core", "scratch"):
+        path = data / case[name]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(case["content"])
+    contract = copy.deepcopy(case["contract"])
+    contract["tool"] = "self-evolve"
+    for artifact in contract["artifacts"]:
+        artifact["path_pattern"] = "data/" + artifact["path_pattern"]
+    (source / "storage.contract.json").write_text(json.dumps(contract), encoding="utf-8")
+    (data / "retention.json").write_text(json.dumps(selected(case, case["core"])), encoding="utf-8")
+    monkeypatch.setattr(storage, "ROOT", source)
+    monkeypatch.setattr(runtime_data, "_private_root_context", lambda: (data, repository))
+    with pytest.raises(ValueError, match="core"):
+        storage.main([])
+    (data / "retention.json").write_text(json.dumps(selected(case, case["scratch"])), encoding="utf-8")
+    storage.main([])
+    assert json.loads(capsys.readouterr().out)["file_count"] == 1
+    assert (data / case["core"]).read_bytes() == case["content"]
+    assert (data / case["scratch"]).read_bytes() == case["content"]
