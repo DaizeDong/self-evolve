@@ -1,10 +1,11 @@
 {
   "schema_version": 1,
   "tool": "self-evolve",
+  "max_bytes": 67108864,
   "artifacts": [
     {
       "artifact_id": "retention-register",
-      "path_pattern": "retention.json",
+      "path_pattern": "data/retention.json",
       "purpose": "Explicit protected dependencies and completed retirement selections",
       "schema": "schemas/storage-retention.schema.json",
       "producer": "Owner-reviewed maintenance",
@@ -17,7 +18,7 @@
     },
     {
       "artifact_id": "run-events",
-      "path_pattern": "targets/*/runs/*/events.jsonl",
+      "path_pattern": "data/targets/*/runs/*/events.jsonl",
       "purpose": "Run state transitions and holdout cadence",
       "schema": "tools/sie/events.py and tools/sie/state.py event readers",
       "producer": "Self-evolve event writer",
@@ -30,7 +31,7 @@
     },
     {
       "artifact_id": "run-dependency-0",
-      "path_pattern": "targets/*/runs/*/target.json",
+      "path_pattern": "data/targets/*/runs/*/target.json",
       "purpose": "Complete current execution and rollback dependency",
       "schema": "DATA.md and the corresponding tools/sie reader",
       "producer": "Self-evolve run and archive writers",
@@ -43,7 +44,7 @@
     },
     {
       "artifact_id": "run-dependency-1",
-      "path_pattern": "targets/*/runs/*/base-snapshot/**",
+      "path_pattern": "data/targets/*/runs/*/base-snapshot/**",
       "purpose": "Complete current execution and rollback dependency",
       "schema": "DATA.md and the corresponding tools/sie reader",
       "producer": "Self-evolve run and archive writers",
@@ -56,7 +57,7 @@
     },
     {
       "artifact_id": "run-dependency-2",
-      "path_pattern": "targets/*/runs/*/archive/**",
+      "path_pattern": "data/targets/*/runs/*/archive/**",
       "purpose": "Complete current execution and rollback dependency",
       "schema": "DATA.md and the corresponding tools/sie reader",
       "producer": "Self-evolve run and archive writers",
@@ -69,7 +70,7 @@
     },
     {
       "artifact_id": "run-dependency-3",
-      "path_pattern": "targets/*/runs/*/pending_actions.jsonl",
+      "path_pattern": "data/targets/*/runs/*/pending_actions.jsonl",
       "purpose": "Complete current execution and rollback dependency",
       "schema": "DATA.md and the corresponding tools/sie reader",
       "producer": "Self-evolve run and archive writers",
@@ -82,7 +83,7 @@
     },
     {
       "artifact_id": "run-dependency-4",
-      "path_pattern": "targets/*/runs/*/_frozen/**",
+      "path_pattern": "data/targets/*/runs/*/_frozen/**",
       "purpose": "Complete current execution and rollback dependency",
       "schema": "DATA.md and the corresponding tools/sie reader",
       "producer": "Self-evolve run and archive writers",
@@ -95,7 +96,7 @@
     },
     {
       "artifact_id": "run-dependency-5",
-      "path_pattern": "targets/*/runs/*/_holdout/**",
+      "path_pattern": "data/targets/*/runs/*/_holdout/**",
       "purpose": "Complete current execution and rollback dependency",
       "schema": "DATA.md and the corresponding tools/sie reader",
       "producer": "Self-evolve run and archive writers",
@@ -108,7 +109,7 @@
     },
     {
       "artifact_id": "run-dependency-6",
-      "path_pattern": "targets/*/runs/*/state.json",
+      "path_pattern": "data/targets/*/runs/*/state.json",
       "purpose": "Complete current execution and rollback dependency",
       "schema": "DATA.md and the corresponding tools/sie reader",
       "producer": "Self-evolve run and archive writers",
@@ -121,20 +122,20 @@
     },
     {
       "artifact_id": "history",
-      "path_pattern": "history/**",
-      "purpose": "Retained historical event bytes and recovery catalog",
+      "path_pattern": "data/history/index.json",
+      "purpose": "One historical recovery catalog retained during legacy obligation review.",
       "schema": "schemas/history-catalog.schema.json",
       "producer": "Reviewed run retirement",
       "consumer_or_final_deliverable": "Historical review and explicit Git recovery",
       "rebuild_or_restore": "Restore the catalog source_commit and original paths",
       "retention_rule": {
         "class": "core",
-        "rule": "Keep the catalog and its event bytes; historical does not imply resumable."
+        "rule": "Keep this catalog while historical event attribution, selected evidence or explicit recovery obligations remain. Reconcile necessary current conclusions before the owner reviews retirement. Catalog presence does not prove resumability or authorize new copies."
       }
     },
     {
       "artifact_id": "research-delivery-0",
-      "path_pattern": "research/*/REPORT.zh-CN.md",
+      "path_pattern": "data/research/*/REPORT.zh-CN.md",
       "purpose": "Final research, citation index and unique cited evidence",
       "schema": "Research index fields and source references documented in DATA.md",
       "producer": "Reviewed research workflow",
@@ -147,7 +148,7 @@
     },
     {
       "artifact_id": "research-delivery-1",
-      "path_pattern": "research/*/OUTLINE.zh-CN.md",
+      "path_pattern": "data/research/*/OUTLINE.zh-CN.md",
       "purpose": "Final research, citation index and unique cited evidence",
       "schema": "Research index fields and source references documented in DATA.md",
       "producer": "Reviewed research workflow",
@@ -160,7 +161,7 @@
     },
     {
       "artifact_id": "research-delivery-2",
-      "path_pattern": "research/*/INDEX.json",
+      "path_pattern": "data/research/*/INDEX.json",
       "purpose": "Final research, citation index and unique cited evidence",
       "schema": "Research index fields and source references documented in DATA.md",
       "producer": "Reviewed research workflow",
@@ -173,7 +174,7 @@
     },
     {
       "artifact_id": "research-delivery-3",
-      "path_pattern": "research/*/REFERENCES.md",
+      "path_pattern": "data/research/*/REFERENCES.md",
       "purpose": "Final research, citation index and unique cited evidence",
       "schema": "Research index fields and source references documented in DATA.md",
       "producer": "Reviewed research workflow",
@@ -186,7 +187,7 @@
     },
     {
       "artifact_id": "research-delivery-4",
-      "path_pattern": "research/*/HISTORY.md",
+      "path_pattern": "data/research/*/HISTORY.md",
       "purpose": "Final research, citation index and unique cited evidence",
       "schema": "Research index fields and source references documented in DATA.md",
       "producer": "Reviewed research workflow",
@@ -199,7 +200,7 @@
     },
     {
       "artifact_id": "research-delivery-5",
-      "path_pattern": "research/*/DESIGN-AGENDA.md",
+      "path_pattern": "data/research/*/DESIGN-AGENDA.md",
       "purpose": "Final research, citation index and unique cited evidence",
       "schema": "Research index fields and source references documented in DATA.md",
       "producer": "Reviewed research workflow",
@@ -212,7 +213,7 @@
     },
     {
       "artifact_id": "research-delivery-6",
-      "path_pattern": "research/*/MANIFEST.json",
+      "path_pattern": "data/research/*/MANIFEST.json",
       "purpose": "Final research, citation index and unique cited evidence",
       "schema": "Research index fields and source references documented in DATA.md",
       "producer": "Reviewed research workflow",
@@ -225,7 +226,7 @@
     },
     {
       "artifact_id": "research-delivery-7",
-      "path_pattern": "research/*/VALIDATION.json",
+      "path_pattern": "data/research/*/VALIDATION.json",
       "purpose": "Final research, citation index and unique cited evidence",
       "schema": "Research index fields and source references documented in DATA.md",
       "producer": "Reviewed research workflow",
@@ -238,7 +239,7 @@
     },
     {
       "artifact_id": "research-delivery-8",
-      "path_pattern": "research/*/sources/**",
+      "path_pattern": "data/research/*/sources/**",
       "purpose": "Final research, citation index and unique cited evidence",
       "schema": "Research index fields and source references documented in DATA.md",
       "producer": "Reviewed research workflow",
@@ -251,7 +252,7 @@
     },
     {
       "artifact_id": "research-reviews",
-      "path_pattern": "research/*/*REVIEW.json",
+      "path_pattern": "data/research/*/*REVIEW.json",
       "purpose": "Completed intermediate review receipts",
       "schema": "JSON review records",
       "producer": "Research review workflow",
@@ -264,7 +265,7 @@
     },
     {
       "artifact_id": "research-rounds",
-      "path_pattern": "research/*/ROUND*.json",
+      "path_pattern": "data/research/*/ROUND*.json",
       "purpose": "Superseded intermediate roadmap reviews",
       "schema": "JSON review records",
       "producer": "Roadmap integration workflow",
@@ -277,7 +278,7 @@
     },
     {
       "artifact_id": "completed-process-0",
-      "path_pattern": "research/*/HANDOFF.json",
+      "path_pattern": "data/research/*/HANDOFF.json",
       "purpose": "Completed workflow instructions",
       "schema": "JSON or Markdown",
       "producer": "Research workflow",
@@ -290,7 +291,7 @@
     },
     {
       "artifact_id": "completed-process-1",
-      "path_pattern": "research/*/PROTOCOL.md",
+      "path_pattern": "data/research/*/PROTOCOL.md",
       "purpose": "Completed workflow instructions",
       "schema": "JSON or Markdown",
       "producer": "Research workflow",
@@ -303,7 +304,7 @@
     },
     {
       "artifact_id": "scratch-0",
-      "path_pattern": "agent-work/**",
+      "path_pattern": "data/agent-work/**",
       "purpose": "Rebuildable scratch and cached observations",
       "schema": "Producer-specific temporary format",
       "producer": "Self-evolve disposable stage writers",
@@ -316,7 +317,7 @@
     },
     {
       "artifact_id": "scratch-1",
-      "path_pattern": "grader-work/**",
+      "path_pattern": "data/grader-work/**",
       "purpose": "Rebuildable scratch and cached observations",
       "schema": "Producer-specific temporary format",
       "producer": "Self-evolve disposable stage writers",
@@ -329,7 +330,7 @@
     },
     {
       "artifact_id": "scratch-2",
-      "path_pattern": "edgar-cache/**",
+      "path_pattern": "data/edgar-cache/**",
       "purpose": "Rebuildable scratch and cached observations",
       "schema": "Producer-specific temporary format",
       "producer": "Self-evolve disposable stage writers",
@@ -342,7 +343,7 @@
     },
     {
       "artifact_id": "scratch-3",
-      "path_pattern": "calibration/**",
+      "path_pattern": "data/calibration/**",
       "purpose": "Rebuildable scratch and cached observations",
       "schema": "Producer-specific temporary format",
       "producer": "Self-evolve disposable stage writers",
@@ -351,6 +352,188 @@
       "retention_rule": {
         "class": "rebuildable",
         "rule": "Remove only with stopped writers and released dependencies. New scratch admission stops at 2000 files or 128 MiB; new runs stop at 32 retained run directories."
+      }
+    },
+    {
+      "artifact_id": "companion-README-md",
+      "path_pattern": "README.md",
+      "purpose": "Current companion setup, versioning or recovery metadata.",
+      "schema": "Markdown or Git tracking policy.",
+      "producer": "Companion maintainer.",
+      "consumer_or_final_deliverable": "Operator setup, selected-deliverable discovery and PRIVATE versioning.",
+      "rebuild_or_restore": "Restore exact metadata from PRIVATE companion history.",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Keep current setup and tracking instructions; superseded guidance requires explicit replacement and obligation review."
+      }
+    },
+    {
+      "artifact_id": "companion--gitignore",
+      "path_pattern": ".gitignore",
+      "purpose": "Current companion setup, versioning or recovery metadata.",
+      "schema": "Markdown or Git tracking policy.",
+      "producer": "Companion maintainer.",
+      "consumer_or_final_deliverable": "Operator setup, selected-deliverable discovery and PRIVATE versioning.",
+      "rebuild_or_restore": "Restore exact metadata from PRIVATE companion history.",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Keep current setup and tracking instructions; superseded guidance requires explicit replacement and obligation review."
+      }
+    },
+    {
+      "artifact_id": "companion--gitattributes",
+      "path_pattern": ".gitattributes",
+      "purpose": "Current companion setup, versioning or recovery metadata.",
+      "schema": "Markdown or Git tracking policy.",
+      "producer": "Companion maintainer.",
+      "consumer_or_final_deliverable": "Operator setup, selected-deliverable discovery and PRIVATE versioning.",
+      "rebuild_or_restore": "Restore exact metadata from PRIVATE companion history.",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Keep current setup and tracking instructions; superseded guidance requires explicit replacement and obligation review."
+      }
+    },
+    {
+      "artifact_id": "historical-run-events",
+      "path_pattern": "data/history/*/events.jsonl",
+      "purpose": "Original event chains supporting the reviewed historical catalog.",
+      "schema": "tools/sie/events.py and schemas/history-catalog.schema.json; old reducer compatibility is not assumed.",
+      "producer": "Earlier runs and reviewed historical migration.",
+      "consumer_or_final_deliverable": "Historical attribution and catalog-based restoration; not a supported current resume input by declaration alone.",
+      "rebuild_or_restore": "Restore original paths from the PRIVATE source_commit recorded in the catalog.",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Hold original event bytes while catalog, attribution or recovery obligations remain. Do not truncate events or invent replacement records. Review retirement only after necessary current evidence is preserved and obligations close."
+      }
+    },
+    {
+      "artifact_id": "legacy-empty-run-container-0",
+      "path_pattern": "data/btarget_run/btarget_repo/.sie/runs/btier-accept-*",
+      "purpose": "Observed empty legacy run, worktree, snapshot or holdout container.",
+      "schema": "Empty ordinary directory; child files are deliberately not classified by this entry.",
+      "producer": "Earlier execution scaffolding and reviewed legacy retirement.",
+      "consumer_or_final_deliverable": "Operator review of historical target and recovery obligations; no current file reader was established.",
+      "rebuild_or_restore": "Use retained historical catalog and PRIVATE source_commit if original contents are needed; an empty container proves no rollback capability.",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Temporary hold until target, accepted-run, worktree and recovery obligations are reconciled. The owner must separately approve reclassification after that review. This exact path protects a replacement file as well as its observed empty container, grants no ownership to child files, and permits no new execution writes or copies."
+      }
+    },
+    {
+      "artifact_id": "legacy-empty-run-container-1",
+      "path_pattern": "data/btarget_run/btarget_repo/.sie/worktrees/btier-accept-*",
+      "purpose": "Observed empty legacy run, worktree, snapshot or holdout container.",
+      "schema": "Empty ordinary directory; child files are deliberately not classified by this entry.",
+      "producer": "Earlier execution scaffolding and reviewed legacy retirement.",
+      "consumer_or_final_deliverable": "Operator review of historical target and recovery obligations; no current file reader was established.",
+      "rebuild_or_restore": "Use retained historical catalog and PRIVATE source_commit if original contents are needed; an empty container proves no rollback capability.",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Temporary hold until target, accepted-run, worktree and recovery obligations are reconciled. The owner must separately approve reclassification after that review. This exact path protects a replacement file as well as its observed empty container, grants no ownership to child files, and permits no new execution writes or copies."
+      }
+    },
+    {
+      "artifact_id": "legacy-empty-run-container-2",
+      "path_pattern": "data/btarget_run/btarget_repo/.sie/worktrees/profile_probe",
+      "purpose": "Observed empty legacy run, worktree, snapshot or holdout container.",
+      "schema": "Empty ordinary directory; child files are deliberately not classified by this entry.",
+      "producer": "Earlier execution scaffolding and reviewed legacy retirement.",
+      "consumer_or_final_deliverable": "Operator review of historical target and recovery obligations; no current file reader was established.",
+      "rebuild_or_restore": "Use retained historical catalog and PRIVATE source_commit if original contents are needed; an empty container proves no rollback capability.",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Temporary hold until target, accepted-run, worktree and recovery obligations are reconciled. The owner must separately approve reclassification after that review. This exact path protects a replacement file as well as its observed empty container, grants no ownership to child files, and permits no new execution writes or copies."
+      }
+    },
+    {
+      "artifact_id": "legacy-empty-run-container-3",
+      "path_pattern": "data/btarget_run/btarget_repo/_run/_holdout",
+      "purpose": "Observed empty legacy run, worktree, snapshot or holdout container.",
+      "schema": "Empty ordinary directory; child files are deliberately not classified by this entry.",
+      "producer": "Earlier execution scaffolding and reviewed legacy retirement.",
+      "consumer_or_final_deliverable": "Operator review of historical target and recovery obligations; no current file reader was established.",
+      "rebuild_or_restore": "Use retained historical catalog and PRIVATE source_commit if original contents are needed; an empty container proves no rollback capability.",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Temporary hold until target, accepted-run, worktree and recovery obligations are reconciled. The owner must separately approve reclassification after that review. This exact path protects a replacement file as well as its observed empty container, grants no ownership to child files, and permits no new execution writes or copies."
+      }
+    },
+    {
+      "artifact_id": "legacy-empty-run-container-4",
+      "path_pattern": "data/btarget_strong/repo/.sie/runs/btier-strong-*/archive/versions/v*/snapshot",
+      "purpose": "Observed empty legacy run, worktree, snapshot or holdout container.",
+      "schema": "Empty ordinary directory; child files are deliberately not classified by this entry.",
+      "producer": "Earlier execution scaffolding and reviewed legacy retirement.",
+      "consumer_or_final_deliverable": "Operator review of historical target and recovery obligations; no current file reader was established.",
+      "rebuild_or_restore": "Use retained historical catalog and PRIVATE source_commit if original contents are needed; an empty container proves no rollback capability.",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Temporary hold until target, accepted-run, worktree and recovery obligations are reconciled. The owner must separately approve reclassification after that review. This exact path protects a replacement file as well as its observed empty container, grants no ownership to child files, and permits no new execution writes or copies."
+      }
+    },
+    {
+      "artifact_id": "legacy-empty-run-container-5",
+      "path_pattern": "data/btarget_strong/repo/.sie/worktrees/btier-strong-*",
+      "purpose": "Observed empty legacy run, worktree, snapshot or holdout container.",
+      "schema": "Empty ordinary directory; child files are deliberately not classified by this entry.",
+      "producer": "Earlier execution scaffolding and reviewed legacy retirement.",
+      "consumer_or_final_deliverable": "Operator review of historical target and recovery obligations; no current file reader was established.",
+      "rebuild_or_restore": "Use retained historical catalog and PRIVATE source_commit if original contents are needed; an empty container proves no rollback capability.",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Temporary hold until target, accepted-run, worktree and recovery obligations are reconciled. The owner must separately approve reclassification after that review. This exact path protects a replacement file as well as its observed empty container, grants no ownership to child files, and permits no new execution writes or copies."
+      }
+    },
+    {
+      "artifact_id": "legacy-empty-run-container-6",
+      "path_pattern": "data/btarget_strong/repo/.sie/worktrees/profile_probe",
+      "purpose": "Observed empty legacy run, worktree, snapshot or holdout container.",
+      "schema": "Empty ordinary directory; child files are deliberately not classified by this entry.",
+      "producer": "Earlier execution scaffolding and reviewed legacy retirement.",
+      "consumer_or_final_deliverable": "Operator review of historical target and recovery obligations; no current file reader was established.",
+      "rebuild_or_restore": "Use retained historical catalog and PRIVATE source_commit if original contents are needed; an empty container proves no rollback capability.",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Temporary hold until target, accepted-run, worktree and recovery obligations are reconciled. The owner must separately approve reclassification after that review. This exact path protects a replacement file as well as its observed empty container, grants no ownership to child files, and permits no new execution writes or copies."
+      }
+    },
+    {
+      "artifact_id": "legacy-empty-run-container-7",
+      "path_pattern": "data/btarget_strong/repo/_run/_holdout",
+      "purpose": "Observed empty legacy run, worktree, snapshot or holdout container.",
+      "schema": "Empty ordinary directory; child files are deliberately not classified by this entry.",
+      "producer": "Earlier execution scaffolding and reviewed legacy retirement.",
+      "consumer_or_final_deliverable": "Operator review of historical target and recovery obligations; no current file reader was established.",
+      "rebuild_or_restore": "Use retained historical catalog and PRIVATE source_commit if original contents are needed; an empty container proves no rollback capability.",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Temporary hold until target, accepted-run, worktree and recovery obligations are reconciled. The owner must separately approve reclassification after that review. This exact path protects a replacement file as well as its observed empty container, grants no ownership to child files, and permits no new execution writes or copies."
+      }
+    },
+    {
+      "artifact_id": "legacy-empty-run-container-8",
+      "path_pattern": "data/nightrun",
+      "purpose": "Observed empty legacy run, worktree, snapshot or holdout container.",
+      "schema": "Empty ordinary directory; child files are deliberately not classified by this entry.",
+      "producer": "Earlier execution scaffolding and reviewed legacy retirement.",
+      "consumer_or_final_deliverable": "Operator review of historical target and recovery obligations; no current file reader was established.",
+      "rebuild_or_restore": "Use retained historical catalog and PRIVATE source_commit if original contents are needed; an empty container proves no rollback capability.",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Temporary hold until target, accepted-run, worktree and recovery obligations are reconciled. The owner must separately approve reclassification after that review. This exact path protects a replacement file as well as its observed empty container, grants no ownership to child files, and permits no new execution writes or copies."
+      }
+    },
+    {
+      "artifact_id": "legacy-empty-run-container-9",
+      "path_pattern": "data/runs",
+      "purpose": "Observed empty legacy run, worktree, snapshot or holdout container.",
+      "schema": "Empty ordinary directory; child files are deliberately not classified by this entry.",
+      "producer": "Earlier execution scaffolding and reviewed legacy retirement.",
+      "consumer_or_final_deliverable": "Operator review of historical target and recovery obligations; no current file reader was established.",
+      "rebuild_or_restore": "Use retained historical catalog and PRIVATE source_commit if original contents are needed; an empty container proves no rollback capability.",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Temporary hold until target, accepted-run, worktree and recovery obligations are reconciled. The owner must separately approve reclassification after that review. This exact path protects a replacement file as well as its observed empty container, grants no ownership to child files, and permits no new execution writes or copies."
       }
     }
   ]

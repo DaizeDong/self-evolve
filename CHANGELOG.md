@@ -4,6 +4,13 @@ All notable changes to this project are documented here (Keep a Changelog style)
 
 ## [Unreleased]
 
+### Storage review threshold
+- Align repository-root storage declarations with the native DATA-relative
+  retirement planner while preserving research, accepted-parent recovery and
+  unresolved legacy holds.
+- Set a 64 MiB companion working-data review threshold. Required observations and
+  recovery state stay protected when the threshold is exceeded.
+
 ### Added
 - A research roadmap with phased evaluation, six falsifiable mechanism studies, operator scheduling, and long-term meta-improvement criteria. These are planned studies; detailed evidence remains in the private companion.
 - Read-only prerequisite diagnosis and metadata-only storage inventory, with explicit unavailable and boundary-failure results.
