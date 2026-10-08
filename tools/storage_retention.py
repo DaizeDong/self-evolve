@@ -61,11 +61,16 @@ def contract_for_data_root(contract, root, repository):
     return projected
 
 
-def checked(root, relative):
+def checked(root, relative, *, allow_missing_root=False):
     root = Path(root).absolute()
     path = root / relative_name(relative)
     for item in (*reversed(root.parents), root):
-        info = item.lstat()
+        try:
+            info = item.lstat()
+        except FileNotFoundError:
+            if allow_missing_root:
+                continue
+            raise
         if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 1024:
             raise ValueError("Retention root cannot contain a link")
     current = root
@@ -150,6 +155,9 @@ def enforce_capacity(root, relative, *, max_files=MAX_FILES, max_bytes=MAX_BYTES
     """Refuse additional generated output at capacity; never evict core records."""
     root = Path(root).absolute()
     name = relative_name(relative)
+    checked(root, name, allow_missing_root=True)
+    if not root.exists():
+        return
     tool = json.loads((ROOT / "storage.contract.json").read_text(encoding="utf-8"))["tool"]
     if tool == "buy-me-a-car":
         areas = ("audits", "diagnostics", "eval/model-runs", "browser-sessions", "playwright-mcp", "scratch")

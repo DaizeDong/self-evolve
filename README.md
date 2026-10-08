@@ -55,11 +55,20 @@ installation alias. Run `python -m pytest tests` for the business suite.
 
 ## Config
 
-Set `SELF_EVOLVE_CONFIG` to an existing PRIVATE Git companion, or
-`SELF_EVOLVE_DATA_DIR` to an absolute directory inside it. Runtime writes require
+Set `SELF_EVOLVE_CONFIG` (alias `SELF_EVOLVE_CONFIG_DIR`) to an existing PRIVATE
+Git companion, or `SELF_EVOLVE_DATA_DIR` to exactly its absolute `data/` path.
+Discovery checks DATA_DIR, CONFIG, CONFIG_DIR, the proved sibling companion,
+then home candidates, in that order. An inherited DATA_DIR wins over a new CONFIG.
+The `data/` directory may be absent; the companion root is never a DATA fallback.
+Runtime writes require source-contract ownership and
 valid PRIVATE destination proof; missing, stale, public, or unknown proof blocks
 writes. See [DATA.md](DATA.md) for storage and retention, and
 [runtime configuration](reference/runtime.md#configuration) for prerequisites.
+
+[config.contract.json](config.contract.json) records runtime-storage-only
+applicability. Per-run profiles and the retention obligation ledger are DATA;
+there is no separate settings registry to initialize. New source worktrees use
+the sibling `.worktrees/self-evolve/` layout described in the runtime reference.
 
 Model calls use installed `llmcall` routing, model, timeout, and fallback settings.
 Agents use `mode="agent"`; text judges use default judge mode. Actual returned

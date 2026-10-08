@@ -4,6 +4,15 @@ All notable changes to this project are documented here (Keep a Changelog style)
 
 ## [Unreleased]
 
+### Runtime storage authorization
+- Require source-contract ownership before artifact writes and bind DATA overrides
+  to the companion's exact `data/` layout, with both CONFIG aliases documented.
+- Declare run evidence, outside-run review queues, metadata manifests and atomic
+  staging. New source-only worktrees use the sibling `.worktrees/self-evolve/`
+  layout; existing candidates keep validated resume without automatic migration.
+- State runtime-storage-only configuration applicability and document storage
+  initialization, switching, retention-ledger ownership and recovery boundaries.
+
 ### Storage review threshold
 - Align repository-root storage declarations with the native DATA-relative
   retirement planner while preserving research, accepted-parent recovery and

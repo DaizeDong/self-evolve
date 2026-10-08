@@ -13,7 +13,7 @@ from tools.make_fixtures import runtime_samples
 # ---------------------------------------------------------------------------
 
 def test_prepare_cache_creates_dir_and_sets_env(tmp_path, monkeypatch):
-    root = Path(os.environ['SELF_EVOLVE_DATA_DIR']) / tmp_path.name
+    root = Path(os.environ['SELF_EVOLVE_DATA_DIR']) / 'edgar-cache' / tmp_path.name
     monkeypatch.setenv('EDGAR_IDENTITY',runtime_samples()['edgar_identity'])
     p = edgar_cache.prepare_cache(str(root))
     assert os.path.isdir(p)
@@ -21,7 +21,7 @@ def test_prepare_cache_creates_dir_and_sets_env(tmp_path, monkeypatch):
 
 
 def test_prepare_cache_preserves_existing_nonempty(tmp_path, monkeypatch):
-    root = Path(os.environ['SELF_EVOLVE_DATA_DIR']) / tmp_path.name
+    root = Path(os.environ['SELF_EVOLVE_DATA_DIR']) / 'edgar-cache' / tmp_path.name
     monkeypatch.setenv('EDGAR_IDENTITY',runtime_samples()['edgar_identity'])
     os.makedirs(root, exist_ok=True)
     with open(root / "stale.bin", "wb") as f:
@@ -39,7 +39,7 @@ def test_prepare_cache_preserves_existing_nonempty(tmp_path, monkeypatch):
 
 
 def test_prepare_cache_returns_path_string(tmp_path, monkeypatch):
-    root = Path(os.environ['SELF_EVOLVE_DATA_DIR']) / tmp_path.name
+    root = Path(os.environ['SELF_EVOLVE_DATA_DIR']) / 'edgar-cache' / tmp_path.name
     monkeypatch.setenv('EDGAR_IDENTITY',runtime_samples()['edgar_identity'])
     p = edgar_cache.prepare_cache(str(root))
     assert isinstance(p, str)

@@ -194,6 +194,7 @@ def environment(case):
         worktree_directory=lambda *args: fs.path(case["sandbox"]),
         run_directory=lambda *args: fs.path(case["run"]),
         private_file_path=fs.path,
+        make_directory=fs.mkdir,
     )
     rd = definitions("tools/sie/runtime_data.py", {"re": re, "os": fs.os(), "json": json,
                      "Path": fs.path, "stat": stat, "_safe_path": fs.path,

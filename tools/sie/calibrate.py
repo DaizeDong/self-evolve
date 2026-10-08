@@ -40,7 +40,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 from pathlib import Path
 
@@ -185,9 +184,9 @@ def run_suite(root: str, timeout_s: float = 1800) -> tuple:
 def run_oracle(root: str, oracle_src: str, timeout_s: float = 300) -> tuple:
     """Run one hidden oracle against a tree. The oracle is written to a temp file OUTSIDE the tree,
     so a proposer inspecting its own sandbox can never see the grading criterion."""
-    from tools.sie.runtime_data import make_directory, private_root, private_file_path
-    scratch = make_directory(private_root()/'calibration-checks')
-    with tempfile.TemporaryDirectory(prefix="sie-oracle-", dir=scratch) as td:
+    from tools.sie.runtime_data import temporary_directory, private_file_path, _directory_metadata
+    td = temporary_directory('sie-oracle-')
+    try:
         f = Path(td) / "test_oracle.py"
         private_file_path(f).write_text(oracle_src, encoding="utf-8", newline="\n")
         env = dict(os.environ)
@@ -204,6 +203,10 @@ def run_oracle(root: str, oracle_src: str, timeout_s: float = 300) -> tuple:
             return pr.returncode, (pr.stdout or "")[-400:]
         except subprocess.TimeoutExpired:
             return -1, "TIMEOUT"
+    finally:
+        _directory_metadata(td)
+        if Path(td).exists():
+            shutil.rmtree(td)
 
 
 def validate(target: str, defects: list, workdir: str) -> dict:
@@ -643,16 +646,15 @@ def _calibration_main(argv, rep) -> int:
 
     only = {x.strip() for x in a.only.split(",") if x.strip()} or None
     defects = load_defects(only)
-    from tools.sie.runtime_data import private_root, runtime_directory, private_file_path
+    from tools.sie.runtime_data import private_root, make_directory, private_file_path, _new_scratch_directory
     if a.out:
         a.out = str(private_file_path(a.out))
         rep["report_path"] = a.out
     if a.workdir:
-        workdir = str(runtime_directory(a.workdir))
+        workdir = str(make_directory(a.workdir))
     else:
-        parent = runtime_directory(private_root() / 'calibration')
-        parent.mkdir(parents=True, exist_ok=True)
-        workdir = tempfile.mkdtemp(prefix='run-', dir=parent)
+        parent = make_directory(private_root() / 'calibration')
+        workdir = str(_new_scratch_directory(parent, 'run-'))
     os.makedirs(workdir, exist_ok=True)
 
     t0 = time.time()

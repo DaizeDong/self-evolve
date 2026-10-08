@@ -130,9 +130,10 @@ def _main(argv: list[str] | None = None) -> int:
 
     # ------------------------------------------------------------------
     if args.cmd == "init":
+        from tools.sie.runtime_data import make_directory
         rid = args.run_id or uuid.uuid4().hex[:12]
         rd = _run_dir(args.target, rid)
-        os.makedirs(rd, exist_ok=True)
+        make_directory(rd)
         print(json.dumps({"run_id": rid, "run_dir": rd}, ensure_ascii=False))
         return 0
 

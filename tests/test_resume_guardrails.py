@@ -99,8 +99,10 @@ def test_resume_after_rejected_due_round_consumes_next_measurement(tmp_path, mon
 @pytest.fixture
 def isolated_holdout_loop(tmp_path, monkeypatch):
     private = tmp_path / "generated-private"
-    private.mkdir()
-    monkeypatch.setenv("SELF_EVOLVE_DATA_DIR", str(private))
+    data = private / "data"
+    data.mkdir(parents=True)
+    (private / ".git").mkdir()
+    monkeypatch.setenv("SELF_EVOLVE_DATA_DIR", str(data))
 
     def prove(value, expected_repo=None):
         path = runtime_data._safe_path(value)
@@ -110,8 +112,8 @@ def isolated_holdout_loop(tmp_path, monkeypatch):
 
     monkeypatch.setattr(runtime_data, "verify_directory", prove)
     monkeypatch.setattr(gate_human, "enqueue", lambda *args: "synthetic-holdout-review")
-    candidate = private / "candidate"
-    candidate.mkdir()
+    candidate = data / "grader-work" / "candidate"
+    candidate.mkdir(parents=True)
     (candidate / "artifact.json").write_text(json.dumps(synthetic_artifact(30)), encoding="utf-8")
     change = source13_repair_inputs()["loop_change"]
     monkeypatch.setattr(statemachine, "make_worktree", lambda *args: str(candidate))
@@ -263,7 +265,7 @@ def test_repeat_frozen_materialization_refuses_changed_bytes(tiny_frozen_repo):
 
 def test_selfboot_can_reopen_its_existing_frozen_run(tiny_frozen_repo, tmp_path):
     repository, _ = tiny_frozen_repo
-    runs = runtime_data.private_root() / tmp_path.name / "self-runs"
+    runs = runtime_data.private_root() / "targets" / tmp_path.name / "runs"
     first = selfboot.selfboot_init(str(repository), "HEAD", "synthetic-resume", str(runs))
     second = selfboot.selfboot_init(str(repository), "HEAD", "synthetic-resume", str(runs))
     assert first["candidate_worktree"] == second["candidate_worktree"]

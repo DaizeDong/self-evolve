@@ -9,9 +9,11 @@ import os
 from pathlib import Path
 import re
 import shlex
+import shutil
 import stat
 import subprocess
-import tempfile
+import sys
+import uuid
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -423,20 +425,30 @@ def _private_root_context():
         raise DataBoundaryError('Missing guards kit; run git submodule update --init --recursive')
     explicit = os.environ.get('SELF_EVOLVE_DATA_DIR')
     if explicit:
-        return verify_directory(explicit)
+        root, repo = verify_directory(explicit)
+        if root != repo/'data':
+            raise DataBoundaryError('SELF_EVOLVE_DATA_DIR must select the companion data/ layout')
+        return root, repo
+    configured = None
     for name in ('SELF_EVOLVE_CONFIG', 'SELF_EVOLVE_CONFIG_DIR'):
         value = os.environ.get(name)
-        if value and not _safe_path(value).is_dir():
-            raise DataBoundaryError(name+' must name an existing PRIVATE companion')
+        if value:
+            configured = _safe_path(value)
+            if not configured.is_dir():
+                raise DataBoundaryError(name+' must name an existing PRIVATE companion')
+            break
     spec = importlib.util.spec_from_file_location('_self_evolve_runtime_datadir', guard_path)
     guard = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(guard)
     # Bind this private module instance to its known consumer, including worktrees.
     guard._own_repo_root = lambda: str(ROOT)
-    value = guard.resolve_data_dir('self-evolve', create=False)
+    value = guard.resolve_companion_root('self-evolve')
     if value is None:
         raise DataBoundaryError('Set SELF_EVOLVE_CONFIG or SELF_EVOLVE_DATA_DIR to a PRIVATE Git companion')
-    return verify_directory(value)
+    selected, repo = verify_directory(value)
+    if selected != repo or configured is not None and configured != repo:
+        raise DataBoundaryError('SELF_EVOLVE_CONFIG must select the companion repository root')
+    return verify_directory(repo/'data', expected_repo=repo)
 
 
 
@@ -474,13 +486,7 @@ def _target_component_in_operation(target, run_id, kind):
     if kind == 'runs':
         from tools.storage_retention import enforce_capacity
         enforce_capacity(root, requested.relative_to(root).as_posix())
-    if kind == 'worktrees':
-        parent, _ = verify_directory(requested.parent, expected_repo=repo)
-        path = _safe_path(requested)
-        if path.parent != parent:
-            raise DataBoundaryError('Candidate worktree escaped its private namespace')
-    else:
-        path, _ = verify_directory(requested, expected_repo=repo)
+    path, _ = verify_directory(requested, expected_repo=repo)
     if not path.is_relative_to(root):
         raise DataBoundaryError('Run directory escaped the private data root')
     return path
@@ -491,7 +497,28 @@ def run_directory(target, run_id):
 
 
 def worktree_directory(target, run_id):
-    return _target_component(target, run_id, 'worktrees')
+    """Locate source-only TOOL worktrees without creating a persistent DATA copy.
+
+    Existing legacy candidates retain their original location until reviewed
+    migration. sandbox.make_worktree validates their owning target before resume.
+    """
+    validate_run_id(run_id)
+    target_path = Path(target).expanduser().resolve(strict=True)
+    if not target_path.is_dir():
+        raise ValueError('target must be a directory')
+    root, repo = _private_root_context()
+    identity = hashlib.sha256(os.path.normcase(str(target_path)).encode('utf-8')).hexdigest()
+    legacy = root/'targets'/identity/'worktrees'/run_id
+    if os.path.lexists(legacy):
+        _directory_metadata(legacy)
+        return legacy
+    workspace = repo.parent/'.worktrees'/'self-evolve'/repo.name/identity/run_id
+    _directory_metadata(workspace)
+    workspace = _safe_path(workspace)
+    if (workspace.is_relative_to(ROOT) or workspace.is_relative_to(target_path)
+            or workspace.is_relative_to(repo) or target_path.is_relative_to(workspace)):
+        raise DataBoundaryError('Source worktree must be separate from target, source and companion')
+    return workspace
 
 
 def _file_in_parent(value, parent):
@@ -515,10 +542,44 @@ def _file_in_parent(value, parent):
     return path
 
 
+def _authorize_artifact(value, *, directory=False):
+    """Ask the pinned source contract for permission before the first mutation."""
+    helper = ROOT/'guards/tools/storage_contract.py'
+    if not helper.is_file():
+        raise DataBoundaryError('Missing guards storage contract helper; initialize or update guards')
+    spec = importlib.util.spec_from_file_location('_self_evolve_storage_contract', helper)
+    if spec is None or spec.loader is None:
+        raise DataBoundaryError('Cannot load guards storage contract helper')
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+        authorize = getattr(module, 'authorize_artifact_write', None)
+        if not callable(authorize):
+            raise DataBoundaryError('The guards kit lacks source contract write authorization')
+        data_root, repo = _private_root_context()
+        requested = Path(value).expanduser().absolute()
+        if not requested.is_relative_to(data_root):
+            raise DataBoundaryError('Runtime artifact writes must stay in the companion data/ layout')
+        relative = requested.relative_to(repo).as_posix()
+        authorization = authorize(ROOT, repo, relative, directory=directory,
+                                  visibility_map=Path.home()/'.pii-guard/visibility.json')
+        if not directory and authorization.artifact_id.startswith('runtime-container-'):
+            raise DataBoundaryError('Runtime structural directory cannot receive file writes')
+        if Path(authorization.path) != requested:
+            raise DataBoundaryError('Source contract returned another artifact destination')
+        return Path(authorization.path)
+    except DataBoundaryError:
+        raise
+    except (OSError, ImportError, ValueError, RuntimeError) as exc:
+        raise DataBoundaryError('Source storage contract refused the artifact: '+str(exc)[:480]) from exc
+
+
 def private_file_path(value):
     path = _safe_path(value)
     parent = runtime_directory(path.parent)
-    return _file_in_parent(value, parent)
+    path = _file_in_parent(value, parent)
+    return _authorize_artifact(path)
 
 
 def runtime_directory(value):
@@ -531,6 +592,7 @@ def runtime_directory(value):
 
 def make_directory(value):
     path = runtime_directory(value)
+    _authorize_artifact(path, directory=True)
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -540,6 +602,8 @@ def write_json(value, payload, *, append=False):
     path = private_file_path(value)
     parent = path.parent
     temporary = _file_in_parent(str(path)+'.tmp', parent) if not append else path
+    if not append:
+        _authorize_artifact(temporary)
     parent.mkdir(parents=True, exist_ok=True)
     _file_in_parent(path, parent)
     if append:
@@ -566,12 +630,21 @@ def write_json(value, payload, *, append=False):
 
 def temporary_directory(prefix):
     """Allocate grader scratch alongside other runtime DATA, never in system temp."""
+    validate_run_id(prefix)
     from tools.storage_retention import enforce_capacity
     data_root = private_root()
     enforce_capacity(data_root, 'grader-work')
     root = make_directory(data_root/'grader-work')
-    path = tempfile.mkdtemp(prefix=prefix, dir=runtime_directory(root))
+    path = _new_scratch_directory(root, prefix)
     return str(runtime_directory(path))
+
+
+def _new_scratch_directory(root, prefix):
+    """Authorize the concrete scratch name before exclusive directory creation."""
+    validate_run_id(prefix)
+    path = _authorize_artifact(Path(root)/(prefix+uuid.uuid4().hex), directory=True)
+    path.mkdir(mode=0o700)
+    return path
 
 
 @contextmanager
@@ -583,8 +656,14 @@ def agent_scratch():
     scratch, _ = verify_directory(root/'agent-work', expected_repo=repo)
     if not scratch.is_relative_to(root):
         raise DataBoundaryError('Agent workspace escaped the private data root')
+    _authorize_artifact(scratch, directory=True)
     scratch.mkdir(parents=True, exist_ok=True)
     verify_directory(scratch, expected_repo=repo)
-    with tempfile.TemporaryDirectory(prefix='call-', dir=scratch) as value:
-        path, _ = verify_directory(value, expected_repo=repo)
+    path = _new_scratch_directory(scratch, 'call-')
+    try:
+        path, _ = verify_directory(path, expected_repo=repo)
         yield path
+    finally:
+        _directory_metadata(path)
+        if path.exists():
+            shutil.rmtree(path)

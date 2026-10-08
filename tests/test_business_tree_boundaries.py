@@ -50,6 +50,7 @@ def trees(tmp_path, monkeypatch):
     monkeypatch.setattr(runtime_data, 'runtime_directory', lambda p: Path(p).resolve())
     monkeypatch.setattr(runtime_data, 'private_root', lambda: tmp_path)
     monkeypatch.setattr(runtime_data, 'verify_directory', lambda p: (Path(p).resolve(), tmp_path))
+    monkeypatch.setattr(runtime_data, '_authorize_artifact', lambda p, **kwargs: Path(p))
     return source, destination, outside, sample
 
 

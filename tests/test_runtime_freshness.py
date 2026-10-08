@@ -12,13 +12,20 @@ from tools.sie import runtime_data
 
 
 class RuntimeFreshnessTests(unittest.TestCase):
+    def setUp(self):
+        # This unit isolates PRIVATE freshness; full artifact admission is tested separately.
+        patcher = mock.patch.object(runtime_data, '_authorize_artifact',
+                                    side_effect=lambda value, **kwargs: Path(value))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_each_directory_call_proves_root_once_and_target_once(self):
         recipe = source14_boundary_inputs()
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary).resolve()
             target = base / recipe['target_name']
             target.mkdir()
-            roots = [base / name for name in recipe['root_names']]
+            roots = [base / name / 'data' for name in recipe['root_names']]
             for operation in recipe['operations']:
                 with self.subTest(operation=operation):
                     calls = []
@@ -26,7 +33,7 @@ class RuntimeFreshnessTests(unittest.TestCase):
                     def verify(value, *, expected_repo=None):
                         path = Path(value)
                         calls.append((path, expected_repo))
-                        return path, base
+                        return path, Path(os.environ['SELF_EVOLVE_DATA_DIR']).parent
 
                     with mock.patch.object(runtime_data, 'verify_directory', side_effect=verify):
                         for root in roots:
@@ -38,17 +45,18 @@ class RuntimeFreshnessTests(unittest.TestCase):
                                 else:
                                     getattr(runtime_data, operation)(target, recipe['run_id'])
                                 current = calls[before:]
-                                self.assertEqual(len(current), recipe['directory_proofs'])
+                                self.assertEqual(len(current), 1 if operation == 'worktree_directory' else recipe['directory_proofs'])
                                 self.assertEqual(current[0], (root, None))
-                                self.assertEqual(current[1][1], base)
+                                if operation != 'worktree_directory':
+                                    self.assertEqual(current[1][1], root.parent)
 
     def test_public_private_root_refreshes_the_environment_each_time(self):
         recipe = source14_boundary_inputs()
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary).resolve()
-            roots = [base / name for name in recipe['root_names']]
+            roots = [base / name / 'data' for name in recipe['root_names']]
             with mock.patch.object(runtime_data, 'verify_directory',
-                                   side_effect=lambda path: (Path(path), base)) as verify:
+                                   side_effect=lambda path: (Path(path), Path(path).parent)) as verify:
                 for root in roots:
                     with mock.patch.dict(os.environ, SELF_EVOLVE_DATA_DIR=str(root)):
                         self.assertEqual(runtime_data.private_root(), root)
@@ -63,15 +71,16 @@ class RuntimeFreshnessTests(unittest.TestCase):
             def verify(value, *, expected_repo=None):
                 path = Path(value)
                 calls.append((path, expected_repo))
-                return path, base
+                return path, Path(os.environ['SELF_EVOLVE_DATA_DIR']).parent
 
-            with mock.patch.dict(os.environ, SELF_EVOLVE_DATA_DIR=str(base)):
+            root = base / 'data'
+            with mock.patch.dict(os.environ, SELF_EVOLVE_DATA_DIR=str(root)):
                 with mock.patch.object(runtime_data, 'verify_directory', side_effect=verify):
                     with runtime_data.agent_scratch() as path:
                         self.assertTrue(path.is_dir())
                         self.assertEqual(len(calls), recipe['scratch_proofs'])
-                        self.assertEqual(calls[0], (base, None))
-                        self.assertEqual(calls[1:3], [(base / 'agent-work', base)] * 2)
+                        self.assertEqual(calls[0], (root, None))
+                        self.assertEqual(calls[1:3], [(root / 'agent-work', base)] * 2)
                         self.assertEqual(calls[3], (path, base))
                     self.assertFalse(path.exists())
 

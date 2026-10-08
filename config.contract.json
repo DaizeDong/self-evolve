@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "repository_kind": "skill",
+  "configuration": "runtime-storage-only",
+  "rationale": "This tool selects a PRIVATE runtime companion and accepts per-invocation evaluation inputs. Installed llmcall owns model routing settings; the caller supplies EDGAR identity and timeout environment values. Frozen target.json profiles and the operator-maintained retention.json obligation ledger are runtime and maintenance records, not a separate source-owned settings system. No settings registry, migration or config initializer is claimed.",
+  "documentation": ["README.md", "README_CN.md", "DATA.md", "reference/runtime.md"]
+}

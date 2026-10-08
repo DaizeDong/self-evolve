@@ -15,6 +15,8 @@ RECIPE = operation_proof_inputs()
 
 @pytest.fixture
 def scene(tmp_path, monkeypatch):
+    # Isolate the directory-proof unit; the real contract helper has separate writer tests.
+    monkeypatch.setattr(runtime, "_authorize_artifact", lambda value, **kwargs: Path(value))
     repository = tmp_path / "companion"
     (repository / ".git").mkdir(parents=True)
     data = repository / "data"
@@ -119,9 +121,13 @@ def test_target_namespaces_share_only_the_current_proof_pair(scene, tmp_path, op
     target = tmp_path / "target"
     target.mkdir()
     result = getattr(runtime, operation)(target, RECIPE["runtime"]["run_id"])
-    assert result.is_relative_to(scene.data)
+    expected = scene.data if operation == "run_directory" else scene.repository.parent / ".worktrees"
+    assert result.is_relative_to(expected)
     assert result.name == RECIPE["runtime"]["run_id"]
-    assert len(scene.calls) == RECIPE["proof_queries"]
+    if operation == "run_directory":
+        assert len(scene.calls) == RECIPE["proof_queries"]
+    else:
+        assert ("git", "remote") in scene.calls
     assert not result.exists()
 
 

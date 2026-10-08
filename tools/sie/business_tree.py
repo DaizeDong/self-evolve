@@ -2,6 +2,7 @@
 import hashlib
 import os
 from pathlib import Path
+import re
 import shutil
 import stat
 from contextlib import contextmanager
@@ -147,6 +148,9 @@ def snapshot(source, destination):
     if source == destination or source.is_relative_to(destination) or destination.is_relative_to(source):
         raise ValueError('Snapshot and source must be separate trees')
     expected = manifest(source)
+    runtime_data._authorize_artifact(destination, directory=True)
+    for relative, entry in expected.items():
+        runtime_data._authorize_artifact(destination/relative, directory=entry[0] == 'directory')
     if destination.exists():
         shutil.rmtree(destination)
     def ignored(directory, names):
@@ -161,8 +165,18 @@ def restore(source, destination):
     source = runtime_data.runtime_directory(source)
     destination = runtime_data._safe_path(destination)
     _, companion = runtime_data.verify_directory(runtime_data.private_root())
-    if destination == companion or not destination.is_relative_to(companion):
-        raise runtime_data.DataBoundaryError('Restoration requires a candidate inside the private companion')
+    workspace = companion.parent/'.worktrees'/'self-evolve'/companion.name
+    if destination == companion or not (destination.is_relative_to(companion)
+                                       or destination.is_relative_to(workspace)):
+        raise runtime_data.DataBoundaryError('Restoration requires a candidate in the admitted working-copy layout')
+    if not destination.is_relative_to(companion):
+        parts = destination.relative_to(workspace).parts
+        if len(parts) != 2 or re.fullmatch('[0-9a-f]{64}', parts[0]) is None:
+            raise runtime_data.DataBoundaryError('Restoration requires one complete candidate namespace')
+        runtime_data.validate_run_id(parts[1])
+        from .sandbox import require_registered_worktree
+        require_registered_worktree(destination, parts[0])
+    runtime_data._directory_metadata(destination)
     if not destination.is_dir() or source == destination or source.is_relative_to(destination) or destination.is_relative_to(source):
         raise ValueError('Restoration requires separate existing trees')
     expected = manifest(source)

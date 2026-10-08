@@ -47,11 +47,18 @@ git clone --recursive https://github.com/DaizeDong/self-evolve.git
 
 ## 配置
 
-将 `SELF_EVOLVE_CONFIG` 指向已有的 PRIVATE Git 伴生仓，或将
-`SELF_EVOLVE_DATA_DIR` 指向其中的绝对目录。运行写入必须有有效的 PRIVATE
+将 `SELF_EVOLVE_CONFIG`（别名 `SELF_EVOLVE_CONFIG_DIR`）指向已有的 PRIVATE
+Git 伴生仓，或将 `SELF_EVOLVE_DATA_DIR` 指向该仓准确的 `data/` 绝对路径。
+发现顺序为 DATA_DIR、CONFIG、CONFIG_DIR、经确认的同级伴生仓、主目录候选。
+继承的 DATA_DIR 会优先于新设的 CONFIG。`data/` 可以尚未创建，但不会退回伴生仓根目录。
+运行写入须先匹配源码存储契约，并取得有效的 PRIVATE
 目标证明；证明缺失、过期、公开或未知都会阻止写入。
 存储与保留规则见 [DATA.md](DATA.md)，前置条件见
 [运行配置](reference/runtime.md#configuration)。
+
+[config.contract.json](config.contract.json) 声明本工具只负责运行存储选择。
+每次运行的冻结 profile 和保留义务登记表属于 DATA，没有另一套设置注册表需要初始化。
+新建源码工作副本位于同级 `.worktrees/self-evolve/` 下，具体布局见运行文档。
 
 模型调用继承已安装 `llmcall` 的路由、模型、超时和回退设置。
 agent 使用 `mode="agent"`，文本 judge 使用默认模式。

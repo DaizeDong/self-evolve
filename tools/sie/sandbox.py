@@ -110,13 +110,13 @@ def _git_path(path: str) -> str:
     short = _windows_short_path(existing)
     if short is None:
         raise RuntimeError(
-            "Git for Windows cannot use this path; configure a shorter PRIVATE data directory.")
+            "Git for Windows cannot use this path; configure a shorter PRIVATE companion path or run ID.")
     if not os.path.samefile(existing, short):
         raise RuntimeError("Windows short path does not identify the verified directory")
     native = short if existing == path else os.path.join(short, os.path.basename(path))
     if not fits(native):
         raise RuntimeError(
-            "Git for Windows cannot use this path; configure a shorter PRIVATE data directory.")
+            "Git for Windows cannot use this path; configure a shorter PRIVATE companion path or run ID.")
     return native
 
 
@@ -130,6 +130,27 @@ def native_cwd(path: str) -> str:
     return _git_path(absolute)
 
 
+def require_registered_worktree(path, target_key):
+    """Bind a restoration candidate to the source identity in its namespace."""
+    import hashlib
+    from pathlib import Path
+    from tools.sie.runtime_data import DataBoundaryError, _marker_metadata
+    path = Path(path)
+    if not (path/'.git').is_file():
+        raise DataBoundaryError('Source candidate must be a registered Git worktree')
+    _marker_metadata(path)
+    native = _git_path(str(path))
+    location = ['-C', str(path)] if native == str(path) else ['--git-dir='+os.path.join(native, '.git')]
+    result = subprocess.run(['git', '-c', 'core.longpaths=true', *location, 'worktree', 'list', '--porcelain'],
+                            check=True, capture_output=True, text=True, encoding='utf-8')
+    roots = [line.removeprefix('worktree ') for line in result.stdout.splitlines()
+             if line.startswith('worktree ')]
+    identities = {hashlib.sha256(os.path.normcase(os.path.realpath(root)).encode('utf-8')).hexdigest()
+                  for root in roots}
+    if target_key not in identities or os.path.realpath(path) not in {os.path.realpath(root) for root in roots}:
+        raise DataBoundaryError('Source candidate registration does not match its target namespace')
+
+
 def make_worktree(target: str, base_ref: str, run_id: str) -> str:
     """Create (or resume) a git worktree for *run_id* and return its absolute path.
 
@@ -139,7 +160,8 @@ def make_worktree(target: str, base_ref: str, run_id: str) -> str:
 
     Raises subprocess.CalledProcessError if git fails.
     """
-    from tools.sie.runtime_data import worktree_directory
+    from pathlib import Path
+    from tools.sie.runtime_data import worktree_directory, _marker_metadata
     target = os.path.realpath(target)
     sandbox_root = str(worktree_directory(target, run_id))
     worktrees_dir = os.path.dirname(sandbox_root)
@@ -148,6 +170,7 @@ def make_worktree(target: str, base_ref: str, run_id: str) -> str:
     # Resume only a worktree belonging to this target's Git repository.
     dot_git = os.path.join(sandbox_root, ".git")
     if os.path.isfile(dot_git):
+        _marker_metadata(Path(sandbox_root))
         def common_dir(path):
             native = _git_path(path)
             # getcwd expands a short spelling back to the long path. Keep long

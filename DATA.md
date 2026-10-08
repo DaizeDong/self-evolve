@@ -2,8 +2,12 @@
 
 Real runtime DATA belongs in a verified PRIVATE Git companion. The public tool
 contains this contract, code and synthetic fixtures. `runtime_data.py` resolves
-`SELF_EVOLVE_CONFIG` or `SELF_EVOLVE_DATA_DIR`; missing PRIVATE proof fails before
-writing. No public-worktree fallback is allowed.
+`SELF_EVOLVE_DATA_DIR`, `SELF_EVOLVE_CONFIG`, or `SELF_EVOLVE_CONFIG_DIR` in that
+precedence; sibling and home discovery follow. The DATA root is always exactly
+`<companion>/data/`, including when that directory does not yet exist. Missing
+PRIVATE proof or source-contract ownership fails before writing. No companion-root
+or public-worktree fallback is allowed. Full initialization and switching steps
+are in [runtime configuration](reference/runtime.md#configuration).
 
 ## What a current run retains
 
@@ -17,7 +21,7 @@ writing. No public-worktree fallback is allowed.
 | CORE | `_frozen/` for self mode | Frozen decision code used by the current supervisor. |
 | DERIVED | `state.json`, `archive/current/`, `storage-manifest.json` | State projection, requested rollback output and metadata inventory. |
 | EVIDENCE | `reflections.jsonl`, `reflector-outcomes.jsonl`, `proposals.jsonl`, `outbound_seq.jsonl`, `archive/retired.jsonl` | Existing diagnostic or decision evidence outside the state reducer. |
-| SCRATCH | Candidate worktrees and named interpreter, test and dependency caches | Working execution copies; their classification does not authorize removal. |
+| SCRATCH | Named interpreter, test and dependency caches | Working execution copies; their classification does not authorize removal. |
 | UNKNOWN | Every other run file | Review its writer and recovery use before deciding retention. |
 
 Model-stage writers omit a successful raw response only when its complete JSON
@@ -28,6 +32,24 @@ Failed, unmatched, ambiguous or extra-field responses retain their raw text.
 The early reflector ledger remains durable before aggregation can fail. Existing
 ledgers are not rewritten. `outbound_seq.jsonl` is also read by the live
 sequence-anomaly check.
+
+The four run evidence ledgers and metadata manifest have exact contract entries.
+Review requests outside a run use only `data/human-review/<run-id>/pending_actions.jsonl`.
+Target, state and manifest JSON staging use exact `.tmp` siblings with transient, rebuildable retention;
+empty structural containers admit only directory creation, and file writers
+reject their artifact IDs. They own no child files. Every final file write is
+authorized against the pinned source contract before its parent is created.
+Runtime writers stay within the selected `data/` tree; companion-root metadata
+entries belong to maintenance and cannot receive runtime output.
+Existing archive and holdout subtree declarations retain core protection;
+interrupted staging there requires recovery review before removal.
+
+New candidate and probe Git worktrees are source-only TOOL copies at
+`<companion-parent>/.worktrees/self-evolve/<companion-name>/<target-key>/<run-id>/`.
+The producer no longer creates nested Git worktrees inside the DATA contract.
+Existing legacy candidates retain their path for validated resume and remain
+visible inventory exceptions until reviewed migration. They are not permanent
+core evidence; keep accepted snapshots and frozen run records in the companion.
 
 Accepted changes need recoverable bytes: an exact retained snapshot, or a future
 verified base revision plus complete change records including additions and
@@ -56,6 +78,9 @@ Candidate trees, profile probes, `agent-work/`, `grader-work/`, `edgar-cache/` a
 the retained run no longer depends on them. Age alone never proves inactivity.
 The reviewed retirement command below is separate from metadata inventory. Disposable agent directories have
 context-managed cleanup; other scratch can survive interrupted processes.
+Hidden oracle files now use admitted `grader-work/sie-oracle-*/` directories and
+are removed when that oracle invocation finishes. Any historical
+`calibration-checks/` content remains an inventory exception pending review.
 New run, probe and self-mode worktrees use detached HEAD without creating branches;
 resuming an existing worktree preserves its checkout and uncommitted changes.
 
@@ -114,11 +139,9 @@ checker inventories that whole root, including companion setup metadata; selecti
 only `data/` does not establish repository coverage. The companion README identifies
 selected final deliverables. Runtime records never fall back into this public repository.
 
-The runtime keeps its existing verified DATA root and DATA-relative retention
-registry paths. `tools.storage_retention` projects only declarations inside that
-freshly proved DATA scope before planning; it refuses an undeclared scope instead
-of matching repository paths against an unrelated subtree. No runtime destination
-or existing registry is moved by this contract normalization.
+The runtime validates the exact `data/` layout before any writer is admitted.
+`tools.storage_retention` projects only declarations inside that freshly proved
+scope before planning. Existing records and registries are never moved automatically.
 
 Keep a current `retention.json` in DATA, following
 [schemas/storage-retention.schema.json](schemas/storage-retention.schema.json).

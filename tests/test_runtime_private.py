@@ -8,6 +8,7 @@ import subprocess
 import pytest
 
 from tools.make_fixtures import runtime_samples
+from runtime_fixture_support import initialize_companion_history
 
 
 @pytest.fixture
@@ -17,6 +18,7 @@ def private_home(tmp_path, monkeypatch):
     companion.mkdir()
     subprocess.run(['git', 'init', '-q', str(companion)], check=True)
     subprocess.run(['git', '-C', str(companion), 'remote', 'add', 'origin', sample['origin']], check=True)
+    initialize_companion_history(companion, sample)
     data = companion/'data'
     data.mkdir()
     home = tmp_path/'synthetic home'
@@ -117,7 +119,7 @@ def test_doctor_is_read_only_and_reports_missing_capabilities(private_home, tmp_
 
 def test_cache_keeps_existing_records_in_private_storage(private_home, monkeypatch):
     from tools.sie.edgar_cache import prepare_cache
-    base = private_home[0]/'cache'
+    base = private_home[0]/'edgar-cache'
     base.mkdir()
     previous = base/'previous.json'
     previous.write_text(private_home[2]['cache_record'],encoding='utf-8')
