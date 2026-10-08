@@ -63,7 +63,7 @@ def selfboot_init(
     if frozen_path.parent != run_path:
         raise runtime_data.DataBoundaryError('Selfboot frozen directory escaped its run')
     run_dir = str(run_path)
-    os.makedirs(run_dir, exist_ok=True)
+    runtime_data.make_directory(run_dir)
     runtime_data.verify_directory(run_dir, expected_repo=repository)
 
     # 1) 独立 candidate worktree（前缀 self__ 区分递归隔离）

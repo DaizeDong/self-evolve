@@ -560,6 +560,8 @@ RECIPE = operation_proof_inputs()
 
 @pytest.fixture
 def scene(tmp_path, monkeypatch):
+    # Isolate the directory-proof unit; the real contract helper has separate writer tests.
+    monkeypatch.setattr(runtime, "_authorize_artifact", lambda value, **kwargs: Path(value))
     repository = tmp_path / "companion"
     (repository / ".git").mkdir(parents=True)
     data = repository / "data"
@@ -664,9 +666,13 @@ def test_target_namespaces_share_only_the_current_proof_pair(scene, tmp_path, op
     target = tmp_path / "target"
     target.mkdir()
     result = getattr(runtime, operation)(target, RECIPE["runtime"]["run_id"])
-    assert result.is_relative_to(scene.data)
+    expected = scene.data if operation == "run_directory" else scene.repository.parent / ".worktrees"
+    assert result.is_relative_to(expected)
     assert result.name == RECIPE["runtime"]["run_id"]
-    assert len(scene.calls) == RECIPE["proof_queries"]
+    if operation == "run_directory":
+        assert len(scene.calls) == RECIPE["proof_queries"]
+    else:
+        assert ("git", "remote") in scene.calls
     assert not result.exists()
 
 
@@ -1628,8 +1634,10 @@ def test_resume_after_rejected_due_round_consumes_next_measurement(tmp_path, mon
 @pytest.fixture
 def isolated_holdout_loop(tmp_path, monkeypatch):
     private = tmp_path / "generated-private"
-    private.mkdir()
-    monkeypatch.setenv("SELF_EVOLVE_DATA_DIR", str(private))
+    data = private / "data"
+    data.mkdir(parents=True)
+    (private / ".git").mkdir()
+    monkeypatch.setenv("SELF_EVOLVE_DATA_DIR", str(data))
 
     def prove(value, expected_repo=None):
         path = runtime_data._safe_path(value)
@@ -1639,8 +1647,8 @@ def isolated_holdout_loop(tmp_path, monkeypatch):
 
     monkeypatch.setattr(runtime_data, "verify_directory", prove)
     monkeypatch.setattr(gate_human, "enqueue", lambda *args: "synthetic-holdout-review")
-    candidate = private / "candidate"
-    candidate.mkdir()
+    candidate = data / "grader-work" / "candidate"
+    candidate.mkdir(parents=True)
     (candidate / "artifact.json").write_text(json.dumps(synthetic_artifact(30)), encoding="utf-8")
     change = source13_repair_inputs()["loop_change"]
     monkeypatch.setattr(statemachine, "make_worktree", lambda *args: str(candidate))
@@ -1792,7 +1800,7 @@ def test_repeat_frozen_materialization_refuses_changed_bytes(tiny_frozen_repo):
 
 def test_selfboot_can_reopen_its_existing_frozen_run(tiny_frozen_repo, tmp_path):
     repository, _ = tiny_frozen_repo
-    runs = runtime_data.private_root() / tmp_path.name / "self-runs"
+    runs = runtime_data.private_root() / "targets" / tmp_path.name / "runs"
     first = selfboot.selfboot_init(str(repository), "HEAD", "synthetic-resume", str(runs))
     second = selfboot.selfboot_init(str(repository), "HEAD", "synthetic-resume", str(runs))
     assert first["candidate_worktree"] == second["candidate_worktree"]
@@ -2058,6 +2066,23 @@ def stage_record_samples():
     return {"content": content, "metadata": metadata, "proposal": proposal_record,
             "reflection": reflection_record, "proposal_rejected": rejected,
             "reflection_rejected": reflection_rejected, "envelopes": envelopes}
+
+
+def storage_writer_samples():
+    """Generate contract-bound writer and discovery inputs without live records."""
+    return {
+        "run_id": "synthetic-contract-run",
+        "payload": {"kind": "synthetic", "message": "Generated writer evidence"},
+        "run_files": ["reflections.jsonl", "reflector-outcomes.jsonl", "proposals.jsonl",
+                      "outbound_seq.jsonl", "storage-manifest.json"],
+        "unknown": "undeclared-report.json",
+        "alternate_roots": ["other-data", "data/nested"],
+        "companion_metadata": ["README.md", ".gitignore"],
+        "container_paths": ["data", "data/targets", "data/targets/synthetic-target",
+                            "data/targets/synthetic-target/runs",
+                            "data/targets/synthetic-target/runs/synthetic-container",
+                            "data/human-review", "data/human-review/synthetic-container"],
+    }
 
 
 def main(argv=None):

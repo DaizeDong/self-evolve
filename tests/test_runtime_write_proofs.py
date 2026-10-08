@@ -12,6 +12,14 @@ from tools.sie import runtime_data
 
 
 class RuntimeWriteProofTests(unittest.TestCase):
+    def setUp(self):
+        # These unit tests isolate the file-metadata proof after artifact admission.
+        # test_storage_writer_contract exercises the real source contract helper.
+        patcher = mock.patch.object(runtime_data, '_authorize_artifact',
+                                    side_effect=lambda value, **kwargs: Path(value))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_each_write_proves_its_parent_afresh_and_preserves_json(self):
         recipe = source15_write_inputs()
         for append in (False, True):

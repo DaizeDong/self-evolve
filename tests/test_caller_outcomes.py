@@ -36,7 +36,7 @@ def test_direct_selfboot_refuses_unverified_root_before_writes(tmp_path, monkeyp
 
 @pytest.mark.parametrize('run_id', ['../escape', 'nested/run', 'run.'])
 def test_direct_selfboot_refuses_invalid_identifier_before_writes(tmp_path, monkeypatch, run_id):
-    root = runtime_data.private_root() / tmp_path.name / 'runs'
+    root = runtime_data.private_root() / "targets" / tmp_path.name / 'runs'
     monkeypatch.setattr(selfboot, 'make_worktree', _stop)
     with pytest.raises((RuntimeError, ValueError)):
         selfboot.selfboot_init(str(tmp_path), 'HEAD', run_id, str(root))
@@ -109,7 +109,7 @@ def test_failed_proposal_outcomes_survive_list_api(sample, tmp_path, monkeypatch
 
 
 def _loop_without_effects(monkeypatch, tmp_path):
-    run_dir = runtime_data.private_root() / tmp_path.name / 'private-loop'
+    run_dir = runtime_data.private_root() / 'targets' / tmp_path.name / 'runs' / 'private-loop'
     monkeypatch.setattr(sm, '_run_dir', lambda *a: str(run_dir))
     monkeypatch.setattr(sm, 'make_worktree', lambda *a: str(tmp_path))
     monkeypatch.setattr(sm, 'run_profile', lambda *a: {'tier': 'A'})

@@ -535,6 +535,234 @@
         "class": "core",
         "rule": "Temporary hold until target, accepted-run, worktree and recovery obligations are reconciled. The owner must separately approve reclassification after that review. This exact path protects a replacement file as well as its observed empty container, grants no ownership to child files, and permits no new execution writes or copies."
       }
+    },
+    {
+      "artifact_id": "run-reflections",
+      "path_pattern": "data/targets/*/runs/*/reflections.jsonl",
+      "purpose": "Durable reflection, proposal or outbound sequence evidence.",
+      "schema": "JSON object per line; tools/sie/stage_records.py and tools/sie/proxy.py.",
+      "producer": "tools/sie/statemachine.py and tools/sie/proxy.py",
+      "consumer_or_final_deliverable": "Resume reflections, stage attribution and outbound sequence anomaly checks.",
+      "rebuild_or_restore": "Restore exact ledger from PRIVATE companion history.",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Keep while active runs, attribution, selected evidence or recovery obligations depend on it. Review completion and released dependencies before retirement."
+      }
+    },
+    {
+      "artifact_id": "run-reflector-outcomes",
+      "path_pattern": "data/targets/*/runs/*/reflector-outcomes.jsonl",
+      "purpose": "Durable reflection, proposal or outbound sequence evidence.",
+      "schema": "JSON object per line; tools/sie/stage_records.py and tools/sie/proxy.py.",
+      "producer": "tools/sie/statemachine.py and tools/sie/proxy.py",
+      "consumer_or_final_deliverable": "Resume reflections, stage attribution and outbound sequence anomaly checks.",
+      "rebuild_or_restore": "Restore exact ledger from PRIVATE companion history.",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Keep while active runs, attribution, selected evidence or recovery obligations depend on it. Review completion and released dependencies before retirement."
+      }
+    },
+    {
+      "artifact_id": "run-proposals",
+      "path_pattern": "data/targets/*/runs/*/proposals.jsonl",
+      "purpose": "Durable reflection, proposal or outbound sequence evidence.",
+      "schema": "JSON object per line; tools/sie/stage_records.py and tools/sie/proxy.py.",
+      "producer": "tools/sie/statemachine.py and tools/sie/proxy.py",
+      "consumer_or_final_deliverable": "Resume reflections, stage attribution and outbound sequence anomaly checks.",
+      "rebuild_or_restore": "Restore exact ledger from PRIVATE companion history.",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Keep while active runs, attribution, selected evidence or recovery obligations depend on it. Review completion and released dependencies before retirement."
+      }
+    },
+    {
+      "artifact_id": "run-outbound_seq",
+      "path_pattern": "data/targets/*/runs/*/outbound_seq.jsonl",
+      "purpose": "Durable reflection, proposal or outbound sequence evidence.",
+      "schema": "JSON object per line; tools/sie/stage_records.py and tools/sie/proxy.py.",
+      "producer": "tools/sie/statemachine.py and tools/sie/proxy.py",
+      "consumer_or_final_deliverable": "Resume reflections, stage attribution and outbound sequence anomaly checks.",
+      "rebuild_or_restore": "Restore exact ledger from PRIVATE companion history.",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Keep while active runs, attribution, selected evidence or recovery obligations depend on it. Review completion and released dependencies before retirement."
+      }
+    },
+    {
+      "artifact_id": "run-storage-manifest",
+      "path_pattern": "data/targets/*/runs/*/storage-manifest.json",
+      "purpose": "Bounded metadata-only inventory of a run and candidate worktrees.",
+      "schema": "schemas/storage-manifest.schema.json",
+      "producer": "tools/sie/storage.py inventory(write=True)",
+      "consumer_or_final_deliverable": "Operator storage review; never inactivity or recovery proof.",
+      "rebuild_or_restore": "Regenerate from current names, sizes and file types.",
+      "retention_rule": {
+        "class": "rebuildable",
+        "rule": "Recreate from retained inputs; remove only after writers stop and dependent runs release it."
+      }
+    },
+    {
+      "artifact_id": "human-review-queue",
+      "path_pattern": "data/human-review/*/pending_actions.jsonl",
+      "purpose": "Human review queue for decisions made without a run directory.",
+      "schema": "JSON object per line; tools/sie/gate_human.py",
+      "producer": "tools/sie/statemachine.py process_decision and gate_human.enqueue",
+      "consumer_or_final_deliverable": "gate_human.pending and gate_human.resolve; operator review.",
+      "rebuild_or_restore": "Restore requests and resolutions from PRIVATE companion history.",
+      "retention_rule": {
+        "class": "core",
+        "rule": "Keep while active runs, attribution, selected evidence or recovery obligations depend on it. Review completion and released dependencies before retirement."
+      }
+    },
+    {
+      "artifact_id": "run-dependency-0-atomic-staging",
+      "path_pattern": "data/targets/*/runs/*/target.json.tmp",
+      "purpose": "Atomic staging for run-dependency-0.",
+      "schema": "DATA.md and the corresponding tools/sie reader",
+      "producer": "tools/sie/runtime_data.py write_json",
+      "consumer_or_final_deliverable": "Atomic replacement of the named final artifact.",
+      "rebuild_or_restore": "Discard only after checking final write state; restore final artifact from its retained inputs.",
+      "retention_rule": {
+        "class": "rebuildable",
+        "rule": "Recreate from retained inputs; remove only after writers stop and dependent runs release it."
+      },
+      "persistence": "transient",
+      "transient_reason": "Temporary atomic-write staging or empty structural container; no independent runtime record. The final owned artifact is retained separately."
+    },
+    {
+      "artifact_id": "run-dependency-6-atomic-staging",
+      "path_pattern": "data/targets/*/runs/*/state.json.tmp",
+      "purpose": "Atomic staging for run-dependency-6.",
+      "schema": "DATA.md and the corresponding tools/sie reader",
+      "producer": "tools/sie/runtime_data.py write_json",
+      "consumer_or_final_deliverable": "Atomic replacement of the named final artifact.",
+      "rebuild_or_restore": "Discard only after checking final write state; restore final artifact from its retained inputs.",
+      "retention_rule": {
+        "class": "rebuildable",
+        "rule": "Recreate from retained inputs; remove only after writers stop and dependent runs release it."
+      },
+      "persistence": "transient",
+      "transient_reason": "Temporary atomic-write staging or empty structural container; no independent runtime record. The final owned artifact is retained separately."
+    },
+    {
+      "artifact_id": "run-storage-manifest-atomic-staging",
+      "path_pattern": "data/targets/*/runs/*/storage-manifest.json.tmp",
+      "purpose": "Atomic staging for run-storage-manifest.",
+      "schema": "schemas/storage-manifest.schema.json",
+      "producer": "tools/sie/runtime_data.py write_json",
+      "consumer_or_final_deliverable": "Atomic replacement of the named final artifact.",
+      "rebuild_or_restore": "Discard only after checking final write state; restore final artifact from its retained inputs.",
+      "retention_rule": {
+        "class": "rebuildable",
+        "rule": "Recreate from retained inputs; remove only after writers stop and dependent runs release it."
+      },
+      "persistence": "transient",
+      "transient_reason": "Temporary atomic-write staging or empty structural container; no independent runtime record. The final owned artifact is retained separately."
+    },
+    {
+      "artifact_id": "runtime-container-0",
+      "path_pattern": "data",
+      "purpose": "Empty runtime structural directory; this declaration grants no ownership to child files.",
+      "schema": "Ordinary directory only.",
+      "producer": "Runtime directory allocation",
+      "consumer_or_final_deliverable": "Parent of separately declared runtime artifacts.",
+      "rebuild_or_restore": "Recreate only when admitting a declared child artifact.",
+      "retention_rule": {
+        "class": "rebuildable",
+        "rule": "Recreate from retained inputs; remove only after writers stop and dependent runs release it."
+      },
+      "persistence": "transient",
+      "transient_reason": "Temporary atomic-write staging or empty structural container; no independent runtime record. The final owned artifact is retained separately."
+    },
+    {
+      "artifact_id": "runtime-container-1",
+      "path_pattern": "data/targets",
+      "purpose": "Empty runtime structural directory; this declaration grants no ownership to child files.",
+      "schema": "Ordinary directory only.",
+      "producer": "Runtime directory allocation",
+      "consumer_or_final_deliverable": "Parent of separately declared runtime artifacts.",
+      "rebuild_or_restore": "Recreate only when admitting a declared child artifact.",
+      "retention_rule": {
+        "class": "rebuildable",
+        "rule": "Recreate from retained inputs; remove only after writers stop and dependent runs release it."
+      },
+      "persistence": "transient",
+      "transient_reason": "Temporary atomic-write staging or empty structural container; no independent runtime record. The final owned artifact is retained separately."
+    },
+    {
+      "artifact_id": "runtime-container-2",
+      "path_pattern": "data/targets/*",
+      "purpose": "Empty runtime structural directory; this declaration grants no ownership to child files.",
+      "schema": "Ordinary directory only.",
+      "producer": "Runtime directory allocation",
+      "consumer_or_final_deliverable": "Parent of separately declared runtime artifacts.",
+      "rebuild_or_restore": "Recreate only when admitting a declared child artifact.",
+      "retention_rule": {
+        "class": "rebuildable",
+        "rule": "Recreate from retained inputs; remove only after writers stop and dependent runs release it."
+      },
+      "persistence": "transient",
+      "transient_reason": "Temporary atomic-write staging or empty structural container; no independent runtime record. The final owned artifact is retained separately."
+    },
+    {
+      "artifact_id": "runtime-container-3",
+      "path_pattern": "data/targets/*/runs",
+      "purpose": "Empty runtime structural directory; this declaration grants no ownership to child files.",
+      "schema": "Ordinary directory only.",
+      "producer": "Runtime directory allocation",
+      "consumer_or_final_deliverable": "Parent of separately declared runtime artifacts.",
+      "rebuild_or_restore": "Recreate only when admitting a declared child artifact.",
+      "retention_rule": {
+        "class": "rebuildable",
+        "rule": "Recreate from retained inputs; remove only after writers stop and dependent runs release it."
+      },
+      "persistence": "transient",
+      "transient_reason": "Temporary atomic-write staging or empty structural container; no independent runtime record. The final owned artifact is retained separately."
+    },
+    {
+      "artifact_id": "runtime-container-4",
+      "path_pattern": "data/targets/*/runs/*",
+      "purpose": "Empty runtime structural directory; this declaration grants no ownership to child files.",
+      "schema": "Ordinary directory only.",
+      "producer": "Runtime directory allocation",
+      "consumer_or_final_deliverable": "Parent of separately declared runtime artifacts.",
+      "rebuild_or_restore": "Recreate only when admitting a declared child artifact.",
+      "retention_rule": {
+        "class": "rebuildable",
+        "rule": "Recreate from retained inputs; remove only after writers stop and dependent runs release it."
+      },
+      "persistence": "transient",
+      "transient_reason": "Temporary atomic-write staging or empty structural container; no independent runtime record. The final owned artifact is retained separately."
+    },
+    {
+      "artifact_id": "runtime-container-5",
+      "path_pattern": "data/human-review",
+      "purpose": "Empty runtime structural directory; this declaration grants no ownership to child files.",
+      "schema": "Ordinary directory only.",
+      "producer": "Runtime directory allocation",
+      "consumer_or_final_deliverable": "Parent of separately declared runtime artifacts.",
+      "rebuild_or_restore": "Recreate only when admitting a declared child artifact.",
+      "retention_rule": {
+        "class": "rebuildable",
+        "rule": "Recreate from retained inputs; remove only after writers stop and dependent runs release it."
+      },
+      "persistence": "transient",
+      "transient_reason": "Temporary atomic-write staging or empty structural container; no independent runtime record. The final owned artifact is retained separately."
+    },
+    {
+      "artifact_id": "runtime-container-6",
+      "path_pattern": "data/human-review/*",
+      "purpose": "Empty runtime structural directory; this declaration grants no ownership to child files.",
+      "schema": "Ordinary directory only.",
+      "producer": "Runtime directory allocation",
+      "consumer_or_final_deliverable": "Parent of separately declared runtime artifacts.",
+      "rebuild_or_restore": "Recreate only when admitting a declared child artifact.",
+      "retention_rule": {
+        "class": "rebuildable",
+        "rule": "Recreate from retained inputs; remove only after writers stop and dependent runs release it."
+      },
+      "persistence": "transient",
+      "transient_reason": "Temporary atomic-write staging or empty structural container; no independent runtime record. The final owned artifact is retained separately."
     }
   ]
 }

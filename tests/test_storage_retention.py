@@ -119,6 +119,15 @@ def test_run_limit_counts_empty_runs_and_allows_existing_run(tmp_path, monkeypat
         storage.enforce_capacity(tmp_path, "targets/synthetic-target/runs/second")
 
 
+def test_capacity_allows_an_absent_data_root_without_creating_it(tmp_path):
+    data = tmp_path / "synthetic-companion" / "data"
+    storage.enforce_capacity(data, "targets/synthetic-target/runs/first")
+    storage.enforce_capacity(data, "agent-work")
+    assert not data.exists()
+    with pytest.raises(FileNotFoundError):
+        storage.checked(data, "retention.json")
+
+
 def test_repository_contract_projects_into_data_without_weakening_core(tmp_path):
     case = retention_samples()
     repository = tmp_path / "synthetic-companion"

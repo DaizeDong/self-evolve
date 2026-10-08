@@ -23,6 +23,7 @@ must vary with the ref, and a moving ref must resolve before it is used as a key
 from __future__ import annotations
 
 import subprocess
+import tempfile
 
 import pytest
 
@@ -71,9 +72,9 @@ def test_resolve_ref_raises_on_an_unknown_ref_rather_than_returning_something(re
         P._resolve_ref(str(repo), "no-such-ref-anywhere")
 
 
-def test_resolve_ref_raises_outside_a_repo(tmp_path):
-    with pytest.raises(RuntimeError):
-        P._resolve_ref(str(tmp_path), "HEAD")
+def test_resolve_ref_raises_outside_a_repo():
+    with tempfile.TemporaryDirectory() as outside, pytest.raises(RuntimeError):
+        P._resolve_ref(outside, "HEAD")
 
 
 # --------------------------------------------------------------------------- the cache key

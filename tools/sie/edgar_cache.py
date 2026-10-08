@@ -2,7 +2,6 @@
 from __future__ import annotations
 import os
 from pathlib import Path
-import tempfile
 
 
 def prepare_cache(cache_root: str | None = None) -> str:
@@ -11,15 +10,14 @@ def prepare_cache(cache_root: str | None = None) -> str:
     Set EDGAR_IDENTITY explicitly. Configure this function before starting
     parallel EDGAR operations because it sets EDGAR_LOCAL_DATA_DIR for the caller.
     """
-    from tools.sie.runtime_data import private_root, verify_directory, runtime_directory
+    from tools.sie.runtime_data import private_root, verify_directory, make_directory, _new_scratch_directory
     if not os.environ.get('EDGAR_IDENTITY', '').strip():
         raise RuntimeError('Configure EDGAR_IDENTITY privately before using EDGAR')
     requested = Path(cache_root) if cache_root is not None else private_root()/'edgar-cache'
-    root = runtime_directory(requested)
+    root = make_directory(requested)
     _, repo = verify_directory(root)
-    root.mkdir(parents=True, exist_ok=True)
     verify_directory(root, expected_repo=repo)
-    cache = tempfile.mkdtemp(prefix='run-', dir=root)
+    cache = str(_new_scratch_directory(root, 'run-'))
     verify_directory(cache, expected_repo=repo)
     os.environ['EDGAR_LOCAL_DATA_DIR'] = cache
     return cache

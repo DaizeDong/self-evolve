@@ -93,6 +93,7 @@ def test_new_run_and_probe_worktrees_do_not_create_branches(synthetic_target):
     base = _git_output(target, 'rev-parse', 'HEAD')
     for run_id in (sample['run_id'], 'profile_probe_' + base[:12]):
         root = make_worktree(str(target), base, run_id)
+        assert not Path(root).is_relative_to(runtime_data.private_root())
         assert Path(root, sample['worktree_file'][0]).is_file()
         assert canonical_in_sandbox(os.path.join(root, 'new.py'), root)
         assert _git_output(root, 'rev-parse', 'HEAD') == base
@@ -101,12 +102,31 @@ def test_new_run_and_probe_worktrees_do_not_create_branches(synthetic_target):
     assert _git_output(target, 'for-each-ref', '--format=%(refname):%(objectname)', 'refs/heads') == heads
 
 
+def test_restore_requires_registered_leaf_and_preserves_workspace_parents(synthetic_target):
+    from tools.sie import business_tree
+    target, sample = synthetic_target
+    run_id = sample['run_id']
+    candidate = Path(make_worktree(str(target), 'HEAD', run_id))
+    source = runtime_data.run_directory(target, run_id) / 'base-snapshot'
+    source.mkdir(parents=True)
+    name, content = sample['worktree_file']
+    (source/name).write_text(content+sample['worktree_edit'], encoding='utf-8')
+    for parent in (candidate.parent, candidate.parent.parent):
+        with pytest.raises(runtime_data.DataBoundaryError, match='complete candidate namespace'):
+            business_tree.restore(source, parent)
+        assert (candidate/name).read_text(encoding='utf-8') == content
+    business_tree.restore(source, candidate)
+    assert (candidate/name).read_text(encoding='utf-8') == content+sample['worktree_edit']
+    assert (target/name).read_text(encoding='utf-8') == content
+
+
 @pytest.mark.parametrize('legacy_attached', [False, True])
 def test_resume_preserves_existing_checkout_and_dirty_candidate(synthetic_target, legacy_attached):
     target, sample = synthetic_target
     run_id = sample['run_id']
     if legacy_attached:
-        root = runtime_data.worktree_directory(target, run_id)
+        run = runtime_data.run_directory(target, run_id)
+        root = run.parent.parent / 'worktrees' / run_id
         root.parent.mkdir(parents=True, exist_ok=True)
         sp.run(['git', '-C', str(target), 'worktree', 'add', '-b', 'sie/' + run_id,
                 str(root), 'HEAD'], check=True, capture_output=True)

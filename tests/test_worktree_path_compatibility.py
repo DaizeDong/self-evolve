@@ -33,9 +33,7 @@ def test_checkout_and_resume_preserve_content_at_long_private_path(tmp_path, mon
     run_id = sample['run_id'] + '-' + case
     destination = worktree_directory(str(target), run_id)
     if len(str(destination)) < minimum:
-        root = Path(os.environ['SELF_EVOLVE_DATA_DIR'])
-        root = root / ('p' * max(1, minimum - len(str(destination)) - 1))
-        monkeypatch.setenv('SELF_EVOLVE_DATA_DIR', str(root))
+        run_id += 'p' * max(1, minimum - len(str(destination)))
         destination = worktree_directory(str(target), run_id)
     assert len(str(destination)) >= minimum
 
@@ -64,14 +62,12 @@ def test_unavailable_short_path_fails_before_creating_worktree(tmp_path, monkeyp
     run_id = sample['run_id']
     destination = worktree_directory(str(target), run_id)
     minimum = dict(sample['worktree_lengths'])['extended']
-    root = Path(os.environ['SELF_EVOLVE_DATA_DIR'])
-    root = root / ('p' * max(1, minimum - len(str(destination)) - 1))
-    monkeypatch.setenv('SELF_EVOLVE_DATA_DIR', str(root))
+    run_id += 'p' * max(1, minimum - len(str(destination)))
     destination = worktree_directory(str(target), run_id)
     assert len(str(destination)) >= minimum
     monkeypatch.setattr(sandbox, '_windows_short_path', lambda path: None)
 
-    with pytest.raises(RuntimeError, match='shorter PRIVATE data directory'):
+    with pytest.raises(RuntimeError, match='shorter PRIVATE companion path'):
         make_worktree(str(target), 'HEAD', run_id)
 
     assert not destination.exists()
@@ -96,9 +92,7 @@ def test_native_probe_and_graders_run_in_long_worktree(tmp_path, monkeypatch):
     run_id = sample['run_id'] + '-native'
     minimum = dict(sample['worktree_lengths'])['extended']
     destination = worktree_directory(str(target), run_id)
-    root = Path(os.environ['SELF_EVOLVE_DATA_DIR'])
-    root = root / ('p' * max(1, minimum - len(str(destination)) - 1))
-    monkeypatch.setenv('SELF_EVOLVE_DATA_DIR', str(root))
+    run_id += 'p' * max(1, minimum - len(str(destination)))
     destination = worktree_directory(str(target), run_id)
     assert len(str(destination)) >= minimum
 
@@ -125,9 +119,7 @@ def test_profile_base_ref_remains_resolvable_at_private_worktree_path(tmp_path, 
     run_id = sample['run_id'] + '-profile-' + case
     destination = worktree_directory(str(target), run_id)
     if len(str(destination)) < minimum:
-        data_root = Path(os.environ['SELF_EVOLVE_DATA_DIR'])
-        data_root = data_root / ('p' * max(1, minimum - len(str(destination)) - 1))
-        monkeypatch.setenv('SELF_EVOLVE_DATA_DIR', str(data_root))
+        run_id += 'p' * max(1, minimum - len(str(destination)))
         destination = worktree_directory(str(target), run_id)
     assert len(str(destination)) >= minimum
 

@@ -99,7 +99,7 @@ def test_neg_b_candidate_grade_not_trusted(tmp_path):
     candidate 的 True 被完全忽略。
     """
     repo = _self_repo(tmp_path)
-    runs = str(runtime_data.private_root() / tmp_path.name / "runs")
+    runs = str(runtime_data.private_root() / "targets" / tmp_path.name / "runs")
     boot = selfboot.selfboot_init(repo, "HEAD", "neg_b", runs)
     sv: Supervisor = boot["supervisor"]
     cw = boot["candidate_worktree"]
@@ -167,7 +167,7 @@ def test_neg_b_supervisor_grade_non_self_mode_raises():
 def test_neg_c_tampered_immutable_startup_rejected(tmp_path):
     """candidate 篡改裁决文件 → verify_immutable raise ImmutableViolation（fail-closed）。"""
     repo = _self_repo(tmp_path)
-    runs = str(runtime_data.private_root() / tmp_path.name / "runs")
+    runs = str(runtime_data.private_root() / "targets" / tmp_path.name / "runs")
     boot = selfboot.selfboot_init(repo, "HEAD", "neg_c", runs)
 
     cand_sie = os.path.join(boot["candidate_worktree"], "tools", "sie")
@@ -181,7 +181,7 @@ def test_neg_c_tampered_immutable_startup_rejected(tmp_path):
 def test_neg_c_tampered_multiple_files_all_caught(tmp_path):
     """多个 IMMUTABLE 文件均被篡改 → verify_immutable 一次性报告所有违规（fail-closed）。"""
     repo = _self_repo(tmp_path)
-    runs = str(runtime_data.private_root() / tmp_path.name / "runs")
+    runs = str(runtime_data.private_root() / "targets" / tmp_path.name / "runs")
     boot = selfboot.selfboot_init(repo, "HEAD", "neg_c2", runs)
 
     cand_sie = os.path.join(boot["candidate_worktree"], "tools", "sie")
@@ -207,7 +207,7 @@ def test_neg_d_candidate_not_on_resolution_path(tmp_path):
     from tools.sie import supervisor as sup
 
     repo = _self_repo(tmp_path)
-    runs = str(runtime_data.private_root() / tmp_path.name / "runs")
+    runs = str(runtime_data.private_root() / "targets" / tmp_path.name / "runs")
     boot = selfboot.selfboot_init(repo, "HEAD", "neg_d", runs)
 
     cand_sie = os.path.join(boot["candidate_worktree"], "tools", "sie")
@@ -220,7 +220,7 @@ def test_neg_d_selfboot_candidate_isolated_verified(tmp_path):
     from tools.sie import supervisor as sup
 
     repo = _self_repo(tmp_path)
-    runs = str(runtime_data.private_root() / tmp_path.name / "runs")
+    runs = str(runtime_data.private_root() / "targets" / tmp_path.name / "runs")
 
     # selfboot_init 步骤4 已包含 candidate_path_is_isolated 断言
     # 若 candidate 在 sys.path 上则 selfboot_init 会 raise ImmutableViolation

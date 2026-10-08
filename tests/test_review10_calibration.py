@@ -39,6 +39,8 @@ def drive(options=None):
     runtime = SimpleNamespace(
         private_root=lambda: Path(case["workdir"]),
         runtime_directory=lambda value: value,
+        make_directory=lambda value: value,
+        _new_scratch_directory=lambda root, prefix: root / prefix,
         private_file_path=lambda path: ReportPath())
     real_import = builtins.__import__
     def importing(name, *args, **kwargs):

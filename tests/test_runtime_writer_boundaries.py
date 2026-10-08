@@ -36,7 +36,7 @@ def test_direct_writers_refuse_nested_repository(private_home, writer, visibilit
 def test_direct_writers_keep_private_payloads(private_home):
     from tools.sie import gate_human, profile
     data, _, _ = private_home
-    destination = data/'run'
+    destination = data/'targets'/'synthetic'/'runs'/'run'
     sample = repair_samples()
     profile.freeze_target(str(destination), sample['profile'])
     assert profile.load_target(str(destination)) == sample['profile']
