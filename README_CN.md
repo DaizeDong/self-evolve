@@ -35,31 +35,11 @@
 
 ## 已实现的 A/B 循环
 
-```mermaid
-flowchart TD
-    contract["PROFILE<br/>冻结评测契约"]
-    diagnose["REFLECT<br/>选择父代并诊断"]
-    proposal["PROPOSE<br/>提出范围内的修改"]
-    candidate["PATCH<br/>在候选 worktree 应用修改"]
-    compare["EVALUATE<br/>配对比较父代与候选"]
-    verdict{"代码裁决<br/>与证据检查"}
-    archive["ACCEPT<br/>归档采纳快照"]
-    reject["REJECT<br/>保留或恢复父代"]
-    review["PAUSE_FOR_HUMAN<br/>记录待审动作与原因"]
-    nextRound{"还有轮数<br/>且未触发停止条件？"}
-    finish["结束本次调用<br/>保留状态与原因"]
+<p align="center">
+  <a href="docs/diagrams/workflow-cn.png"><img src="docs/diagrams/workflow-cn.png" width="760" alt="冻结契约、选择并诊断父代、隔离修改和配对评测，再按裁决归档、拒绝、排队人审或在轮数限制内继续。"></a>
+</p>
 
-    contract --> diagnose --> proposal --> candidate --> compare --> verdict
-    verdict -->|"ACCEPT"| archive
-    verdict -->|"REJECT"| reject
-    verdict -->|"转交人审"| review
-    verdict -->|"CONTINUE（B）"| nextRound
-    archive --> nextRound
-    reject --> nextRound
-    review --> nextRound
-    nextRound -->|"是：下一轮"| diagnose
-    nextRound -->|"否"| finish
-```
+[绘图源码](docs/diagrams/workflow-cn.dot) · [渲染脚本](docs/diagrams/render.py)
 
 ACCEPT 归档候选快照；合并仍须单独获得授权。
 `CONTINUE` 和已入队的人审可进入新一轮，受 `--max-rounds` 与熔断条件限制。

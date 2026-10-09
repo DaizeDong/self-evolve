@@ -28,6 +28,7 @@ All notable changes to this project are documented here (Keep a Changelog style)
 - Reachable bilingual design rationale and documentation-impact, candidate-freeze, review, and handoff obligations. Documentation obligations are a contributor workflow, not an automatic runtime gate.
 
 ### Changed
+- Replace the bilingual README Mermaid charts with compact color PNGs, with versioned Graphviz sources and a render script.
 - Real run state, worktrees, model scratch, and reports resolve to a verified PRIVATE Git companion; missing, stale, public, or unknown proof blocks writes without a public-repository fallback.
 - Model calls inherit installed llmcall policy and retain actual provider, attempts, diagnostics, and errors. Successful raw JSON is omitted only when its complete content is retained in parsed fields; existing ledgers are not rewritten.
 - Runtime and evidence documentation now distinguishes current A/B support from missing C measurement production, refused A+B execution, absent gated per-step review, and A-only selfboot. Earlier release entries remain historical records, not current support claims.

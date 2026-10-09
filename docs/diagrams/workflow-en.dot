@@ -1,0 +1,31 @@
+// Public TOOL documentation. Render with: python docs/diagrams/render.py
+digraph workflow {
+  graph [rankdir=LR, bgcolor="white", pad="0.16", nodesep="0.22", ranksep="0.30", splines=polyline, outputorder=edgesfirst];
+  node [shape=box, style="rounded,filled", fontname="Arial", fontsize=16, fontcolor="#0f172a", penwidth=1.6, margin="0.12,0.10", fillcolor="#f1f5f9", color="#475569"];
+  edge [fontname="Arial", fontsize=12, fontcolor="#475569", color="#64748b", penwidth=1.3, arrowsize=0.7];
+
+  contract [label="Freeze\ncontract", fillcolor="#eef2ff", color="#6366f1"];
+  parent [label="Select parent\n+ diagnose"];
+  patch [label="Allowed proposal\n+ isolated patch"];
+  evaluate [label="Paired evaluation\n+ code gates", fillcolor="#fef9c3", color="#ca8a04"];
+  accept [label="ACCEPT\nArchive snapshot", fillcolor="#dcfce7", color="#16a34a"];
+  reject [label="REJECT\nKeep / restore parent", fillcolor="#fff1f2", color="#e11d48"];
+  review [label=<<B>PAUSE_FOR_HUMAN</B><BR/><FONT POINT-SIZE="14">Queue with reason</FONT>>, fontsize=14, fillcolor="#fef9c3", color="#ca8a04"];
+  next [label="More rounds?\nWithin limits", fillcolor="#fef9c3", color="#ca8a04"];
+  finish [label="End call\nState + reasons", fillcolor="#e0f2fe", color="#0284c7"];
+
+  { rank=same; contract; parent; patch; }
+  contract -> parent -> patch;
+  patch -> evaluate;
+  evaluate -> accept [color="#16a34a"];
+  evaluate -> reject [color="#e11d48"];
+  evaluate -> review [color="#ca8a04"];
+  evaluate -> next [label="CONTINUE (B only)", style=dashed];
+  { rank=same; accept; reject; review; }
+  accept -> reject -> review [style=invis, weight=5];
+  accept -> next;
+  reject -> next;
+  review -> next;
+  next:n -> parent:e [label="Yes: next round", constraint=false];
+  next -> finish [label="No"];
+}

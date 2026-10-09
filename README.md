@@ -43,31 +43,11 @@ The [full rationale and tradeoffs](PHILOSOPHY.md) explain these choices.
 
 ## Implemented A/B loop
 
-```mermaid
-flowchart TD
-    contract["PROFILE<br/>Freeze evaluation contract"]
-    diagnose["REFLECT<br/>Select parent and diagnose"]
-    proposal["PROPOSE<br/>Prepare allowed changes"]
-    candidate["PATCH<br/>Apply in candidate worktree"]
-    compare["EVALUATE<br/>Pair parent and candidate"]
-    verdict{"Code decision<br/>and evidence gates"}
-    archive["ACCEPT<br/>Archive accepted snapshot"]
-    reject["REJECT<br/>Keep or restore parent"]
-    review["PAUSE_FOR_HUMAN<br/>Queue action with reason"]
-    nextRound{"Round budget left<br/>and no stop condition?"}
-    finish["End invocation<br/>Preserve state and reasons"]
+<p align="center">
+  <a href="docs/diagrams/workflow-en.png"><img src="docs/diagrams/workflow-en.png" width="760" alt="Freeze the contract, select and diagnose a parent, patch in isolation, compare paired evidence, then archive, reject, queue review or continue within round limits."></a>
+</p>
 
-    contract --> diagnose --> proposal --> candidate --> compare --> verdict
-    verdict -->|"ACCEPT"| archive
-    verdict -->|"REJECT"| reject
-    verdict -->|"Human review"| review
-    verdict -->|"CONTINUE (B)"| nextRound
-    archive --> nextRound
-    reject --> nextRound
-    review --> nextRound
-    nextRound -->|"Yes: next round"| diagnose
-    nextRound -->|"No"| finish
-```
+[Diagram source](docs/diagrams/workflow-en.dot) · [render script](docs/diagrams/render.py)
 
 ACCEPT archives a candidate snapshot; merging requires its own authorization.
 `CONTINUE` and queued review can start a fresh round, bounded by `--max-rounds`
