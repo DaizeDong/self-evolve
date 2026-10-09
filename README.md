@@ -41,6 +41,40 @@ starts with an observable improvement contract and keeps the comparison stable.
 The [full rationale and tradeoffs](PHILOSOPHY.md) explain these choices.
 [Current limits](#current-limits) define what the shipped loop can execute.
 
+## Implemented A/B loop
+
+```mermaid
+flowchart TD
+    contract["PROFILE<br/>Freeze evaluation contract"]
+    diagnose["REFLECT<br/>Select parent and diagnose"]
+    proposal["PROPOSE<br/>Prepare allowed changes"]
+    candidate["PATCH<br/>Apply in candidate worktree"]
+    compare["EVALUATE<br/>Pair parent and candidate"]
+    verdict{"Code decision<br/>and evidence gates"}
+    archive["ACCEPT<br/>Archive accepted snapshot"]
+    reject["REJECT<br/>Keep or restore parent"]
+    review["PAUSE_FOR_HUMAN<br/>Queue action with reason"]
+    nextRound{"Round budget left<br/>and no stop condition?"}
+    finish["End invocation<br/>Preserve state and reasons"]
+
+    contract --> diagnose --> proposal --> candidate --> compare --> verdict
+    verdict -->|"ACCEPT"| archive
+    verdict -->|"REJECT"| reject
+    verdict -->|"Human review"| review
+    verdict -->|"CONTINUE (B)"| nextRound
+    archive --> nextRound
+    reject --> nextRound
+    review --> nextRound
+    nextRound -->|"Yes: next round"| diagnose
+    nextRound -->|"No"| finish
+```
+
+ACCEPT archives a candidate snapshot; merging requires its own authorization.
+`CONTINUE` and queued review can start a fresh round, bounded by `--max-rounds`
+and circuit breakers. Checks can reject before evaluation; unavailable required
+evidence, insufficient review independence, or failed restoration can end the
+invocation early. See [runtime and recovery](reference/runtime.md#resume-and-recovery).
+
 ## Install
 
 Clone the repository with its pinned guard and style submodules:
