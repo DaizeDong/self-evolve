@@ -14,19 +14,19 @@
 自我改进的循环可能通过改题、删掉难例或给自己打分来提高分数。开放式任务往往没有
 唯一真值，这些变化就更难发现。因此，self-evolve 先确定可观察的改进判据，再固定比较口径。
 
-- **方法统一，证据随目标选择。** 流程为
+- **证据来源。** 流程为
   `profile → reflect → propose → patch → evaluate → accept or review`。
   A 使用实际执行的测试，B 使用独立核验的事实，C 需要调用方提供测量。
   没有取得的观测就报告不可用；改标签不能产生证据。
-- **先冻结规则，再修改候选。** 固定评测策略、比较义务和留出集，按同一组身份比较父代与候选。
+- **固定评测契约。** 修改前固定评测策略、比较义务和留出集，按同一组身份比较父代与候选。
   这样可以限制删题或改评分器带来的分数增长；代价是目标改变时，需要另建评测契约。
-- **模型提议，代码裁决。** 确定性检查处理证据并决定是否采纳。
+- **提案与采纳的职责。** 模型提出修改建议；确定性检查处理证据并决定是否采纳。
   判断评审独立性时保留实际 provider；请求时使用不同别名不能证明独立。
   检查结果仍取决于输入质量和统计假设。
-- **保留原因和可恢复的候选。** 失败、拒绝和转交人审都有价值。
+- **恢复与审查。** 失败、拒绝和转交人审都有价值。
   保存实际测量对象与候选的完整内容，评审前完成文档并确定源码版本。
   这会增加存储和审查成本，但能让决策可核对、候选可回滚。
-- **明确工具、数据和落地权限。** 真实证据放在验证为 PRIVATE 的 Git 伴生仓。
+- **数据与授权边界。** 真实证据放在验证为 PRIVATE 的 Git 伴生仓。
   worktree 隔离修改，但不能证明操作系统权限隔离。采纳的候选会归档；
   发布、合并和对外发送作为独立动作，按调用方获得的授权处理。
 
@@ -62,20 +62,19 @@ git clone --recursive https://github.com/DaizeDong/self-evolve.git
 
 将 `SELF_EVOLVE_CONFIG`（别名 `SELF_EVOLVE_CONFIG_DIR`）指向已有的 PRIVATE
 Git 伴生仓，或将 `SELF_EVOLVE_DATA_DIR` 指向该仓准确的 `data/` 绝对路径。
-发现顺序为 DATA_DIR、CONFIG、CONFIG_DIR、经确认的同级伴生仓、主目录候选。
-继承的 DATA_DIR 会优先于新设的 CONFIG。`data/` 可以尚未创建，但不会退回伴生仓根目录。
-运行写入须先匹配源码存储契约，并取得有效的 PRIVATE
-目标证明；证明缺失、过期、公开或未知都会阻止写入。
-存储与保留规则见 [DATA.md](DATA.md)，前置条件见
-[运行配置](reference/runtime.md#configuration)。
+继承的 DATA_DIR 优先于 CONFIG。`data/` 可以尚未创建；运行写入须先匹配源码存储契约，
+并取得有效的 PRIVATE 证明，不会退回伴生仓根目录或公开工作树。
 
-[config.contract.json](config.contract.json) 声明本工具只负责运行存储选择。
-每次运行的冻结 profile 和保留义务登记表属于 DATA，没有另一套设置注册表需要初始化。
-新建源码工作副本位于同级 `.worktrees/self-evolve/` 下，具体布局见运行文档。
+[运行配置](reference/runtime.md#configuration) 规定发现顺序、可见性前置条件、
+存储切换和仅含源码的工作树布局。[config.contract.json](config.contract.json)
+声明本工具只负责运行存储选择：每次运行的冻结 profile 和保留登记表属于 DATA，
+没有另一套设置注册表。[DATA.md](DATA.md) 与
+[storage.contract.json](storage.contract.json) 规定产物保留、经审查的清理、恢复和
+生成存储准入限制。最终交付物及其引用的唯一证据保存在 PRIVATE 伴生仓。
 
 模型调用继承已安装 `llmcall` 的路由、模型、超时和回退设置。
-agent 使用 `mode="agent"`，文本 judge 使用默认模式。
-评审是否独立要看实际返回的 provider，请求时使用不同别名不能证明独立。
+agent 使用 `mode="agent"`，文本 judge 使用默认模式。评审独立性依据实际返回的
+provider，具体要求见[模型调用](reference/runtime.md#proposals-and-model-calls)。
 
 ## 使用
 

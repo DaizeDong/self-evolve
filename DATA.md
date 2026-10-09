@@ -1,13 +1,11 @@
 # Runtime storage contract
 
 Real runtime DATA belongs in a verified PRIVATE Git companion. The public tool
-contains this contract, code and synthetic fixtures. `runtime_data.py` resolves
-`SELF_EVOLVE_DATA_DIR`, `SELF_EVOLVE_CONFIG`, or `SELF_EVOLVE_CONFIG_DIR` in that
-precedence; sibling and home discovery follow. The DATA root is always exactly
+contains this contract, code and synthetic fixtures. The DATA root is exactly
 `<companion>/data/`, including when that directory does not yet exist. Missing
-PRIVATE proof or source-contract ownership fails before writing. No companion-root
-or public-worktree fallback is allowed. Full initialization and switching steps
-are in [runtime configuration](reference/runtime.md#configuration).
+PRIVATE proof or source-contract ownership blocks writing, with no companion-root
+or public-worktree fallback. [Runtime configuration](reference/runtime.md#configuration)
+defines selectors, discovery order, proof requirements, initialization and switching.
 
 ## What a current run retains
 
@@ -44,12 +42,12 @@ entries belong to maintenance and cannot receive runtime output.
 Existing archive and holdout subtree declarations retain core protection;
 interrupted staging there requires recovery review before removal.
 
-New candidate and probe Git worktrees are source-only TOOL copies at
-`<companion-parent>/.worktrees/self-evolve/<companion-name>/<target-key>/<run-id>/`.
-The producer no longer creates nested Git worktrees inside the DATA contract.
-Existing legacy candidates retain their path for validated resume and remain
-visible inventory exceptions until reviewed migration. They are not permanent
-core evidence; keep accepted snapshots and frozen run records in the companion.
+New candidate and probe Git worktrees are source-only TOOL copies outside DATA.
+[Runtime configuration](reference/runtime.md#configuration) defines their location
+and the review required to move legacy candidates. Legacy candidates retain their
+path for validated resume and remain visible inventory exceptions until migration.
+These worktrees are not permanent core evidence; keep accepted snapshots and frozen
+run records in the companion.
 
 Accepted changes need recoverable bytes: an exact retained snapshot, or a future
 verified base revision plus complete change records including additions and
@@ -137,11 +135,9 @@ the `data/` prefix used by the default runtime layout. Each artifact records its
 producer, consumer or final deliverable, schema and recovery method. The shared
 checker inventories that whole root, including companion setup metadata; selecting
 only `data/` does not establish repository coverage. The companion README identifies
-selected final deliverables. Runtime records never fall back into this public repository.
-
-The runtime validates the exact `data/` layout before any writer is admitted.
-`tools.storage_retention` projects only declarations inside that freshly proved
-scope before planning. Existing records and registries are never moved automatically.
+selected final deliverables. `tools.storage_retention` plans only declarations
+inside the freshly proved `data/` scope. Existing records and registries are never
+moved automatically.
 
 Keep a current `retention.json` in DATA, following
 [schemas/storage-retention.schema.json](schemas/storage-retention.schema.json).
