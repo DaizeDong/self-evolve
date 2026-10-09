@@ -29,8 +29,7 @@ description: "Improve an existing skill or repository through isolated proposals
 | EVALUATE | 用相同口径测量父代和候选，保留任务身份及不可用原因 |
 | ACCEPT / REVIEW | 由代码处理证据与门控，归档采纳版本或记录拒绝、人审原因 |
 
-**LLM 只提议，代码裁决。** agent 使用已安装的
-`llmcall.call(prompt, mode="agent")`，文本 judge 使用默认模式。
+agent 使用已安装的 `llmcall.call(prompt, mode="agent")`，文本 judge 使用默认模式。
 继承其路由、模型、超时和回退策略，不另设 provider 链。
 只有实际返回的已知不同家族才能支持独立评审结论。
 

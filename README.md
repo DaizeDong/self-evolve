@@ -16,24 +16,25 @@ cases, or grading its own output. Open-ended work makes that especially difficul
 to detect because there may be no single ground truth. self-evolve therefore
 starts with an observable improvement contract and keeps the comparison stable.
 
-- **Keep one method, adapt the evidence.** The loop is
+- **Evidence sources.** The loop is
   `profile → reflect → propose → patch → evaluate → accept or review`.
   A uses executed tests, B uses independently verified facts, and C needs supplied
   measurements. Missing measurements remain unavailable; changing a label cannot
   create evidence.
-- **Freeze the rules before changing the candidate.** Keep the evaluation policy,
-  obligations, and holdout fixed, and compare the parent and candidate by the same
-  identities. This limits task removal and grader changes as routes to a higher
+- **Fixed evaluation contract.** Freeze the policy, obligations and holdout before
+  editing, and compare the parent and candidate by the same identities. This
+  limits task removal and grader changes as routes to a higher
   score, at the cost of starting a new evaluation contract when the goal changes.
-- **Let models propose and code decide.** Deterministic gates handle evidence and
-  acceptance. Retain actual provider metadata when judging independence; different
+- **Proposal and acceptance responsibilities.** Models propose changes;
+  deterministic gates handle evidence and acceptance. Retain actual provider
+  metadata when judging independence; different
   requested aliases cannot establish it. A gate still depends on the quality of
   its inputs and the assumptions behind its statistics.
-- **Retain reasons and recoverable candidates.** Failures, rejection, and review
+- **Recovery and auditability.** Failures, rejection, and review
   are useful outcomes. Preserve measured populations and exact candidate bytes,
   with the final documentation and source revision ready before review. This costs
   storage and review effort but makes a decision auditable and a rollback possible.
-- **Separate tool, data, and landing authority.** Real evidence stays in a verified
+- **Data and authorization boundaries.** Real evidence stays in a verified
   PRIVATE Git companion. Worktrees isolate edits, but do not prove operating-system
   isolation. Accepted candidates are archived; publishing, merging, and sending
   follow the caller's authorization as separate actions.
@@ -71,22 +72,23 @@ installation alias. Run `python -m pytest tests` for the business suite.
 
 Set `SELF_EVOLVE_CONFIG` (alias `SELF_EVOLVE_CONFIG_DIR`) to an existing PRIVATE
 Git companion, or `SELF_EVOLVE_DATA_DIR` to exactly its absolute `data/` path.
-Discovery checks DATA_DIR, CONFIG, CONFIG_DIR, the proved sibling companion,
-then home candidates, in that order. An inherited DATA_DIR wins over a new CONFIG.
-The `data/` directory may be absent; the companion root is never a DATA fallback.
-Runtime writes require source-contract ownership and
-valid PRIVATE destination proof; missing, stale, public, or unknown proof blocks
-writes. See [DATA.md](DATA.md) for storage and retention, and
-[runtime configuration](reference/runtime.md#configuration) for prerequisites.
+An inherited DATA_DIR takes precedence over CONFIG. The `data/` directory may be
+absent; runtime writes require source-contract ownership and valid PRIVATE proof,
+with no companion-root or public-worktree fallback.
 
-[config.contract.json](config.contract.json) records runtime-storage-only
-applicability. Per-run profiles and the retention obligation ledger are DATA;
-there is no separate settings registry to initialize. New source worktrees use
-the sibling `.worktrees/self-evolve/` layout described in the runtime reference.
+[Runtime configuration](reference/runtime.md#configuration) defines discovery
+order, visibility prerequisites, store switching, and source-only worktree layout.
+[config.contract.json](config.contract.json) declares runtime-storage-only
+configuration: per-run frozen profiles and the retention ledger are DATA, with no
+separate settings registry. [DATA.md](DATA.md) and
+[storage.contract.json](storage.contract.json) define retained outputs, reviewed
+retirement, recovery and generated-storage admission limits. Keep final
+deliverables and their unique cited evidence in the PRIVATE companion.
 
-Model calls use installed `llmcall` routing, model, timeout, and fallback settings.
-Agents use `mode="agent"`; text judges use default judge mode. Actual returned
-providers establish review independence, not requested aliases.
+Model calls inherit installed `llmcall` routing, model, timeout, and fallback
+settings. Agents use `mode="agent"`; text judges use default judge mode. Review
+independence uses actual returned providers, as specified in
+[model calls](reference/runtime.md#proposals-and-model-calls).
 
 ## Usage
 
@@ -132,7 +134,3 @@ checks. See [documentation lifecycle](reference/maintenance.md).
 ## License
 
 [MIT](LICENSE). Release history is in [CHANGELOG.md](CHANGELOG.md).
-
-## Private storage lifecycle
-
-See [DATA.md](DATA.md) and [storage.contract.json](storage.contract.json) for core outputs, reviewed retirement, recovery and generated-storage admission limits. Keep final deliverables and their unique cited evidence in the PRIVATE companion.

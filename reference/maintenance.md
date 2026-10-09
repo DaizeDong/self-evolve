@@ -43,9 +43,12 @@ private infrastructure details, and change evidence in a PRIVATE companion.
 5. If review changes the candidate, identify the new snapshot and repeat the
    affected review and checks. Do not attach a prior approval to changed bytes.
 
-Keep long design rationale here or in PHILOSOPHY.md and link it from the entry.
-Entry simplification must preserve reasons, tradeoffs, and current boundaries;
-moving a section is complete only when the destination remains reachable.
+Update the existing authoritative section when guidance changes; consolidate
+superseded or repeated explanations instead of appending another patch note to
+current instructions. Keep reusable rationale here or in PHILOSOPHY.md and link
+it from entry documents. Preserve reasons, tradeoffs, current boundaries and
+historical CHANGELOG facts; a moved section must remain reachable through updated
+links or retained anchors.
 
 ## Handoff the reviewed result
 
