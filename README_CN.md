@@ -33,6 +33,39 @@
 [完整设计理由与取舍](PHILOSOPHY.md#中文)进一步说明这些选择。
 [当前限制](#当前限制)界定已交付循环的执行范围。
 
+## 已实现的 A/B 循环
+
+```mermaid
+flowchart TD
+    contract["PROFILE<br/>冻结评测契约"]
+    diagnose["REFLECT<br/>选择父代并诊断"]
+    proposal["PROPOSE<br/>提出范围内的修改"]
+    candidate["PATCH<br/>在候选 worktree 应用修改"]
+    compare["EVALUATE<br/>配对比较父代与候选"]
+    verdict{"代码裁决<br/>与证据检查"}
+    archive["ACCEPT<br/>归档采纳快照"]
+    reject["REJECT<br/>保留或恢复父代"]
+    review["PAUSE_FOR_HUMAN<br/>记录待审动作与原因"]
+    nextRound{"还有轮数<br/>且未触发停止条件？"}
+    finish["结束本次调用<br/>保留状态与原因"]
+
+    contract --> diagnose --> proposal --> candidate --> compare --> verdict
+    verdict -->|"ACCEPT"| archive
+    verdict -->|"REJECT"| reject
+    verdict -->|"转交人审"| review
+    verdict -->|"CONTINUE（B）"| nextRound
+    archive --> nextRound
+    reject --> nextRound
+    review --> nextRound
+    nextRound -->|"是：下一轮"| diagnose
+    nextRound -->|"否"| finish
+```
+
+ACCEPT 归档候选快照；合并仍须单独获得授权。
+`CONTINUE` 和已入队的人审可进入新一轮，受 `--max-rounds` 与熔断条件限制。
+检查可能在评测前拒绝当前轮；必需证据缺失、评审独立性不足或恢复失败，可能提前结束本次调用。
+详见[运行与恢复](reference/runtime.md#resume-and-recovery)。
+
 ## 安装
 
 克隆仓库时一并获取固定版本的 guard 和 style 子模块：
