@@ -11,10 +11,9 @@ companion repository is selected. Discovery order is:
 2. `SELF_EVOLVE_CONFIG`, the absolute companion repository root.
 3. `SELF_EVOLVE_CONFIG_DIR`, the equivalent companion-root alias.
 4. Proved `self-evolve-config` sibling candidates from the shared resolver.
-5. `~/.self-evolve-config`, then the legacy `~/.self-evolve-data` candidate.
 
-Home and sibling candidates still require PRIVATE Git proof and the same `data/`
-layout. The legacy home name is usable only as a companion repository root.
+There is no home-directory candidate. Sibling candidates still require PRIVATE Git
+proof and the same `data/` layout.
 An invalid explicit selection fails; it never falls through to another store.
 When switching A to B, clear inherited DATA_DIR and CONFIG_DIR before setting
 CONFIG to B, or set DATA_DIR explicitly to B's `data/`. Use `doctor` to inspect

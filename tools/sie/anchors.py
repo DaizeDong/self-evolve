@@ -134,8 +134,8 @@ _ABS_TOL = 0.01   # absolute tolerance for near-zero anchors (|expected| < 1)
 def _ensure_edgar_identity() -> bool:
     """设 edgartools identity（SEC 强制的 UA 联系串）。
 
-    顺序：已设则跳过 → EDGAR_IDENTITY 环境变量 → ~/.sie/edgar_identity（本地不入库，
-    因 self-evolve 公开发表故邮箱不进仓库；放 home 目录以跨 cwd/worktree 可读）。
+    顺序：已设则跳过 → EDGAR_IDENTITY 环境变量。没有家目录文件回退：联系串是私有配置，
+    只能由运行方显式设置（与 edgar_cache.prepare_cache 同一来源）。
     返回 True 表示 identity 生效；False → 调用方降级为 unverified（不崩）。
     """
     import os
@@ -146,16 +146,6 @@ def _ensure_edgar_identity() -> bool:
     except Exception:
         pass
     ident = os.environ.get("EDGAR_IDENTITY", "").strip()
-    if not ident:
-        for p in (os.path.join(os.path.expanduser("~"), ".sie", "edgar_identity"),
-                  os.path.join(os.path.expanduser("~"), ".edgar_identity")):
-            try:
-                if os.path.exists(p):
-                    ident = open(p, encoding="utf-8").read().strip()
-                    if ident:
-                        break
-            except OSError:
-                continue
     if not ident:
         return False
     set_identity(ident)
