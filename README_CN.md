@@ -26,7 +26,7 @@
 - **恢复与审查。** 失败、拒绝和转交人审都有价值。
   保存实际测量对象与候选的完整内容，评审前完成文档并确定源码版本。
   这会增加存储和审查成本，但能让决策可核对、候选可回滚。
-- **数据与授权边界。** 真实证据放在验证为 PRIVATE 的 Git 伴生仓。
+- **数据与授权边界。** 真实证据放在 PRIVATE 的 Git 伴生仓。
   worktree 隔离修改，但不能证明操作系统权限隔离。采纳的候选会归档；
   发布、合并和对外发送作为独立动作，按调用方获得的授权处理。
 
@@ -62,10 +62,10 @@ git clone --recursive https://github.com/DaizeDong/self-evolve.git
 
 将 `SELF_EVOLVE_CONFIG`（别名 `SELF_EVOLVE_CONFIG_DIR`）指向已有的 PRIVATE
 Git 伴生仓，或将 `SELF_EVOLVE_DATA_DIR` 指向该仓准确的 `data/` 绝对路径。
-继承的 DATA_DIR 优先于 CONFIG。`data/` 可以尚未创建；运行写入须先匹配源码存储契约，
-并取得有效的 PRIVATE 证明，不会退回伴生仓根目录或公开工作树。
+继承的 DATA_DIR 优先于 CONFIG。`data/` 可以尚未创建；运行写入只做路径检查，须落在该 `data/` 布局内，
+运行时不做可见性证明，也不会退回伴生仓根目录或公开工作树。
 
-[运行配置](reference/runtime.md#configuration) 规定发现顺序、可见性前置条件、
+[运行配置](reference/runtime.md#configuration) 规定发现顺序、路径检查、
 存储切换和仅含源码的工作树布局。[config.contract.json](config.contract.json)
 声明本工具只负责运行存储选择：每次运行的冻结 profile 和保留登记表属于 DATA，
 没有另一套设置注册表。[DATA.md](DATA.md) 与

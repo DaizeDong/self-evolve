@@ -41,7 +41,7 @@ def matches(name, pattern):
 
 
 def contract_for_data_root(contract, root, repository):
-    """Project repository-relative ownership into a freshly proved DATA root."""
+    """Project repository-relative ownership into the selected DATA root."""
     root, repository = Path(root).absolute(), Path(repository).absolute()
     try:
         scope = root.relative_to(repository).as_posix()

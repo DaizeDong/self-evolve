@@ -180,10 +180,10 @@ def test_cli_private_proof_failure_is_reported_without_writing(tmp_path, monkeyp
     from tools.sie.cli import main
 
     def deny(*args, **kwargs):
-        raise runtime_data.DataBoundaryError('Synthetic PRIVATE proof failure')
+        raise runtime_data.DataBoundaryError('Synthetic companion check failure')
 
     monkeypatch.setattr(runtime_data, 'run_directory', deny)
     assert main(['storage', '--target', str(tmp_path), '--run-id', storage_samples()['run_id'],
                  '--write-manifest']) == 2
-    assert 'PRIVATE proof failure' in json.loads(capsys.readouterr().err)['error']
+    assert 'companion check failure' in json.loads(capsys.readouterr().err)['error']
     assert not list(tmp_path.iterdir())

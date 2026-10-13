@@ -1,5 +1,7 @@
-"""Generate a PRIVATE companion for offline end-to-end tests."""
-import json
+"""Generate a companion repository for offline end-to-end tests.
+
+Runtime writes carry no PRIVATE visibility proof, so no visibility receipt is generated.
+"""
 import subprocess
 
 import pytest
@@ -24,13 +26,11 @@ def synthetic_runtime_companion(tmp_path_factory):
     root = tmp_path_factory.getbasetemp()
     data, home = root/'data', root/'synthetic-home'
     data.mkdir()
-    proof = home/'.pii-guard/visibility.json'
-    proof.parent.mkdir(parents=True)
+    home.mkdir()
     sample = runtime_samples()
     subprocess.run(['git','init','-q',str(root)],check=True)
     subprocess.run(['git','-C',str(root),'remote','add','origin',sample['origin']],check=True)
     initialize_companion_history(root, sample)
-    proof.write_text(json.dumps({'_refreshed':sample['fresh'],sample['slug']:'PRIVATE'}),encoding='utf-8')
     return data, home
 
 

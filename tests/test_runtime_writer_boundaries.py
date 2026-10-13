@@ -1,4 +1,4 @@
-"""Direct writers must prove the destination's governing PRIVATE repository."""
+"""Direct writers must write only below the configured companion's own repository."""
 import json
 from pathlib import Path
 import subprocess
@@ -10,16 +10,13 @@ from test_runtime_private import private_home
 
 
 @pytest.mark.parametrize('writer', ['profile', 'queue', 'event', 'state'])
-@pytest.mark.parametrize('visibility', ['PUBLIC', 'UNKNOWN'])
-def test_direct_writers_refuse_nested_repository(private_home, writer, visibility):
+def test_direct_writers_refuse_nested_repository(private_home, writer):
     from tools.sie import events, gate_human, profile, state
-    data, proof, sample = private_home
+    data, _, sample = private_home
     nested = data/'nested'
     nested.mkdir()
     subprocess.run(['git', 'init', '-q', str(nested)], check=True)
     subprocess.run(['git', '-C', str(nested), 'remote', 'add', 'origin', sample['nested_origin']], check=True)
-    proof.write_text(json.dumps({'_refreshed': sample['fresh'], sample['slug']: 'PRIVATE',
-                                 sample['nested_slug']: visibility}), encoding='utf-8')
     destination = nested/'untouched'
     payload = repair_samples()
     writes = {

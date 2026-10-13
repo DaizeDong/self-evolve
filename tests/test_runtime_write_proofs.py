@@ -1,4 +1,4 @@
-"""Same-operation file checks avoid redundant proofs without caching authority."""
+"""Each write checks its parent afresh and keeps file metadata checks; no caching."""
 import json
 from pathlib import Path
 import stat
@@ -13,8 +13,8 @@ from tools.sie import runtime_data
 
 class RuntimeWriteProofTests(unittest.TestCase):
     def setUp(self):
-        # These unit tests isolate the file-metadata proof after artifact admission.
-        # test_storage_writer_contract exercises the real source contract helper.
+        # These unit tests isolate the file-metadata checks from the data/ layout check,
+        # which test_storage_writer_contract exercises.
         patcher = mock.patch.object(runtime_data, '_authorize_artifact',
                                     side_effect=lambda value, **kwargs: Path(value))
         patcher.start()

@@ -4,6 +4,9 @@ All notable changes to this project are documented here (Keep a Changelog style)
 
 ## [Unreleased]
 
+### Removed
+- The runtime PRIVATE visibility proof before every run directory, record write, scratch directory and EDGAR cache (Guards companion proof over every physical and effective fetch and push route, a fresh `~/.pii-guard/visibility.json` receipt, SSH alias parsing, per-operation proof reuse and repeat proofs on directory creation), together with the per-write storage-contract admission. `tools/sie/runtime_data.py` now uses path checks only: the companion resolves through `SELF_EVOLVE_DATA_DIR`, `SELF_EVOLVE_CONFIG` or the pinned resolver, and each destination must be absolute and portable, outside this tool tree and Git metadata, free of aliases, governed by a valid `.git` marker of the configured companion and inside its `data/` layout. An unresolved companion raises with initialization guidance and there is no in-repository fallback. Commit-time Guards hooks and CI are unchanged. The proof-only tests (`test_runtime_operation_proofs.py`, `test_runtime_destinations.py`, visibility and SSH-alias cases) and their orphaned generators are removed; the remaining runtime tests assert the path checks.
+
 ### Added
 - A research roadmap with phased evaluation, six falsifiable mechanism studies, operator scheduling, and long-term meta-improvement criteria. These are planned studies; detailed evidence remains in the private companion.
 - Read-only prerequisite diagnosis and metadata-only storage inventory, with explicit unavailable and boundary-failure results.

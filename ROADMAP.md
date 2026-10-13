@@ -144,7 +144,7 @@ unrelated missing capability need not block an independent research experiment.
 
 Keep reusable principles, phase status, and public source links in the tool.
 Keep full literature notes, briefs, experimental results, documentation-impact
-records, and review receipts in the verified PRIVATE versioned companion under
+records, and review receipts in the PRIVATE versioned companion under
 the [storage contract](DATA.md), without a public-repository fallback.
 
 For each design decision retain the problem, supporting sources and counterevidence,

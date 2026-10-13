@@ -55,8 +55,8 @@ safe only when the remaining bytes and dependencies still support recovery.
 The [storage contract](DATA.md) distinguishes current recovery requirements from
 historical evidence and disposable execution copies.
 
-Real run evidence belongs in a verified PRIVATE Git companion so it can retain
-history without entering the public tool. Missing private proof blocks writes.
+Real run evidence belongs in a PRIVATE Git companion so it can retain
+history without entering the public tool. An unresolved companion blocks writes.
 Worktrees, prompt filtering, and frozen Python code support specific boundaries;
 they do not establish an operating-system sandbox. ACCEPT archives a candidate.
 Installation, merge, publication, and outbound actions follow the caller's

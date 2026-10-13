@@ -1,4 +1,4 @@
-"""Producer admission must agree with the source-owned companion contract."""
+"""Producer writes stay in the configured companion's data/ layout (path checks only)."""
 import json
 from pathlib import Path
 import subprocess
@@ -9,15 +9,6 @@ from test_runtime_private import private_home
 from runtime_fixture_support import initialize_companion_history
 from tools.make_fixtures import storage_writer_samples
 from tools.sie import runtime_data
-
-
-def test_undeclared_writer_fails_before_creating_parent(private_home, tmp_path):
-    sample = storage_writer_samples()
-    run = runtime_data.run_directory(tmp_path, sample["run_id"])
-    path = run / sample["unknown"]
-    with pytest.raises(runtime_data.DataBoundaryError, match="contract|declared|owner"):
-        runtime_data.write_json(path, sample["payload"])
-    assert not run.exists()
 
 
 @pytest.mark.parametrize("relative", storage_writer_samples()["alternate_roots"])
@@ -114,22 +105,6 @@ def test_current_producer_records_are_declared_and_round_trip(private_home, tmp_
     assert json.loads(queue.read_text(encoding="utf-8")) == sample["payload"]
 
 
-def test_missing_contract_helper_fails_before_write(private_home, tmp_path, monkeypatch):
-    sample = storage_writer_samples()
-    run = runtime_data.run_directory(tmp_path, sample["run_id"])
-    original = Path.is_file
-
-    def is_file(path):
-        if path.name == "storage_contract.py":
-            return False
-        return original(path)
-
-    monkeypatch.setattr(Path, "is_file", is_file)
-    with pytest.raises(runtime_data.DataBoundaryError, match="guards|contract"):
-        runtime_data.write_json(run / "state.json", sample["payload"])
-    assert not run.exists()
-
-
 def test_cli_init_refuses_unowned_directory_before_creation(private_home, tmp_path, monkeypatch, capsys):
     from tools.sie.cli import main
     sample = storage_writer_samples()
@@ -144,23 +119,6 @@ def test_cli_init_refuses_unowned_directory_before_creation(private_home, tmp_pa
     assert result.out == ''
     assert json.loads(result.err)['status'] == 'failed'
     assert not run.exists()
-
-
-@pytest.mark.parametrize('staging_only', [False, True])
-def test_tracking_policy_applies_to_final_and_transient_staging(private_home, tmp_path, staging_only):
-    sample = storage_writer_samples()
-    data, _, _ = private_home
-    suffix = '.tmp' if staging_only else ''
-    (data.parent/'.gitignore').write_text('data/targets/*/runs/*/state.json'+suffix+'\n', encoding='utf-8')
-    run = runtime_data.run_directory(tmp_path, sample['run_id'])
-    if staging_only:
-        runtime_data.write_json(run/'state.json', sample['payload'])
-        assert json.loads((run/'state.json').read_text(encoding='utf-8')) == sample['payload']
-        assert not (run/'state.json.tmp').exists()
-    else:
-        with pytest.raises(runtime_data.DataBoundaryError, match='ignored'):
-            runtime_data.write_json(run/'state.json', sample['payload'])
-        assert not run.exists()
 
 
 def test_agent_scratch_authorizes_concrete_child_before_creation(private_home, monkeypatch):
@@ -185,19 +143,6 @@ def test_agent_scratch_cleans_up_after_body_failure(private_home):
             assert path.is_dir()
             raise RuntimeError('Synthetic body failure')
     assert not path.exists()
-
-
-@pytest.mark.parametrize('relative', storage_writer_samples()['container_paths'])
-def test_structural_container_refuses_ignored_file_but_allows_directory(private_home, relative):
-    data, _, _ = private_home
-    data.rmdir()
-    (data.parent/'.gitignore').write_text('data\n', encoding='utf-8')
-    destination = data.parent/relative
-    with pytest.raises(runtime_data.DataBoundaryError, match='structural directory'):
-        runtime_data.write_json(destination, storage_writer_samples()['payload'], append=True)
-    assert not data.exists()
-    assert runtime_data.make_directory(destination) == destination
-    assert destination.is_dir()
 
 
 @pytest.mark.parametrize('name', storage_writer_samples()['companion_metadata'])

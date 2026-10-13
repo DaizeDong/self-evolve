@@ -1,4 +1,4 @@
-"""Runtime output belongs to a verified private Git companion for every target."""
+"""Runtime output belongs to the companion Git repository for every target, decided by path checks."""
 from concurrent.futures import ThreadPoolExecutor
 import json
 import os
@@ -22,15 +22,13 @@ def private_home(tmp_path, monkeypatch):
     data = companion/'data'
     data.mkdir()
     home = tmp_path/'synthetic home'
-    visibility = home/'.pii-guard/visibility.json'
-    visibility.parent.mkdir(parents=True)
-    visibility.write_text(json.dumps({'_refreshed':sample['fresh'], sample['slug']:'PRIVATE'}),encoding='utf-8')
+    home.mkdir()
     monkeypatch.setenv('USERPROFILE', str(home))
     monkeypatch.setenv('HOME', str(home))
     monkeypatch.setenv('SELF_EVOLVE_DATA_DIR', str(data))
     monkeypatch.delenv('SELF_EVOLVE_CONFIG', raising=False)
     monkeypatch.delenv('SELF_EVOLVE_CONFIG_DIR', raising=False)
-    return data, visibility, sample
+    return data, home, sample
 
 
 def test_foreign_target_runs_are_private_and_namespaced(private_home, tmp_path):
@@ -47,27 +45,39 @@ def test_foreign_target_runs_are_private_and_namespaced(private_home, tmp_path):
     assert not (first/'.sie').exists() and not (second/'.sie').exists()
 
 
-@pytest.mark.parametrize('proof', ['PUBLIC','UNKNOWN',None,False,{'v':'PUBLIC'}])
-def test_invalid_visibility_blocks_before_write(private_home, tmp_path, proof):
+def test_runtime_paths_need_no_visibility_receipt_or_git_process(private_home, tmp_path, monkeypatch):
+    from tools.sie import runtime_data
     from tools.sie.statemachine import _run_dir
-    data, visibility, sample = private_home
-    visibility.write_text(json.dumps({'_refreshed':sample['fresh'], sample['slug']:proof}),encoding='utf-8')
-    before = sorted(str(p.relative_to(data)) for p in data.rglob('*'))
-    with pytest.raises(RuntimeError):
-        _run_dir(str(tmp_path), sample['run_id'])
-    assert sorted(str(p.relative_to(data)) for p in data.rglob('*')) == before
+    data, home, sample = private_home
+    assert not (home/'.pii-guard').exists()
+
+    def no_process(*args, **kwargs):
+        raise AssertionError('runtime path checks must not start a process')
+
+    monkeypatch.setattr(subprocess, 'run', no_process)
+    monkeypatch.setattr(subprocess, 'Popen', no_process)
+    path = Path(_run_dir(str(tmp_path), sample['run_id']))
+    assert path.is_relative_to(data)
+    assert runtime_data.runtime_directory(path) == path
 
 
-@pytest.mark.parametrize('stamp', ['stale','future','missing','malformed'])
-def test_invalid_visibility_timestamp_blocks(private_home, tmp_path, stamp):
-    from tools.sie.statemachine import _run_dir
-    _, visibility, sample = private_home
-    doc = {sample['slug']:'PRIVATE'}
-    if stamp != 'missing':
-        doc['_refreshed'] = sample.get(stamp, 'unparseable')
-    visibility.write_text(json.dumps(doc),encoding='utf-8')
-    with pytest.raises(RuntimeError):
-        _run_dir(str(tmp_path), sample['run_id'])
+def test_missing_companion_raises_with_initialization_guidance(private_home, monkeypatch):
+    import importlib.util
+    from tools.sie import runtime_data
+
+    class UninitializedResolver:
+        """Stands in for the pinned resolver on a machine with no companion beside the tool."""
+        def create_module(self, spec):
+            return None
+
+        def exec_module(self, module):
+            module.resolve_companion_root = lambda skill: None
+
+    spec = importlib.util.spec_from_loader('_synthetic_uninitialized_datadir', UninitializedResolver())
+    monkeypatch.delenv('SELF_EVOLVE_DATA_DIR')
+    monkeypatch.setattr(runtime_data.importlib.util, 'spec_from_file_location', lambda *a, **k: spec)
+    with pytest.raises(runtime_data.DataBoundaryError, match='Uninitialized'):
+        runtime_data.private_root()
 
 
 def test_invalid_run_ids_cannot_escape(private_home, tmp_path):
@@ -143,22 +153,13 @@ def _long_descendant(parent, sample):
     return path
 
 
-def test_existing_long_directory_uses_owning_repository(private_home, monkeypatch):
+def test_existing_long_directory_uses_owning_repository(private_home):
     from tools.sie import runtime_data
     data, _, sample = private_home
     path = _long_descendant(data, sample)
     assert runtime_data.verify_directory(path) == (path, data.parent)
     path.mkdir(parents=True)
-    commands = []
-    original_git = runtime_data._git
-
-    def record(*args):
-        commands.append(args)
-        return original_git(*args)
-
-    monkeypatch.setattr(runtime_data, '_git', record)
     assert runtime_data.verify_directory(path) == (path, data.parent)
-    assert all(Path(args[1]) == data.parent for args in commands)
 
 
 def test_long_run_survives_init_and_persisted_status(private_home, tmp_path, capsys):
@@ -186,32 +187,12 @@ def test_long_run_survives_init_and_persisted_status(private_home, tmp_path, cap
     assert list(target.iterdir()) == []
 
 
-@pytest.mark.parametrize('proof', ['PUBLIC', 'UNKNOWN', None])
-def test_nested_repository_visibility_is_still_checked(private_home, proof):
+def test_nested_repository_cannot_replace_expected_repository(private_home):
     from tools.sie.runtime_data import DataBoundaryError, verify_directory
-    data, visibility, sample = private_home
+    data, _, sample = private_home
     nested = data/'nested'
     subprocess.run(['git', 'init', '-q', str(nested)], check=True)
     subprocess.run(['git', '-C', str(nested), 'remote', 'add', 'origin', sample['nested_origin']], check=True)
-    document = json.loads(visibility.read_text(encoding='utf-8'))
-    if proof is not None:
-        document[sample['nested_slug']] = proof
-    visibility.write_text(json.dumps(document), encoding='utf-8')
-    requested = nested/'uncreated'
-    with pytest.raises(DataBoundaryError, match='PRIVATE companion visibility'):
-        verify_directory(requested)
-    assert not requested.exists()
-
-
-def test_nested_private_repository_cannot_replace_expected_repository(private_home):
-    from tools.sie.runtime_data import DataBoundaryError, verify_directory
-    data, visibility, sample = private_home
-    nested = data/'nested'
-    subprocess.run(['git', 'init', '-q', str(nested)], check=True)
-    subprocess.run(['git', '-C', str(nested), 'remote', 'add', 'origin', sample['nested_origin']], check=True)
-    document = json.loads(visibility.read_text(encoding='utf-8'))
-    document[sample['nested_slug']] = 'PRIVATE'
-    visibility.write_text(json.dumps(document), encoding='utf-8')
     requested = nested/'uncreated'
     assert verify_directory(requested) == (requested, nested)
     with pytest.raises(DataBoundaryError, match='repository boundary'):
@@ -263,11 +244,3 @@ def test_nested_bare_repository_is_not_a_runtime_directory(private_home):
         verify_directory(bare/'uncreated')
     assert not (bare/'uncreated').exists()
 
-
-def test_git_failure_preserves_bounded_cause(private_home, tmp_path, monkeypatch):
-    from tools.sie.runtime_data import DataBoundaryError, _git
-    monkeypatch.setenv('GIT_CEILING_DIRECTORIES', str(tmp_path.parent))
-    with pytest.raises(DataBoundaryError) as caught:
-        _git('-C', str(tmp_path), 'rev-parse', '--show-toplevel')
-    assert 'not a git repository' in str(caught.value).lower()
-    assert len(str(caught.value)) < 700

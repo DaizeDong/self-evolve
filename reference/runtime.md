@@ -10,17 +10,17 @@ companion repository is selected. Discovery order is:
 1. `SELF_EVOLVE_DATA_DIR`, the absolute `<companion>/data/` path.
 2. `SELF_EVOLVE_CONFIG`, the absolute companion repository root.
 3. `SELF_EVOLVE_CONFIG_DIR`, the equivalent companion-root alias.
-4. Proved `self-evolve-config` sibling candidates from the shared resolver.
+4. `self-evolve-config` sibling candidates the shared resolver identifies by origin name or marker.
 
-There is no home-directory candidate. Sibling candidates still require PRIVATE Git
-proof and the same `data/` layout.
+There is no home-directory candidate. Sibling candidates still require a Git
+worktree and the same `data/` layout.
 An invalid explicit selection fails; it never falls through to another store.
 When switching A to B, clear inherited DATA_DIR and CONFIG_DIR before setting
 CONFIG to B, or set DATA_DIR explicitly to B's `data/`. Use `doctor` to inspect
 the resolved `private_data.path` before `init`; repeat for A to verify switching
 back. This is storage selection, with no separate settings migration or registry.
-Clone the intended PRIVATE companion, refresh its PRIVATE visibility receipt,
-select it, inspect doctor, then `init` to create a run. Missing data does not
+Clone the intended PRIVATE companion, select it, inspect doctor, then `init`
+to create a run. Missing data does not
 authorize an unversioned directory or a new companion repository.
 
 Real run state, model scratch and reports stay in that companion. Source-only
@@ -35,20 +35,20 @@ and reconcile frozen profile paths before resuming. Legacy nested candidates
 remain a visible companion inventory exception until that migration is complete.
 Storage and retention are defined in [DATA.md](../DATA.md).
 
-Before writing, the runtime uses the pinned guards kit to authorize the concrete
-artifact against this source's storage contract and prove the actual
-filesystem repository and its effective fetch/push destinations. A fresh PRIVATE
-GitHub receipt in `~/.pii-guard/visibility.json` is required. Its `_refreshed`
-timestamp must include a timezone and be no older than 30 days. Public, unknown,
-stale, or missing proof blocks writing; there is no fallback into the tool repo.
-A private enclosing repository does not authorize an unproved nested repository.
-Missing ownership, ambiguous declarations and a missing authorization helper
-also stop writes before parent creation. Target, state and manifest JSON staging
-has exact transient declarations separate from the retained final artifacts.
-Archive and holdout subtrees keep their existing core recovery protection.
+Runtime writes carry no PRIVATE visibility proof: no receipt, no remote lookup
+and no Git process. Before writing, the runtime checks paths only. The destination
+must be absolute and portable, outside this tool tree and Git metadata, free of
+symbolic links, junctions and hard-linked files, governed by a valid `.git` marker
+of the configured companion (a nested repository is refused) and inside its
+`data/` layout. A failed check stops the write before parent creation; there is
+no fallback into the tool repo. Keeping the companion off public remotes is the
+job of the commit-time guards hooks and CI. Target, state and manifest JSON
+staging has exact transient declarations separate from the retained final
+artifacts. Archive and holdout subtrees keep their existing core recovery
+protection.
 
-Keep the guards submodule available. Unsupported transport overrides and ambiguous
-aliases require resolution, not bypassing proof. EDGAR identity and caches must
+Keep the guards submodule available; its resolver discovers the companion.
+EDGAR identity and caches must
 also be configured privately when factual verification is needed.
 
 ## CLI

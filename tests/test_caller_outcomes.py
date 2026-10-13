@@ -4,7 +4,6 @@ import io
 import json
 from pathlib import Path
 import runpy
-import subprocess
 import sys
 from types import SimpleNamespace
 
@@ -170,26 +169,3 @@ def test_full_dual_review_uses_actual_independence(sample, tmp_path, monkeypatch
     if expected != 'independent':
         assert not any(event['type'] == 'STATIC_REJECT' and event.get('phase') == 'REVIEW'
                        for event in events)
-
-
-@pytest.mark.parametrize('scheme', ['scp', 'ssh', 'https'])
-def test_origin_resolution_never_executes_ssh_config(sample, tmp_path, monkeypatch, scheme):
-    config = tmp_path / '.ssh' / 'config'
-    config.parent.mkdir()
-    config.write_text(sample['ssh_config'], encoding='utf-8')
-    monkeypatch.setattr(Path, 'home', lambda: tmp_path)
-    monkeypatch.setattr(subprocess, 'run', _stop)
-    remote = {'scp': f"git@{sample['ssh_alias']}:{sample['origin_tail']}",
-              'ssh': f"ssh://git@{sample['ssh_alias']}/{sample['origin_tail']}",
-              'https': f"https://github.com/{sample['origin_tail']}"}[scheme]
-    assert runtime_data._slug(remote) == sample['origin_tail'].removesuffix('.git')
-
-
-def test_dynamic_ssh_config_is_refused_without_execution(sample, tmp_path, monkeypatch):
-    config = tmp_path / '.ssh' / 'config'
-    config.parent.mkdir()
-    config.write_text(sample['ssh_dynamic'], encoding='utf-8')
-    monkeypatch.setattr(Path, 'home', lambda: tmp_path)
-    monkeypatch.setattr(subprocess, 'run', _stop)
-    with pytest.raises(runtime_data.DataBoundaryError):
-        runtime_data._slug(f"git@{sample['ssh_alias']}:{sample['origin_tail']}")

@@ -27,48 +27,6 @@ def capacity_excludes_synthetic_test_inputs(synthetic_runtime_companion, monkeyp
 
 
 @pytest.fixture(autouse=True)
-def business_artifact_admission(request, monkeypatch):
-    """Isolate business logic from repeated Git transport proofs.
-
-    Dedicated writer and runtime suites execute the complete shared authorizer.
-    Other units still use its real contract matcher and destination validation;
-    their synthetic PRIVATE environment is established by the session fixture.
-    """
-    name = request.path.name
-    if (name.startswith('test_runtime') or name in {
-            'test_storage_writer_contract.py', 'test_sandbox.py',
-            'test_worktree_path_compatibility.py', 'test_business_tree_boundaries.py'}):
-        return
-    import importlib.util
-    from tools.sie import runtime_data
-    helper = runtime_data.ROOT/'guards/tools/storage_contract.py'
-    spec = importlib.util.spec_from_file_location('_test_storage_contract', helper)
-    contract_api = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(contract_api)
-    contract_api.load_boundary = lambda: SimpleNamespace(
-        prove_private_companion=lambda root, visibility: SimpleNamespace(
-            root=root, repositories=('synthetic-private',), signature='synthetic-proof'),
-        read_private_companion_git=lambda proof, *args: subprocess.CompletedProcess(
-            args, 1 if args[0] == 'check-ignore' else 0, stdout='', stderr=''),
-        GitError=RuntimeError)
-
-    def authorize(value, *, directory=False):
-        path = Path(value).absolute()
-        existing = path.parent
-        while not existing.exists():
-            existing = existing.parent
-        repository = runtime_data._nearest_repository(existing)
-        try:
-            relative = path.relative_to(repository).as_posix()
-            return contract_api.authorize_artifact_write(
-                runtime_data.ROOT, repository, relative, directory=directory).path
-        except ValueError as exc:
-            raise runtime_data.DataBoundaryError(str(exc)) from exc
-
-    monkeypatch.setattr(runtime_data, '_authorize_artifact', authorize)
-
-
-@pytest.fixture(autouse=True)
 def offline_models(monkeypatch):
     def blocked_call(*args, **kwargs):
         raise RuntimeError("Live llmcall is disabled in the offline test suite")

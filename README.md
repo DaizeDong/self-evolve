@@ -34,7 +34,7 @@ starts with an observable improvement contract and keeps the comparison stable.
   are useful outcomes. Preserve measured populations and exact candidate bytes,
   with the final documentation and source revision ready before review. This costs
   storage and review effort but makes a decision auditable and a rollback possible.
-- **Data and authorization boundaries.** Real evidence stays in a verified
+- **Data and authorization boundaries.** Real evidence stays in a
   PRIVATE Git companion. Worktrees isolate edits, but do not prove operating-system
   isolation. Accepted candidates are archived; publishing, merging, and sending
   follow the caller's authorization as separate actions.
@@ -73,11 +73,11 @@ installation alias. Run `python -m pytest tests` for the business suite.
 Set `SELF_EVOLVE_CONFIG` (alias `SELF_EVOLVE_CONFIG_DIR`) to an existing PRIVATE
 Git companion, or `SELF_EVOLVE_DATA_DIR` to exactly its absolute `data/` path.
 An inherited DATA_DIR takes precedence over CONFIG. The `data/` directory may be
-absent; runtime writes require source-contract ownership and valid PRIVATE proof,
-with no companion-root or public-worktree fallback.
+absent; runtime writes are path-checked against that `data/` layout, with no
+runtime visibility proof and no companion-root or public-worktree fallback.
 
 [Runtime configuration](reference/runtime.md#configuration) defines discovery
-order, visibility prerequisites, store switching, and source-only worktree layout.
+order, path checks, store switching, and source-only worktree layout.
 [config.contract.json](config.contract.json) declares runtime-storage-only
 configuration: per-run frozen profiles and the retention ledger are DATA, with no
 separate settings registry. [DATA.md](DATA.md) and

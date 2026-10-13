@@ -121,9 +121,9 @@ input. It does not verify facts or demonstrate ACCEPT. Optional `--live` request
 one llmcall proposal and reports its structure.
 
 `scripts/setup_btarget_repo.py` requires either input choice plus
-`--private-remote <remote>`. The destination stays beneath the verified private
-data root; the target's own remote needs PRIVATE proof. Setup uses Git identity
-and hooks and does not push.
+`--private-remote <remote>`. The destination stays beneath the configured
+companion data root; give the target its own PRIVATE remote. Setup uses Git
+identity and hooks and does not push.
 
 Calibration remeasures each oracle for every accepted snapshot. Imported helpers
 or configuration can change outcomes even when a defect-bearing file is unchanged.

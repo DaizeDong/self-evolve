@@ -4,7 +4,8 @@
 Choose --artifact PATH inside the configured PRIVATE companion, or --synthetic.
 The destination must be beneath that companion's data root. --private-remote
 must identify the destination's own PRIVATE repository; it is never inferred
-from the companion. Visibility is verified before any artifact is written.
+from the companion. Runtime writes run no visibility check; the destination's
+own commit-time hooks guard its remote.
 """
 from __future__ import annotations
 
@@ -56,8 +57,8 @@ def _resolve_dest(explicit: str | None) -> str:
     dest = _safe_local_path(requested).resolve()
     if dest == root or not dest.is_relative_to(root):
         raise ValueError("B-target must stay beneath the configured PRIVATE data root")
-    # The target becomes a distinct PRIVATE repo, so validate its enclosing
-    # companion here and verify the target's own visibility after Git setup.
+    # The target becomes a distinct repository, so validate its enclosing
+    # companion here and check the target's own worktree after Git setup.
     runtime_directory(dest.parent)
     return str(dest)
 
@@ -114,7 +115,7 @@ def main(argv: list[str] | None = None) -> int:
     source.add_argument("--synthetic", action="store_true", help="use generated example.com anchors")
     parser.add_argument("--dest", help="absolute destination beneath the PRIVATE data root")
     parser.add_argument("--private-remote", required=True,
-                        help="destination's own PRIVATE GitHub remote; refresh visibility before setup")
+                        help="destination's own PRIVATE GitHub remote")
     parser.add_argument("--force", action="store_true", help="replace the validated destination")
     args = parser.parse_args(argv)
     dest = Path(_resolve_dest(args.dest))
@@ -135,7 +136,7 @@ def main(argv: list[str] | None = None) -> int:
     _git(["init", "-q"], cwd=dest)
     _git(["remote", "add", "origin", args.private_remote], cwd=dest)
     from tools.sie.runtime_data import verify_directory
-    verify_directory(dest)  # Missing, PUBLIC or unknown visibility blocks artifact writes.
+    verify_directory(dest)  # The report must land in the target's own Git worktree.
     _safe_local_path(dest / "report.json").write_text(content, encoding="utf-8", newline="\n")
     _git(["add", "report.json"], cwd=dest)
     _git(["commit", "-qm", "Initialize the selected B-tier target"], cwd=dest)

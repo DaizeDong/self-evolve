@@ -1,5 +1,4 @@
-"""Generated fresh-boundary regressions preserve validation between user calls."""
-import json
+"""Generated regressions: every call checks its directories afresh, with no cached result."""
 import os
 from pathlib import Path
 import subprocess
@@ -13,7 +12,7 @@ from tools.sie import runtime_data
 
 class RuntimeFreshnessTests(unittest.TestCase):
     def setUp(self):
-        # This unit isolates PRIVATE freshness; full artifact admission is tested separately.
+        # This unit isolates per-call directory checks; the data/ layout check is tested separately.
         patcher = mock.patch.object(runtime_data, '_authorize_artifact',
                                     side_effect=lambda value, **kwargs: Path(value))
         patcher.start()
@@ -91,14 +90,10 @@ class RuntimeFreshnessTests(unittest.TestCase):
                 base = Path(temporary).resolve()
                 sample = runtime_samples()
                 home = base / 'home'
+                home.mkdir()
                 companion = base / 'companion'
                 data = companion / 'data'
                 data.mkdir(parents=True)
-                visibility = home / '.pii-guard/visibility.json'
-                visibility.parent.mkdir(parents=True)
-                document = {'_refreshed': sample['fresh'], sample['slug']: 'PRIVATE',
-                            sample['nested_slug']: 'PUBLIC'}
-                visibility.write_text(json.dumps(document), encoding='utf-8')
                 empty_config = home / 'empty.gitconfig'
                 empty_config.write_text('', encoding='utf-8')
                 environment = {key: value for key, value in os.environ.items()
@@ -120,27 +115,16 @@ class RuntimeFreshnessTests(unittest.TestCase):
                     self.assertEqual(runtime_data.runtime_directory(requested), requested)
                     self.assertFalse(requested.exists())
                     overrides = {}
-                    if mutation.startswith('visibility_'):
-                        if mutation == 'visibility_missing':
-                            document.pop(sample['slug'])
-                        else:
-                            document[sample['slug']] = mutation.removeprefix('visibility_').upper()
-                        visibility.write_text(json.dumps(document), encoding='utf-8')
-                    elif mutation == 'effective_public_push':
-                        overrides.update(GIT_CONFIG_COUNT='1', GIT_CONFIG_KEY_0='remote.origin.pushurl',
-                                         GIT_CONFIG_VALUE_0=sample['nested_origin'])
-                    elif mutation == 'unversioned_root':
+                    if mutation == 'unversioned_root':
                         unversioned = base / recipe['root_names'][1]
                         unversioned.mkdir()
                         overrides['SELF_EVOLVE_DATA_DIR'] = str(unversioned)
                         requested = unversioned / recipe['output_name']
-                    elif mutation == 'nested_private':
+                    elif mutation == 'nested_repository':
                         nested = requested.parent
                         nested.mkdir()
                         git(nested, 'init', '-q')
                         git(nested, 'config', 'remote.origin.url', sample['nested_origin'])
-                        document[sample['nested_slug']] = 'PRIVATE'
-                        visibility.write_text(json.dumps(document), encoding='utf-8')
                     else:
                         self.fail('Unimplemented generated mutation: ' + mutation)
                     with mock.patch.dict(os.environ, overrides):

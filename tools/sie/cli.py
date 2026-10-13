@@ -44,7 +44,7 @@ def doctor(target):
                             'artifacts': 'validated JSON artifacts',
                             'immutable_decision_paths': 'protected'},
         'required_inputs': ['target directory', 'base Git revision', 'run ID',
-                            'verified PRIVATE companion', 'nonempty evaluation evidence'],
+                            'PRIVATE companion', 'nonempty evaluation evidence'],
         'live_call_policy': {'interface': 'llmcall.call', 'routing': 'installed defaults',
                              'agents': 'disposable private cwd', 'judges': 'default judge mode',
                              'actual_provider_independence': 'checked after each call',

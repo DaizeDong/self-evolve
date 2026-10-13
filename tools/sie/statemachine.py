@@ -395,7 +395,7 @@ def _resolve_accept_legacy(st: RunState, eval_out: dict, params: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 def _run_dir(target: str, run_id: str) -> str:
-    """All target run records belong in a verified PRIVATE companion."""
+    """All target run records belong in the configured PRIVATE companion."""
     from tools.sie.runtime_data import run_directory
     return str(run_directory(target, run_id))
 
