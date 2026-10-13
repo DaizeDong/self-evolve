@@ -3,7 +3,7 @@
 Real runtime DATA belongs in a PRIVATE Git companion. The public tool
 contains this contract, code and synthetic fixtures. The DATA root is exactly
 `<companion>/data/`, including when that directory does not yet exist. Runtime
-writes run no visibility proof; an unresolved companion or a destination outside
+writes are admitted by path checks only; an unresolved companion or a destination outside
 its `data/` layout blocks writing, with no companion-root or public-worktree
 fallback. [Runtime configuration](reference/runtime.md#configuration) defines
 selectors, discovery order, path checks, initialization and switching.
@@ -35,7 +35,7 @@ sequence-anomaly check.
 The four run evidence ledgers and metadata manifest have exact contract entries.
 Review requests outside a run use only `data/human-review/<run-id>/pending_actions.jsonl`.
 Target, state and manifest JSON staging use exact `.tmp` siblings with transient, rebuildable retention.
-Structural containers own no child files. Every file write is path-checked
+`storage.contract.json` declares structural containers as directory-only. Every file write is path-checked
 against the selected `data/` layout before its parent is created; the storage
 contract describes ownership and retention and is not consulted per write.
 Runtime writers stay within the selected `data/` tree; companion-root metadata

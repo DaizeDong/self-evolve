@@ -1,6 +1,6 @@
 """Generate a companion repository for offline end-to-end tests.
 
-Runtime writes carry no PRIVATE visibility proof, so no visibility receipt is generated.
+Runtime writes are admitted by path checks only, so the companion needs no visibility receipt.
 """
 import subprocess
 

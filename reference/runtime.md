@@ -35,8 +35,8 @@ and reconcile frozen profile paths before resuming. Legacy nested candidates
 remain a visible companion inventory exception until that migration is complete.
 Storage and retention are defined in [DATA.md](../DATA.md).
 
-Runtime writes carry no PRIVATE visibility proof: no receipt, no remote lookup
-and no Git process. Before writing, the runtime checks paths only. The destination
+Before writing, the runtime checks paths only: no receipt, no remote lookup and
+no Git process. The destination
 must be absolute and portable, outside this tool tree and Git metadata, free of
 symbolic links, junctions and hard-linked files, governed by a valid `.git` marker
 of the configured companion (a nested repository is refused) and inside its

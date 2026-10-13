@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+from types import SimpleNamespace
 
 import pytest
 
@@ -62,20 +63,12 @@ def test_runtime_paths_need_no_visibility_receipt_or_git_process(private_home, t
 
 
 def test_missing_companion_raises_with_initialization_guidance(private_home, monkeypatch):
-    import importlib.util
     from tools.sie import runtime_data
 
-    class UninitializedResolver:
-        """Stands in for the pinned resolver on a machine with no companion beside the tool."""
-        def create_module(self, spec):
-            return None
-
-        def exec_module(self, module):
-            module.resolve_companion_root = lambda skill: None
-
-    spec = importlib.util.spec_from_loader('_synthetic_uninitialized_datadir', UninitializedResolver())
+    # Stands in for the pinned resolver on a machine with no companion beside the tool.
+    uninitialized = SimpleNamespace(resolve_companion_root=lambda skill: None)
     monkeypatch.delenv('SELF_EVOLVE_DATA_DIR')
-    monkeypatch.setattr(runtime_data.importlib.util, 'spec_from_file_location', lambda *a, **k: spec)
+    monkeypatch.setattr(runtime_data, '_guard_resolver', lambda: uninitialized)
     with pytest.raises(runtime_data.DataBoundaryError, match='Uninitialized'):
         runtime_data.private_root()
 

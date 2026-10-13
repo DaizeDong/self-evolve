@@ -134,11 +134,11 @@ def require_registered_worktree(path, target_key):
     """Bind a restoration candidate to the source identity in its namespace."""
     import hashlib
     from pathlib import Path
-    from tools.sie.runtime_data import DataBoundaryError, _marker_metadata
+    from tools.sie.runtime_data import DataBoundaryError, _check_marker
     path = Path(path)
     if not (path/'.git').is_file():
         raise DataBoundaryError('Source candidate must be a registered Git worktree')
-    _marker_metadata(path)
+    _check_marker(path)
     native = _git_path(str(path))
     location = ['-C', str(path)] if native == str(path) else ['--git-dir='+os.path.join(native, '.git')]
     result = subprocess.run(['git', '-c', 'core.longpaths=true', *location, 'worktree', 'list', '--porcelain'],
@@ -161,7 +161,7 @@ def make_worktree(target: str, base_ref: str, run_id: str) -> str:
     Raises subprocess.CalledProcessError if git fails.
     """
     from pathlib import Path
-    from tools.sie.runtime_data import worktree_directory, _marker_metadata
+    from tools.sie.runtime_data import worktree_directory, _check_marker
     target = os.path.realpath(target)
     sandbox_root = str(worktree_directory(target, run_id))
     worktrees_dir = os.path.dirname(sandbox_root)
@@ -170,7 +170,7 @@ def make_worktree(target: str, base_ref: str, run_id: str) -> str:
     # Resume only a worktree belonging to this target's Git repository.
     dot_git = os.path.join(sandbox_root, ".git")
     if os.path.isfile(dot_git):
-        _marker_metadata(Path(sandbox_root))
+        _check_marker(Path(sandbox_root))
         def common_dir(path):
             native = _git_path(path)
             # getcwd expands a short spelling back to the long path. Keep long

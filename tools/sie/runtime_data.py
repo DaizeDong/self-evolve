@@ -1,13 +1,13 @@
 """Resolve run state and disposable agent workspaces in the companion Git repository.
 
-Runtime writes carry no PRIVATE visibility proof. The data root is decided by companion resolution
+Writes are admitted by path checks only. The data root is decided by companion resolution
 (SELF_EVOLVE_DATA_DIR, SELF_EVOLVE_CONFIG, then the pinned guards resolver) with no in-repository
-fallback, and every destination is refused only by cheap path checks: absolute and portable, outside
-this public tool tree and Git metadata, free of aliases, inside the companion worktree that governs it
-and, for records, inside its data/ layout. Commit-time Guards hooks and CI keep the companion's
-history out of public remotes.
+fallback, and a destination must be absolute and portable, outside this public tool tree and Git
+metadata, free of aliases, inside the companion worktree that governs it and, for records, inside its
+data/ layout. Commit-time Guards hooks and CI keep the companion's history out of public remotes.
 """
 from contextlib import contextmanager
+from functools import lru_cache
 import hashlib
 import importlib.util
 import json
@@ -41,13 +41,7 @@ def _safe_path(value):
 
 
 def _nearest_repository(path):
-    """Find the nearest worktree marker before asking Git to change directories.
-
-    Python can traverse long Windows paths that Git cannot use as its initial
-    directory. Both ordinary .git directories and linked-worktree .git files
-    establish a boundary; a nested invalid or bare repository cannot fall back
-    to an enclosing companion worktree.
-    """
+    """The nearest .git marker (directory or linked-worktree file); a nested or bare repository is a boundary."""
     try:
         for candidate in (path, *path.parents):
             marker = candidate/'.git'
@@ -82,42 +76,35 @@ def _directory_metadata(value):
     return tuple(identities)
 
 
-def _marker_metadata(repository):
-    """Bind both an ordinary marker and a linked worktree's administration."""
+def _check_marker(repository):
+    """Refuse an aliased .git marker, a multi-link or unparsable gitdir file, or missing administration."""
     marker = repository / ".git"
     try:
         info = marker.lstat()
         if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 1024:
             raise DataBoundaryError("Runtime Git marker cannot be an alias")
-        identity = (info.st_dev, info.st_ino, info.st_mode)
         if stat.S_ISDIR(info.st_mode):
-            return identity, _directory_metadata(marker)
+            _directory_metadata(marker)
+            return
         if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
             raise DataBoundaryError("Runtime Git marker must be a regular single-link file")
-        body = marker.read_bytes()
-        match = re.fullmatch(r"gitdir: ([^\r\n]+)\r?\n?", body.decode("utf-8"))
+        match = re.fullmatch(r"gitdir: ([^\r\n]+)\r?\n?", marker.read_bytes().decode("utf-8"))
         if match is None:
             raise DataBoundaryError("Invalid runtime Git worktree marker")
         administration = Path(match.group(1))
         if not administration.is_absolute():
             administration = repository / administration
-        metadata = _directory_metadata(administration)
+        _directory_metadata(administration)
         if not administration.is_dir():
             raise DataBoundaryError("Runtime Git administration is missing")
-        after = marker.lstat()
-        if (identity != (after.st_dev, after.st_ino, after.st_mode)
-                or info.st_size != after.st_size or info.st_mtime_ns != after.st_mtime_ns
-                or after.st_nlink != 1):
-            raise DataBoundaryError("Runtime Git marker changed during inspection")
-        return identity, hashlib.sha256(body).hexdigest(), str(administration.resolve()), metadata
     except (OSError, UnicodeError) as exc:
-        raise DataBoundaryError("Cannot inspect runtime Git marker identity") from exc
+        raise DataBoundaryError("Cannot inspect runtime Git marker") from exc
 
 
 def _directory_location(value):
     requested = Path(value).expanduser()
     path = _safe_path(requested)
-    metadata = _directory_metadata(requested)
+    _directory_metadata(requested)
     if path.is_relative_to(ROOT) or ROOT.is_relative_to(path):
         raise DataBoundaryError("Runtime data requires a separate companion repository")
     existing = path
@@ -125,7 +112,7 @@ def _directory_location(value):
         existing = existing.parent
     if not existing.is_dir():
         raise DataBoundaryError("Runtime directory resolves to a file")
-    return path, _nearest_repository(existing), metadata
+    return path, _nearest_repository(existing)
 
 
 def verify_directory(value, *, expected_repo=None):
@@ -134,19 +121,32 @@ def verify_directory(value, *, expected_repo=None):
     The governing repository is the nearest `.git` marker; it must be valid, separate from this tool
     tree and, when given, equal to `expected_repo`. No Git process runs and no remote is consulted.
     """
-    path, repository, metadata = _directory_location(value)
-    _marker_metadata(repository)
+    path, repository = _directory_location(value)
+    _check_marker(repository)
     if (not path.is_relative_to(repository) or repository.is_relative_to(ROOT)
             or ROOT.is_relative_to(repository)
             or expected_repo is not None and repository != Path(expected_repo)):
         raise DataBoundaryError('Runtime path crossed its private repository boundary')
-    if _directory_metadata(Path(value).expanduser()) != metadata or _safe_path(value) != path:
-        raise DataBoundaryError('Runtime directory changed during verification')
     return path, repository
 
 
+@lru_cache(maxsize=None)
+def _guard_resolver():
+    """The pinned guards datadir module, loaded once per process and bound to this tool tree."""
+    spec = importlib.util.spec_from_file_location('_self_evolve_runtime_datadir',
+                                                  ROOT/'guards/tools/datadir.py')
+    guard = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(guard)
+    # Bind this private module instance to its known consumer, including worktrees.
+    guard._own_repo_root = lambda: str(ROOT)
+    return guard
+
+
 def _private_root_context():
-    """Discover the configured companion data root and its repository (path checks only)."""
+    """Discover the configured companion data root and its repository (path checks only).
+
+    Resolution runs afresh on every call; only the guards module load is cached.
+    """
     guard_path = ROOT/'guards/tools/datadir.py'
     if not guard_path.is_file():
         raise DataBoundaryError('Missing guards kit; run git submodule update --init --recursive')
@@ -164,12 +164,7 @@ def _private_root_context():
             if not configured.is_dir():
                 raise DataBoundaryError(name+' must name an existing companion repository')
             break
-    spec = importlib.util.spec_from_file_location('_self_evolve_runtime_datadir', guard_path)
-    guard = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(guard)
-    # Bind this private module instance to its known consumer, including worktrees.
-    guard._own_repo_root = lambda: str(ROOT)
-    value = guard.resolve_companion_root('self-evolve')
+    value = _guard_resolver().resolve_companion_root('self-evolve')
     if value is None:
         raise DataBoundaryError('Uninitialized: clone the PRIVATE self-evolve-config companion, or set '
                                 'SELF_EVOLVE_CONFIG or SELF_EVOLVE_DATA_DIR to its Git repository')
@@ -265,20 +260,19 @@ def _file_in_parent(value, parent):
     return path
 
 
-def _authorize_artifact(value, *, directory=False):
-    """Refuse a destination outside the companion data/ layout before the first mutation."""
-    data_root, _ = _private_root_context()
+def _authorize_artifact(value, *, root):
+    """Refuse a destination outside the companion data/ root before the first mutation."""
     requested = Path(value).expanduser().absolute()
-    if not requested.is_relative_to(data_root):
+    if not requested.is_relative_to(root):
         raise DataBoundaryError('Runtime artifact writes must stay in the companion data/ layout')
     return requested
 
 
 def private_file_path(value):
-    path = _safe_path(value)
-    parent = runtime_directory(path.parent)
-    path = _file_in_parent(value, parent)
-    return _authorize_artifact(path)
+    """Check one runtime file against a single companion resolution."""
+    data_root, repo = _private_root_context()
+    parent, _ = verify_directory(_safe_path(value).parent, expected_repo=repo)
+    return _authorize_artifact(_file_in_parent(value, parent), root=data_root)
 
 
 def runtime_directory(value):
@@ -288,22 +282,26 @@ def runtime_directory(value):
     return path
 
 
-def make_directory(value):
-    path = runtime_directory(value)
-    _authorize_artifact(path, directory=True)
+def _make_directory(value, data_root, repo):
+    path, _ = verify_directory(value, expected_repo=repo)
+    _authorize_artifact(path, root=data_root)
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
+def make_directory(value):
+    return _make_directory(value, *_private_root_context())
+
+
 def write_json(value, payload, *, append=False):
-    """Write unchanged JSON payloads only after checking every destination."""
+    """Write unchanged JSON payloads after checking the destination and its temporary once.
+
+    The temporary is a sibling in the already admitted parent, so it needs only the file checks.
+    """
     path = private_file_path(value)
     parent = path.parent
     temporary = _file_in_parent(str(path)+'.tmp', parent) if not append else path
-    if not append:
-        _authorize_artifact(temporary)
     parent.mkdir(parents=True, exist_ok=True)
-    _file_in_parent(path, parent)
     if append:
         record = (json.dumps(payload, ensure_ascii=False)+'\n').encode('utf-8')
         with path.open('a+b') as stream:
@@ -316,13 +314,10 @@ def write_json(value, payload, *, append=False):
             stream.flush()
             os.fsync(stream.fileno())
     else:
-        _file_in_parent(temporary, parent)
         with temporary.open('w', encoding='utf-8') as stream:
             json.dump(payload, stream, ensure_ascii=False, indent=2)
             stream.flush()
             os.fsync(stream.fileno())
-        _file_in_parent(temporary, parent)
-        _file_in_parent(path, parent)
         os.replace(temporary, path)
 
 
@@ -330,17 +325,17 @@ def temporary_directory(prefix):
     """Allocate grader scratch alongside other runtime DATA, never in system temp."""
     validate_run_id(prefix)
     from tools.storage_retention import enforce_capacity
-    data_root = private_root()
+    data_root, repo = _private_root_context()
     enforce_capacity(data_root, 'grader-work')
-    root = make_directory(data_root/'grader-work')
-    path = _new_scratch_directory(root, prefix)
-    return str(runtime_directory(path))
+    root = _make_directory(data_root/'grader-work', data_root, repo)
+    path = _new_scratch_directory(root, prefix, data_root=data_root)
+    return str(verify_directory(path, expected_repo=repo)[0])
 
 
-def _new_scratch_directory(root, prefix):
+def _new_scratch_directory(root, prefix, *, data_root=None):
     """Check the concrete scratch name before exclusive directory creation."""
     validate_run_id(prefix)
-    path = _authorize_artifact(Path(root)/(prefix+uuid.uuid4().hex), directory=True)
+    path = _authorize_artifact(Path(root)/(prefix+uuid.uuid4().hex), root=data_root or private_root())
     path.mkdir(mode=0o700)
     return path
 
@@ -354,10 +349,10 @@ def agent_scratch():
     scratch, _ = verify_directory(root/'agent-work', expected_repo=repo)
     if not scratch.is_relative_to(root):
         raise DataBoundaryError('Agent workspace escaped the private data root')
-    _authorize_artifact(scratch, directory=True)
+    _authorize_artifact(scratch, root=root)
     scratch.mkdir(parents=True, exist_ok=True)
     verify_directory(scratch, expected_repo=repo)
-    path = _new_scratch_directory(scratch, 'call-')
+    path = _new_scratch_directory(scratch, 'call-', data_root=root)
     try:
         path, _ = verify_directory(path, expected_repo=repo)
         yield path

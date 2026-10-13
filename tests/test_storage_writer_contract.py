@@ -110,7 +110,7 @@ def test_cli_init_refuses_unowned_directory_before_creation(private_home, tmp_pa
     sample = storage_writer_samples()
     run = runtime_data.run_directory(tmp_path, sample['run_id'])
 
-    def refuse_directory(value, *, directory=False):
+    def refuse_directory(value, **kwargs):
         raise runtime_data.DataBoundaryError('Synthetic directory admission refusal')
 
     monkeypatch.setattr(runtime_data, '_authorize_artifact', refuse_directory)
@@ -125,10 +125,10 @@ def test_agent_scratch_authorizes_concrete_child_before_creation(private_home, m
     data, _, _ = private_home
     authorize = runtime_data._authorize_artifact
 
-    def refuse_child(value, *, directory=False):
+    def refuse_child(value, **kwargs):
         if Path(value).name.startswith('call-'):
             raise runtime_data.DataBoundaryError('Synthetic child admission refusal')
-        return authorize(value, directory=directory)
+        return authorize(value, **kwargs)
 
     monkeypatch.setattr(runtime_data, '_authorize_artifact', refuse_child)
     with pytest.raises(runtime_data.DataBoundaryError, match='child admission'):

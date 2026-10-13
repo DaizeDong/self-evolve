@@ -148,9 +148,10 @@ def snapshot(source, destination):
     if source == destination or source.is_relative_to(destination) or destination.is_relative_to(source):
         raise ValueError('Snapshot and source must be separate trees')
     expected = manifest(source)
-    runtime_data._authorize_artifact(destination, directory=True)
-    for relative, entry in expected.items():
-        runtime_data._authorize_artifact(destination/relative, directory=entry[0] == 'directory')
+    data_root = runtime_data.private_root()
+    runtime_data._authorize_artifact(destination, root=data_root)
+    for relative in expected:
+        runtime_data._authorize_artifact(destination/relative, root=data_root)
     if destination.exists():
         shutil.rmtree(destination)
     def ignored(directory, names):
