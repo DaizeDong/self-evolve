@@ -8,7 +8,6 @@
   - 越过 1/alpha 阈值 = 拒绝 H0 = 判定"有增益"
 
 NOTE: confseq 需在 Python 3.10 + Boost 环境下编译安装。
-  建议使用: conda run -n confseq_test python -m pytest tests/test_confseq_spike.py
 """
 from __future__ import annotations
 

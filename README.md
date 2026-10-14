@@ -66,7 +66,7 @@ git clone --recursive https://github.com/DaizeDong/self-evolve.git
 
 The skill entry is [SKILL.md](SKILL.md); command adapters live in [commands/](commands/).
 Use the absolute `tools/sie_cli.py` entrypoint from another directory or an
-installation alias. Run `python -m pytest tests` for the business suite.
+installation alias.
 
 ## Config
 

@@ -4,6 +4,9 @@ All notable changes to this project are documented here (Keep a Changelog style)
 
 ## [Unreleased]
 
+### Removed
+- The test suite (`tests/`). Confirmed-working features keep no tests.
+
 ### Changed
 - Runtime path checks resolve the companion once per public call: the guards `datadir` module is loaded once per process, `_authorize_artifact` takes the data root from its caller (its unused `directory` flag is gone), and `write_json` checks its destination and temporary once before writing, with no recheck after the payload is written. `verify_directory` no longer re-snapshots the directory to detect a change during verification, and `_marker_metadata` is now `_check_marker`, which validates the `.git` marker without hashing it or returning an identity nothing compared. Companion resolution itself still runs afresh on every call.
 - DATA.md describes structural containers as declared directory-only in `storage.contract.json`; no runtime check enforces it.

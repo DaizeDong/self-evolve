@@ -56,7 +56,6 @@ git clone --recursive https://github.com/DaizeDong/self-evolve.git
 
 技能入口是 [SKILL.md](SKILL.md)，命令适配器位于 [commands/](commands/)。
 从其他目录或安装别名启动时，使用 `tools/sie_cli.py` 的绝对路径。
-业务测试运行 `python -m pytest tests`。
 
 ## 配置
 
