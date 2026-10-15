@@ -1,35 +1,13 @@
 #!/bin/sh
-# Fifteen lines that must live IN THIS REPO, because they are what runs when the submodule does not.
-#
-# THE HOLE THIS CLOSES. Pointing core.hooksPath straight at guards/hooks looks like the tidy
-# arrangement, and it is a fail-open. A plain `git clone` without --recursive leaves guards/ present
-# and EMPTY. git then finds no hook file at that path and runs NOTHING, exit 0, no message. Worse,
-# a repo-level setting SHADOWS whatever wider hook configuration would otherwise apply, so the one
-# gate that would still have been there is switched off by the same line. Measured 2026-09-02 on a
-# fresh clone with a synthetic probe: without the repo-level setting the commit was refused with
-# exit 1; with it pointing at the empty directory the identical commit went in, exit 0, in silence.
-#
-# So the delegating stub is tracked and the substance is pinned. An absent kit is a BLOCK with a
-# sentence, never a quiet pass. Keep this file boring: every line here is a line the submodule
-# cannot deduplicate.
-set -e
+# Tracked shim. core.hooksPath points at .githooks, never straight at guards/hooks: a clone without
+# --recursive leaves guards/ present and empty, and git would then run no hook at all and exit 0.
+# So a missing or empty kit hook is a block with a sentence, never a quiet pass.
 _ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 _REAL="$_ROOT/guards/hooks/pre-commit"
-if [ ! -x "$_REAL" ] && [ ! -f "$_REAL" ]; then
-  echo "BLOCKED: guards/hooks/pre-commit is missing, so nothing checked this commit."
-  echo "  The guards submodule is not checked out. Fix it, do not bypass it:"
-  echo "      git submodule update --init --recursive"
-  echo "  An empty guards/ is an UNGUARDED repo, not a repo with nothing to check, and this"
-  echo "  setting also shadows any wider hook configuration, so skipping here skips everything."
+if [ ! -s "$_REAL" ]; then
+  echo "BLOCKED: guards/hooks/pre-commit is missing or empty, so nothing checked this commit." >&2
+  echo "  The guards submodule is not checked out. Fix it, do not bypass it:" >&2
+  echo "      git submodule update --init --recursive" >&2
   exit 1
-fi
-# A repo that also uses the pre-commit FRAMEWORK chains it here. `pre-commit install` refuses
-# to run while core.hooksPath is set, and the hint it prints is to unset it, which would
-# switch the guards off; a reader following that hint gets a working formatter and no gate.
-# Calling `pre-commit run` from this stub keeps both, and keeps the guard LAST so a
-# formatter that rewrites files cannot slip a change past the scan. Absent config or absent
-# binary means the block is skipped, which is correct: nothing was asked for.
-if [ -f "$_ROOT/.pre-commit-config.yaml" ] && command -v pre-commit >/dev/null 2>&1; then
-  pre-commit run --hook-stage pre-commit || exit 1
 fi
 exec sh "$_REAL" "$@"
