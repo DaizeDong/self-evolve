@@ -32,7 +32,7 @@ from tools.sie.state import RunState, save_state
 from tools.sie.events import append_event, replay
 from tools.sie.sandbox import make_worktree
 from tools.sie.profile import run_profile, freeze_target, load_target
-from tools.sie.reflect import reflect
+from tools.sie.reflect import reflect, goal_text
 from tools.sie.check_reflection import check
 from tools.sie.propose import propose
 from tools.sie.patch import apply_patch
@@ -945,10 +945,25 @@ def run_loop(
         if dual and proposer == "llm" and props:
             import json as _json
             from tools.sie import agents as _agents
+            # Reviewers see the change itself: a unified diff against the parent's file. The first
+            # 4000 characters of the whole new file used to be sent, which for any file of real size
+            # cut off before the edit, so both reviewers judged a truncated file and could veto it.
+            import difflib as _difflib
+            _p0 = props[0]
+            _rel = str(_p0.get("file_rel", ""))
+            try:
+                with open(os.path.join(sandbox_root, _rel), encoding="utf-8") as _fh:
+                    _old = _fh.read()
+            except OSError:
+                _old = ""
+            _diff = "".join(_difflib.unified_diff(
+                _old.splitlines(keepends=True), str(_p0.get("new_content", "")).splitlines(keepends=True),
+                fromfile="a/" + _rel, tofile="b/" + _rel, n=5))
             _rprompt = ("Review this proposed change in a self-improvement loop. Is it a genuine "
                         "improvement (not a regression/reward-hack)? Return ONLY JSON "
-                        '{"verdict":"accept"|"reject"|"abstain","notes":[]}.\n\nPROPOSAL:\n'
-                        + _json.dumps(props[0], ensure_ascii=False)[:4000])
+                        '{"verdict":"accept"|"reject"|"abstain","notes":[]}.\n\n'
+                        + (("IMPROVEMENT GOAL:\n" + goal_text() + "\n\n") if goal_text() else "")
+                        + "DIFF:\n" + (_diff[:24000] or "(no textual change)"))
             _rv = _agents.cross_check_verdicts(_rprompt, families=("claude", "codex"))
             st = _step(run_dir, {
                 "type": "DUAL_REVIEW", "phase": "REVIEW",
