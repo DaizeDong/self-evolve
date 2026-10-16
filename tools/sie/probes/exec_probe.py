@@ -65,7 +65,21 @@ def _run_pytest(root: str) -> int:
         return TIMEOUT_CODE
 
 
+# A line that makes a source file fail as soon as it is loaded, per language.
+_JS_MUTANT = "\nthrow new Error('SIE_MUTANT');\n"
+_MUTANTS = {".py": "\nraise RuntimeError('SIE_MUTANT')\n",
+            ".mjs": _JS_MUTANT, ".js": _JS_MUTANT, ".cjs": _JS_MUTANT, ".ts": _JS_MUTANT}
+
+
 def _pick_src(root: str) -> str | None:
+    """The file to mutate. With SIE_SOURCE_DIRS set (the directories the live proposer is offered),
+    the first source file there in any language _MUTANTS knows; otherwise the first Python source."""
+    for d in [d.strip() for d in os.environ.get("SIE_SOURCE_DIRS", "").split(",") if d.strip()]:
+        scoped = sorted(p for ext in _MUTANTS
+                        for p in glob.glob(os.path.join(root, d, "**", "*" + ext), recursive=True)
+                        if ".test." not in os.path.basename(p) and not os.path.basename(p).startswith("test_"))
+        if scoped:
+            return scoped[0]   # directories in the order given, so the first can name the core code
     # Exclude test files, conftest, __init__, setup, etc. + sort for determinism
     excludes = {"__init__.py", "setup.py", "conftest.py"}
     candidates = sorted([
@@ -113,7 +127,7 @@ def run_exec_probe(sandbox_root: str) -> dict:
     original.decode("utf-8")  # Preserve the previous invalid-UTF-8 failure before mutation.
     try:
         with open(src, "a", encoding="utf-8") as fh:
-            fh.write("\nraise RuntimeError('SIE_MUTANT')\n")
+            fh.write(_MUTANTS.get(os.path.splitext(src)[1], _MUTANTS[".py"]))
         mutant_code = _run_pytest(sandbox_root)
         # A mutant can fail tests (1) or break collection (2). Internal errors, bad invocation,
         # no collected tests and timeouts do not establish that the suite caught the mutation.
