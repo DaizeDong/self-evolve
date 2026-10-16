@@ -6,7 +6,7 @@
     "Runtime DATA never resides in this public worktree, including ignored paths.",
     "fleet-guards data_boundary.py enforces declared paths through the .githooks shims (git config fleet.guards)."
   ],
-  "_audited": "Runtime records use tools/sie/runtime_data.py with exact companion data/ layout and path-only destination checks (no runtime visibility proof). New source-only Git worktrees live in the separate .worktrees/self-evolve namespace; legacy source copies remain visible pending reviewed migration. Historical in-repository DATA paths remain blocked.",
+  "_audited": "Runtime records use tools/sie/runtime_data.py with exact companion data/ layout and path-only destination checks (no runtime visibility proof). New source-only Git worktrees live in the separate .worktrees/self-evolve namespace. Historical in-repository DATA paths remain blocked.",
   "data": [
     ".sie/",
     "runs/",

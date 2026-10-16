@@ -35,19 +35,7 @@ r/
 # Local process scratch
 .superpowers/
 
-# Legacy runtime paths; DATA belongs in the private companion.
-.btarget_run/
-examples/btarget/.git/
-examples/btarget/.sie/
-examples/*/_run/
-.sie/
-.nightrun/
-_run/
-.btarget_strong/
-
-# Defense in depth for legacy artifacts; ignore rules do not authorize runtime writes.
-proposal_*.json
-proposal_*.txt
+# Local scratch
 _tmp_*
 *_tmp.json
 .coverage
