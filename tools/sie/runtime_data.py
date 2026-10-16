@@ -208,21 +208,13 @@ def run_directory(target, run_id):
 
 
 def worktree_directory(target, run_id):
-    """Locate source-only TOOL worktrees without creating a persistent DATA copy.
-
-    Existing legacy candidates retain their original location until reviewed
-    migration. sandbox.make_worktree validates their owning target before resume.
-    """
+    """Locate source-only TOOL worktrees without creating a persistent DATA copy."""
     validate_run_id(run_id)
     target_path = Path(target).expanduser().resolve(strict=True)
     if not target_path.is_dir():
         raise ValueError('target must be a directory')
-    root, repo = _private_root_context()
+    _, repo = _private_root_context()
     identity = hashlib.sha256(os.path.normcase(str(target_path)).encode('utf-8')).hexdigest()
-    legacy = root/'targets'/identity/'worktrees'/run_id
-    if os.path.lexists(legacy):
-        _directory_metadata(legacy)
-        return legacy
     workspace = repo.parent/'.worktrees'/'self-evolve'/repo.name/identity/run_id
     _directory_metadata(workspace)
     workspace = _safe_path(workspace)

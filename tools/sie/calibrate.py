@@ -78,23 +78,12 @@ def load_defects(only=None) -> list:
 
 
 def _make_repo(root: str) -> None:
-    """Give the copied tree a .git marker so it still looks like a repository.
+    """Give the copied tree a real, empty `git init`.
 
     We deliberately do NOT copy .git, because the copies are throwaways and a real object store
-    would be gigabytes. But `datadir._own_repo_root()` finds the repo by walking parents for a .git
-    entry, and returns None when there is none, which makes `assert_outside_own_repo` a NO-OP. Three
-    of the target's own negative controls then go red on a CLEAN copy, and validate() refuses to
-    start before it has looked at a single defect.
-
-    The first of those three tests asserts `_own_repo_root() is not None, "not running from a
-    worktree; the guard would be inert"`. The suite was telling the harness exactly what was wrong,
-    which is the behavior every guard in this fleet is supposed to have and the reason this was a
-    ten-minute diagnosis rather than an afternoon.
-
-    A bare marker FILE is not enough, and finding that out cost a second round: another negative
-    control shells out to `git check-ignore` to prove the public repo ignores secret patterns, and a
-    fake .git makes that command answer "not ignored" for everything. So the copy gets a real, empty
-    `git init`. It has no objects and no remote, which is all the resolver and check-ignore need.
+    would be gigabytes. The copy still needs a repository so assert_outside_own_repo and
+    `git check-ignore` have one to work with; a bare marker file makes check-ignore answer
+    "not ignored" for everything. The new repository has no remote.
     """
     from tools.sie.runtime_data import runtime_directory
     root = str(runtime_directory(root))
