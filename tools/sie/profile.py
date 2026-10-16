@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import os
 import hashlib
+import subprocess
 from pathlib import Path
 
 from . import runtime_data
