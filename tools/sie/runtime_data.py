@@ -152,13 +152,11 @@ def _private_root_context():
             raise DataBoundaryError('SELF_EVOLVE_DATA_DIR must select the companion data/ layout')
         return root, repo
     configured = None
-    for name in ('SELF_EVOLVE_CONFIG', 'SELF_EVOLVE_CONFIG_DIR'):
-        value = os.environ.get(name)
-        if value:
-            configured = _safe_path(value)
-            if not configured.is_dir():
-                raise DataBoundaryError(name+' must name an existing companion repository')
-            break
+    value = os.environ.get('SELF_EVOLVE_CONFIG')
+    if value:
+        configured = _safe_path(value)
+        if not configured.is_dir():
+            raise DataBoundaryError('SELF_EVOLVE_CONFIG must name an existing companion repository')
     value = _guard_resolver().resolve_companion_root('self-evolve')
     if value is None:
         raise DataBoundaryError('Uninitialized: clone the PRIVATE self-evolve-config companion, or set '

@@ -9,8 +9,7 @@ companion repository is selected. Discovery order is:
 
 1. `SELF_EVOLVE_DATA_DIR`, the absolute `<companion>/data/` path.
 2. `SELF_EVOLVE_CONFIG`, the absolute companion repository root.
-3. `SELF_EVOLVE_CONFIG_DIR`, the equivalent companion-root alias.
-4. `self-evolve-config` sibling candidates the shared resolver identifies by origin name or marker.
+3. `self-evolve-config` sibling candidates the shared resolver identifies by origin name or marker.
 
 There is no home-directory candidate. Sibling candidates still require a Git
 worktree and the same `data/` layout.

@@ -73,7 +73,7 @@ installation alias.
 
 ## Config
 
-Set `SELF_EVOLVE_CONFIG` (alias `SELF_EVOLVE_CONFIG_DIR`) to an existing PRIVATE
+Set `SELF_EVOLVE_CONFIG` to an existing PRIVATE
 Git companion, or `SELF_EVOLVE_DATA_DIR` to exactly its absolute `data/` path.
 An inherited DATA_DIR takes precedence over CONFIG. The `data/` directory may be
 absent; runtime writes are path-checked against that `data/` layout, with no

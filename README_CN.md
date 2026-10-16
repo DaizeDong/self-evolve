@@ -61,7 +61,7 @@ git -C self-evolve config core.hooksPath .githooks
 
 ## 配置
 
-将 `SELF_EVOLVE_CONFIG`（别名 `SELF_EVOLVE_CONFIG_DIR`）指向已有的 PRIVATE
+将 `SELF_EVOLVE_CONFIG` 指向已有的 PRIVATE
 Git 伴生仓，或将 `SELF_EVOLVE_DATA_DIR` 指向该仓准确的 `data/` 绝对路径。
 继承的 DATA_DIR 优先于 CONFIG。`data/` 可以尚未创建；运行写入只做路径检查，须落在该 `data/` 布局内，
 运行时不做可见性证明，也不会退回伴生仓根目录或公开工作树。

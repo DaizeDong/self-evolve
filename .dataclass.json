@@ -20,7 +20,7 @@
   "fixture": [
     "retention.json.example"
   ],
-  "_data_home": "SELF_EVOLVE_DATA_DIR selects exactly the PRIVATE companion data/ path; SELF_EVOLVE_CONFIG and SELF_EVOLVE_CONFIG_DIR select its repository root. All runtime records remain versioned there; source working copies are transient TOOL.",
+  "_data_home": "SELF_EVOLVE_DATA_DIR selects exactly the PRIVATE companion data/ path; SELF_EVOLVE_CONFIG selects its repository root. All runtime records remain versioned there; source working copies are transient TOOL.",
   "_calibration_defects": "tools/sie/calibration_defects/ is TOOL: public code-defect specifications with find/replace patches and pytest oracles, not personal or lifelike records. The calibration runner requires these tracked specifications.",
   "_fixture_generation": "tools/make_fixtures.py provides synthetic artifacts used by scripts/setup_btarget_repo.py. Synthetic issuers and example.com sources are not real financial evidence.",
   "_readme_diagrams": "docs/diagrams/ DOT sources, rendered PNGs and render.py are TOOL documentation of the workflow; they contain no real runtime DATA."
