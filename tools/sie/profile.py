@@ -61,6 +61,13 @@ def _exec_signal(target: str, base_ref: str) -> dict | None:
         # longer collide.
         ref = _resolve_ref(target, base_ref)
         sandbox_root = make_worktree(target, ref, "profile_probe_%s" % ref[:12])
+        # A probe killed mid-mutation (the machine ran out of memory, the user interrupted) leaves
+        # the injected mutant in this cached worktree, and the next profile then measures a broken
+        # baseline and freezes tier C. Start every probe from the exact ref.
+        subprocess.run(["git", "-C", sandbox_root, "reset", "-q", "--hard", ref], check=True,
+                       capture_output=True, timeout=120)
+        subprocess.run(["git", "-C", sandbox_root, "clean", "-q", "-fd"], check=True,
+                       capture_output=True, timeout=120)
         return {**run_exec_probe(sandbox_root), 'base_ref': ref, 'worktree': sandbox_root}
     except Exception as e:
         # Returning None here means "no exec signal", which the caller turns into a tier downgrade.
