@@ -21,6 +21,21 @@ from tools.sie import llm_adapter
 # _MAX_TOTAL_BYTES 承担。跳过的文件现在**记录下来**，因为一个只会静默变空的输入，跟一个「没有
 # 提议」的模型是同一个可观测结果，而它们完全不是一回事。
 _MAX_FILES = 12
+# Source files a proposer may edit. Python files also pass the import and AST gates in PATCH;
+# other languages are checked by the target's own evaluation only.
+_SOURCE_EXTS = (".py", ".mjs", ".js", ".cjs", ".ts", ".tsx", ".go", ".rs")
+
+
+def _source_walk(sandbox_root: str):
+    """os.walk over SIE_SOURCE_DIRS (comma-separated, relative to the target) or the whole target.
+
+    For a target with more source files than _MAX_FILES the variable names the ones worth
+    proposing on. Directories named tests, test or evals are never offered: a proposer that
+    could edit the scenarios grading it would raise the score without improving the target.
+    """
+    dirs = [d.strip() for d in os.environ.get("SIE_SOURCE_DIRS", "").split(",") if d.strip()]
+    for root in [os.path.join(sandbox_root, d) for d in dirs] or [sandbox_root]:
+        yield from os.walk(root)
 _MAX_FILE_BYTES = 160_000
 _MAX_TOTAL_BYTES = 400_000
 
@@ -55,6 +70,8 @@ def _patchable(sandbox_root: str, rel: str, content: str) -> tuple[bool, str]:
     verdict cannot drift apart. Never raises: an error here must not silently empty the candidate
     set, which would turn "the gate is strict" into "the proposer had nothing to look at".
     """
+    if not rel.endswith(".py"):
+        return True, ""   # the import and AST gates apply to Python only (patch.apply_patch)
     try:
         from tools.sie.immutable import is_immutable_relpath
         from tools.sie.patch import (DEFAULT_IMPORT_ALLOW, import_gate,
@@ -77,19 +94,19 @@ def _patchable(sandbox_root: str, rel: str, content: str) -> tuple[bool, str]:
 
 
 def _gather_sources(sandbox_root: str, skipped: list | None = None) -> dict[str, str]:
-    """收集 candidate 的非测试 .py 源码（相对路径 → 内容），受规模上限约束。
+    """收集 candidate 的非测试源码（_SOURCE_EXTS；相对路径 → 内容），受规模上限约束。
 
     `skipped` 若给出，会被填成 [(rel, 原因)]。调用方必须能分辨「收集到 0 个文件」与「收集到文件
     但模型没有提议」——这两者在此之前是同一个返回值。
     """
     files: dict[str, str] = {}
     total = 0
-    for dirpath, dirnames, filenames in os.walk(sandbox_root):
+    for dirpath, dirnames, filenames in _source_walk(sandbox_root):
         dirnames[:] = [d for d in dirnames
-                       if d not in ("__pycache__", ".git", ".sie", "node_modules")
+                       if d not in ("__pycache__", ".git", ".sie", "node_modules", "tests", "test", "evals")
                        and not d.startswith(".")]
         for fn in sorted(filenames):
-            if not fn.endswith(".py") or fn.startswith("test_"):
+            if not fn.endswith(_SOURCE_EXTS) or fn.startswith("test_") or ".test." in fn:
                 continue
             ap = os.path.join(dirpath, fn)
             try:
