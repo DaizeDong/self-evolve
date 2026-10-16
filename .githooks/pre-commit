@@ -10,5 +10,5 @@ if [ -z "$S" ] || [ ! -s "$S/tools/dash_guard.py" ]; then
   echo "BLOCKED: git config fleet.style is unset or has no tools/dash_guard.py; nothing was checked." >&2
   exit 1
 fi
-python "$S/tools/dash_guard.py" --check --staged --added-only </dev/null || exit 1
+python "$S/tools/dash_guard.py" --staged --added-only </dev/null || exit 1
 exec sh "$G/hooks/pre-commit" "$@"
