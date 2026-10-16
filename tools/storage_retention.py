@@ -158,29 +158,23 @@ def enforce_capacity(root, relative, *, max_files=MAX_FILES, max_bytes=MAX_BYTES
     checked(root, name, allow_missing_root=True)
     if not root.exists():
         return
-    tool = json.loads((ROOT / "storage.contract.json").read_text(encoding="utf-8"))["tool"]
-    if tool == "buy-me-a-car":
-        areas = ("audits", "diagnostics", "eval/model-runs", "browser-sessions", "playwright-mcp", "scratch")
-        if not any(name == a or name.startswith(a + "/") for a in areas):
+    areas = ("agent-work", "grader-work", "edgar-cache", "calibration")
+    if name.startswith("targets/") and "/runs/" in name:
+        run = "/".join(name.split("/")[:4])
+        if checked(root, run).exists():
             return
-    else:
-        areas = ("agent-work", "grader-work", "edgar-cache", "calibration")
-        if name.startswith("targets/") and "/runs/" in name:
-            run = "/".join(name.split("/")[:4])
-            if checked(root, run).exists():
-                return
-            targets = checked(root, "targets")
-            runs = []
-            if targets.exists():
-                for target in targets.iterdir():
-                    directory = checked(root, target.relative_to(root).as_posix() + "/runs")
-                    if directory.exists():
-                        runs.extend(checked(root, p.relative_to(root).as_posix()) for p in directory.iterdir())
-            if len(runs) >= MAX_RUNS:
-                raise ValueError("Run capacity reached; retire completed runs with their dependency review first")
-            return
-        if not any(name == a or name.startswith(a + "/") for a in areas):
-            return
+        targets = checked(root, "targets")
+        runs = []
+        if targets.exists():
+            for target in targets.iterdir():
+                directory = checked(root, target.relative_to(root).as_posix() + "/runs")
+                if directory.exists():
+                    runs.extend(checked(root, p.relative_to(root).as_posix()) for p in directory.iterdir())
+        if len(runs) >= MAX_RUNS:
+            raise ValueError("Run capacity reached; retire completed runs with their dependency review first")
+        return
+    if not any(name == a or name.startswith(a + "/") for a in areas):
+        return
     count = size = 0
     for area in areas:
         for path in files_under(root, area):
@@ -195,13 +189,9 @@ def main(argv=None):
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args(argv)
     contract = json.loads((ROOT / "storage.contract.json").read_text(encoding="utf-8"))
-    if contract["tool"] == "self-evolve":
-        from tools.sie.runtime_data import _private_root_context
-        root, repository = _private_root_context()
-        contract = contract_for_data_root(contract, root, repository)
-    else:
-        from tools.runtime_paths import resolve_data_dir
-        root = resolve_data_dir(required=True)
+    from tools.sie.runtime_data import _private_root_context
+    root, repository = _private_root_context()
+    contract = contract_for_data_root(contract, root, repository)
     registry_path = checked(root, "retention.json")
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
     plan = build_plan(root, registry, contract)
