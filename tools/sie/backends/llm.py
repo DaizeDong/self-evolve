@@ -167,6 +167,11 @@ def _extract_findings(reflections: list[dict]) -> list[str]:
     return uniq[:10]
 
 
+def _goal() -> str:
+    from tools.sie.reflect import goal_text
+    return goal_text()
+
+
 def generate(sandbox_root: str, reflections: list[dict], timeout_s: int = 600) -> list[dict]:
     """Propose one supplied source file through the shared disposable agent transport."""
     skipped: list = []
@@ -179,7 +184,8 @@ def generate(sandbox_root: str, reflections: list[dict], timeout_s: int = 600) -
         "new content. Do not edit files, add dangerous imports or perform I/O. "
         'Return only JSON: {"file_rel":"supplied path","new_content":"complete content"}. '
         "Return {} if no useful change is possible.\n\n"
-        + json.dumps({"findings": _extract_findings(llm_adapter.strip_truth(reflections)),
+        + json.dumps({**({"goal": _goal()} if _goal() else {}),
+                      "findings": _extract_findings(llm_adapter.strip_truth(reflections)),
                       "files": files}, ensure_ascii=False)
     )
     result = llm_adapter.invoke_agent(prompt)
@@ -188,6 +194,8 @@ def generate(sandbox_root: str, reflections: list[dict], timeout_s: int = 600) -
     obj = llm_adapter.parse_object(result["result"])
     if obj is None:
         return _empty("proposer output was not a JSON object", backend=result)
+    if not obj:
+        return _empty("proposer declined: it returned {} (no useful change found)", backend=result)
     rel, content = obj.get("file_rel"), obj.get("new_content")
     if not isinstance(rel, str) or rel not in files:
         return _empty("proposer named a file outside the supplied source set", backend=result)

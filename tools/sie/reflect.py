@@ -3,9 +3,28 @@ import copy
 import glob
 import json
 import os
+import sys
 from concurrent.futures import ThreadPoolExecutor
 
 from tools.sie import agents, llm_adapter
+
+
+def goal_text() -> str:
+    """The improvement goal named by SIE_GOAL_FILE (an absolute path), or ''.
+
+    Without it a first round reflects on an empty history and the proposer has nothing to aim
+    at, so a live run can spend every round returning {}. The goal says what to improve; it is
+    read by the model stages only and never by the grader.
+    """
+    path = os.environ.get("SIE_GOAL_FILE", "").strip()
+    if not path:
+        return ""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()[:20_000]
+    except OSError as exc:
+        print("sie: SIE_GOAL_FILE unreadable (%s); continuing without a goal" % exc, file=sys.stderr)
+        return ""
 
 
 def reflect(sandbox_root: str, history: list[dict], n: int = 1) -> list[dict]:
@@ -42,7 +61,9 @@ def _reflect_one(run_dir: str, history: list[dict], idx: int,
     prompt = (
         f"You are reflector #{idx}. Diagnose the supplied read-only run history. "
         "Identify concrete failures and directions to improve them; do not edit files. "
-        'Return only JSON: {"findings":["concrete finding"]}.\n\nRUN HISTORY:\n'
+        'Return only JSON: {"findings":["concrete finding"]}.\n\n'
+        + (("IMPROVEMENT GOAL:\n" + goal_text() + "\n\n") if goal_text() else "")
+        + 'RUN HISTORY:\n'
         + json.dumps(llm_adapter.strip_truth(history), ensure_ascii=False)
     )
     result = agents.invoke(prompt, family=family, role="reflect")
