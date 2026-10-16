@@ -491,7 +491,7 @@ def attribute_decisions(root: str, run_id: str, defects: list) -> dict:
 
     THE POINT IS THE INSTRUMENT, NOT THE NUMBER. Four gates in this codebase were correct in their
     unit tests and inert in production, every time because the test fed them the input they were
-    built to recognize. This pass takes its input from outside the system under test: 21 defects with
+    built to recognize. This pass takes its input from outside the system under test: seeded defects with
     known repairs, chosen by someone who knew the answer and did not tell the loop. A gate that
     scores well here cannot have done it by recognizing its own fixture.
 
@@ -745,7 +745,7 @@ def _calibration_main(argv, rep) -> int:
     print("")
     if tot:
         print("accepted decisions: %d REPAIR, %d no-seeded-effect, %d REGRESSION (of %d "
-              "accepted). 'no seeded effect' means none of the 21 seeded oracles moved; it is NOT "
+              "accepted). 'no seeded effect' means none of the seeded oracles moved; it is NOT "
               "a judgement that the change was worthless."
               % (tot.get("REPAIR", 0), tot.get("NO_SEEDED_EFFECT", 0), tot.get("REGRESSION", 0),
                  att.get("n_accepted", 0)))
