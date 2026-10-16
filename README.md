@@ -58,10 +58,13 @@ invocation early. See [runtime and recovery](reference/runtime.md#resume-and-rec
 
 ## Install
 
-Clone the repository with its pinned guard and style submodules:
+Clone the repository and install the companion resolver from the local fleet-guards checkout
+named by `git config fleet.guards`:
 
 ```bash
-git clone --recursive https://github.com/DaizeDong/self-evolve.git
+git clone https://github.com/DaizeDong/self-evolve.git
+pip install -e "$(git config --get fleet.guards)"
+git -C self-evolve config core.hooksPath .githooks
 ```
 
 The skill entry is [SKILL.md](SKILL.md); command adapters live in [commands/](commands/).

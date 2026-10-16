@@ -1,13 +1,14 @@
 #!/bin/sh
-# Tracked shim. core.hooksPath points at .githooks, never straight at guards/hooks: a clone without
-# --recursive leaves guards/ present and empty, and git would then run no hook at all and exit 0.
-# So a missing or empty kit hook is a block with a sentence, never a quiet pass.
-_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-_REAL="$_ROOT/guards/hooks/pre-commit"
-if [ ! -s "$_REAL" ]; then
-  echo "BLOCKED: guards/hooks/pre-commit is missing or empty, so nothing checked this commit." >&2
-  echo "  The guards submodule is not checked out. Fix it, do not bypass it:" >&2
-  echo "      git submodule update --init --recursive" >&2
+# Privacy checks run from the local fleet-guards checkout named by git config fleet.guards.
+G=$(git config --get fleet.guards)
+if [ -z "$G" ] || [ ! -s "$G/hooks/pre-commit" ]; then
+  echo "BLOCKED: git config fleet.guards is unset or has no hooks/pre-commit; nothing was checked." >&2
   exit 1
 fi
-exec sh "$_REAL" "$@"
+S=$(git config --get fleet.style)
+if [ -z "$S" ] || [ ! -s "$S/tools/dash_guard.py" ]; then
+  echo "BLOCKED: git config fleet.style is unset or has no tools/dash_guard.py; nothing was checked." >&2
+  exit 1
+fi
+python "$S/tools/dash_guard.py" --check --staged --added-only </dev/null || exit 1
+exec sh "$G/hooks/pre-commit" "$@"

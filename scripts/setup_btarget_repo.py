@@ -84,30 +84,6 @@ def _artifact_content(artifact=None, *, synthetic=False):
     return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
 
 
-def _load_datadir():
-    """按路径加载 guards/tools/datadir.py。缺失直接抛，其余错误照常抛出。
-
-    解析器搬进了 guards 子模块：全 fleet 一份，而不是每个仓一份（那些拷贝已经开始互相漂移）。
-
-    缺失不再返回 None。这两个答案意思相反：None 是「这台机器还没配伴生仓」，一个正常状态；
-    文件不在则意味着子模块根本没 checkout，**什么都没查过**。把后者报成前者，正是「没装的闸门」
-    看起来跟「装好且干净的闸门」一模一样的原因。
-    """
-    p = os.path.join(_REPO, "guards", "tools", "datadir.py")
-    if not os.path.isfile(p):
-        raise SystemExit(
-            "找不到 %s，伴生仓解析器根本没有运行。\n"
-            "guards 子模块没有 checkout：请跑 `git submodule update --init`。\n"
-            "这跟「没有配置伴生仓」不是一回事，不能当成一回事。" % p)
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("_dd_for_btarget", p)
-    if spec is None or spec.loader is None:
-        return None
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     source = parser.add_mutually_exclusive_group(required=True)

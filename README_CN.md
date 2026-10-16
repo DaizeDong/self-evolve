@@ -48,10 +48,12 @@ ACCEPT 归档候选快照；合并仍须单独获得授权。
 
 ## 安装
 
-克隆仓库时一并获取固定版本的 guard 和 style 子模块：
+克隆仓库，并从 `git config fleet.guards` 指向的本机 fleet-guards checkout 安装伴生仓解析器：
 
 ```bash
-git clone --recursive https://github.com/DaizeDong/self-evolve.git
+git clone https://github.com/DaizeDong/self-evolve.git
+pip install -e "$(git config --get fleet.guards)"
+git -C self-evolve config core.hooksPath .githooks
 ```
 
 技能入口是 [SKILL.md](SKILL.md)，命令适配器位于 [commands/](commands/)。

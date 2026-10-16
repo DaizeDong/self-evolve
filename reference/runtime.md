@@ -42,12 +42,12 @@ symbolic links, junctions and hard-linked files, governed by a valid `.git` mark
 of the configured companion (a nested repository is refused) and inside its
 `data/` layout. A failed check stops the write before parent creation; there is
 no fallback into the tool repo. Keeping the companion off public remotes is the
-job of the commit-time guards hooks and CI. Target, state and manifest JSON
+job of the commit-time fleet-guards hooks. Target, state and manifest JSON
 staging has exact transient declarations separate from the retained final
 artifacts. Archive and holdout subtrees keep their existing core recovery
 protection.
 
-Keep the guards submodule available; its resolver discovers the companion.
+Keep `fleet_guards` installed (`pip install -e "$(git config --get fleet.guards)"`); its resolver discovers the companion.
 EDGAR identity and caches must
 also be configured privately when factual verification is needed.
 

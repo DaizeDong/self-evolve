@@ -5,6 +5,7 @@ All notable changes to this project are documented here (Keep a Changelog style)
 ## [Unreleased]
 
 ### Removed
+- The `guards/` and `style/` submodules and the pii-guard, dash-guard, doc-contract, load-budget and fleet-sync workflows. Privacy hooks run from the local fleet-guards checkout named by `git config fleet.guards`, the dash check from `fleet.style`; `tools/sie/runtime_data.py` loads the installed `fleet_guards` resolver, and the unused `_load_datadir` in `scripts/setup_btarget_repo.py` is gone.
 - The test suite (`tests/`). Confirmed-working features keep no tests.
 
 ### Changed

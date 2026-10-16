@@ -1,15 +1,14 @@
 """Resolve run state and disposable agent workspaces in the companion Git repository.
 
 Writes are admitted by path checks only. The data root is decided by companion resolution
-(SELF_EVOLVE_DATA_DIR, SELF_EVOLVE_CONFIG, then the pinned guards resolver) with no in-repository
+(SELF_EVOLVE_DATA_DIR, SELF_EVOLVE_CONFIG, then the fleet_guards resolver) with no in-repository
 fallback, and a destination must be absolute and portable, outside this public tool tree and Git
 metadata, free of aliases, inside the companion worktree that governs it and, for records, inside its
-data/ layout. Commit-time Guards hooks and CI keep the companion's history out of public remotes.
+data/ layout. Commit-time fleet-guards hooks keep the companion's history out of public remotes.
 """
 from contextlib import contextmanager
 from functools import lru_cache
 import hashlib
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -132,24 +131,20 @@ def verify_directory(value, *, expected_repo=None):
 
 @lru_cache(maxsize=None)
 def _guard_resolver():
-    """The pinned guards datadir module, loaded once per process and bound to this tool tree."""
-    spec = importlib.util.spec_from_file_location('_self_evolve_runtime_datadir',
-                                                  ROOT/'guards/tools/datadir.py')
-    guard = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(guard)
-    # Bind this private module instance to its known consumer, including worktrees.
-    guard._own_repo_root = lambda: str(ROOT)
-    return guard
+    """The installed fleet_guards companion resolver, bound to this tool tree."""
+    try:
+        from fleet_guards.runtime import companion_resolver
+    except ImportError as exc:
+        raise DataBoundaryError('fleet_guards is not installed; install it: '
+                                'pip install -e "$(git config --get fleet.guards)"') from exc
+    return companion_resolver(source_root=ROOT)
 
 
 def _private_root_context():
     """Discover the configured companion data root and its repository (path checks only).
 
-    Resolution runs afresh on every call; only the guards module load is cached.
+    Resolution runs afresh on every call; only the resolver binding is cached.
     """
-    guard_path = ROOT/'guards/tools/datadir.py'
-    if not guard_path.is_file():
-        raise DataBoundaryError('Missing guards kit; run git submodule update --init --recursive')
     explicit = os.environ.get('SELF_EVOLVE_DATA_DIR')
     if explicit:
         root, repo = verify_directory(explicit)
@@ -176,7 +171,7 @@ def _private_root_context():
 
 
 def private_root():
-    """Discover through the pinned guard, then check the path before any mkdir."""
+    """Discover through the fleet_guards resolver, then check the path before any mkdir."""
     return _private_root_context()[0]
 
 

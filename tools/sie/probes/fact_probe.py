@@ -37,7 +37,7 @@ def _find_artifacts(target: str) -> list[str]:
             if not isinstance(values, list) or any(not isinstance(v, str) for v in values):
                 raise ValueError("Artifact exclusions require path lists: " + key)
             declared.extend(v.rstrip("/") for v in values)
-    excluded_dirs = {"tests", "test", "fixtures", "examples", "tools", "guards", "style",
+    excluded_dirs = {"tests", "test", "fixtures", "examples", "tools",
                      ".git", "__pycache__", ".pytest_cache"}
 
     def excluded(path):
